@@ -16,8 +16,21 @@ single-file build that includes Python, Qt or VLC), you must follow their
 licences: ship their licence texts, keep them replaceable as separate
 libraries, and point to their source code.
 
+## Design credit
+
+Pylon's interface adapts ideas from the VLC redesign concept by Juxtopposed
+(https://www.youtube.com/@juxtopposed), published free on Figma Community under
+CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Pylon re-implements the
+ideas in code with changes; it contains no files or artwork from that design.
+
+## Content you play
+
+Pylon is a player. It doesn't include, host or link to any films, shows,
+music or streams. You're responsible for having the right to play what you open.
+
 ## Trademarks
 
 VLC and the VLC traffic-cone logo are trademarks of VideoLAN. Pylon is an
 independent project and is not affiliated with, sponsored or endorsed by
-VideoLAN. Pylon's icon is an original design.
+VideoLAN. Pylon's icon is an original design. Other names mentioned
+(for example OpenSubtitles, Windows, Python, Qt) belong to their owners.

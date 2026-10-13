@@ -18,7 +18,7 @@ The interface follows the **VLC redesign concept by [Juxtopposed](https://www.yo
 * Design file: [VLC redesign on Figma Community](https://www.figma.com/community/file/1691465999134370980/vlc-redesign)
 * Site: [juxtopposed.com](https://www.juxtopposed.com/)
 
-That redesign was a design concept made in Figma. Pylon is an independent attempt to turn many of its ideas into a working player. Juxtopposed isn't involved in Pylon and isn't responsible for its bugs.
+That redesign was a design concept made in Figma, shared free on Figma Community under the [Creative Commons Attribution 4.0 licence (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/). Pylon is an independent, adapted implementation of many of its ideas, rebuilt in code with changes and additions. No files or artwork from the Figma file are included in this repository. Juxtopposed isn't involved in Pylon, doesn't endorse it, and isn't responsible for its bugs.
 
 Pylon is **not affiliated with, sponsored or endorsed by VideoLAN**. VLC and the VLC cone logo are trademarks of VideoLAN. If you like VLC, consider [donating to VideoLAN](https://www.videolan.org/contribute.html).
 
@@ -109,6 +109,7 @@ Mouse: click the video to play or pause, double-click for fullscreen, scroll for
 
 ## Good to know
 
+* **Pylon is just a player.** It doesn't include, host or link to any films, shows, music or streams. Only play things you have the right to play.
 * **Your data stays on your PC.** History, resume points, presets, bookmarks and subtitle pairings are stored in `%APPDATA%\Pylon\data.json`. Pylon doesn't phone home.
 * **VLC location.** Pylon finds VLC through the VLC installer's registry entry or `Program Files`. A portable VLC also works if it's in a `VLC` folder inside or next to the Pylon folder, or if you set the `PYLON_VLC_DIR` environment variable to its folder.
 * **Some changes restart the video.** Changing the subtitle look or rotating restarts the video at the same spot, because VLC reads those settings when its engine starts.
