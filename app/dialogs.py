@@ -214,7 +214,7 @@ class StreamDialog(QDialog):
         lay.addWidget(t)
         lay.addWidget(QLabel("Paste a link to a video, a live stream, or a channel list (.m3u)"))
         self.url = QLineEdit()
-        self.url.setPlaceholderText("https://…   rtsp://…   or a channel list like https://iptv-org.github.io/iptv/index.m3u")
+        self.url.setPlaceholderText("https://…   rtsp://…   or a link to a .m3u channel list")
         lay.addWidget(self.url)
         self.name = QLineEdit()
         self.name.setPlaceholderText("Name (optional)")
