@@ -1,0 +1,739 @@
+"""Left sidebar: the library in compact mode, with the queue underneath.
+
+Library  : your folders, browsable with back / up / address line, search,
+           sorting (incl. unwatched first) and drag-to-queue.
+Recent   : recently played files.
+Playlists: named collections; double-click to load into the queue.
+Streams  : saved network streams and channel lists.
+Queue    : what plays next. Drag in from the library or from Explorer.
+"""
+import os
+import random
+import subprocess
+import sys
+import time
+
+from PySide6.QtCore import QMimeData, QSize, Qt, QUrl, Signal
+from PySide6.QtGui import QAction, QDrag
+from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
+                               QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
+                               QPushButton, QSplitter, QStackedWidget, QVBoxLayout, QWidget)
+
+from . import theme
+from .icons import icon
+from .util import (display_name, fmt_time, is_audio, is_media, is_url, list_media, natural_key,
+                   to_path)
+from .widgets import IconButton
+
+ROLE_PATH = Qt.UserRole
+ROLE_KIND = Qt.UserRole + 1   # "folder" | "file" | "root"
+
+
+class MediaList(QListWidget):
+    """List whose file items can be dragged out (to the queue) as file URLs."""
+
+    def __init__(self):
+        super().__init__()
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragOnly)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setIconSize(QSize(18, 18))
+        self.setUniformItemSizes(True)
+
+    def mimeData(self, items):
+        md = QMimeData()
+        urls = []
+        for it in items:
+            p = it.data(ROLE_PATH)
+            if p and it.data(ROLE_KIND) == "file":
+                urls.append(QUrl(p) if is_url(p) else QUrl.fromLocalFile(p))
+        md.setUrls(urls)
+        return md
+
+    def mimeTypes(self):
+        return ["text/uri-list"]
+
+
+class QueueList(QListWidget):
+    """Reorderable queue that also accepts drops from the library and Explorer."""
+    dropped_urls = Signal(list, int)   # paths, row
+    reordered = Signal(list)           # new order of paths
+
+    def __init__(self):
+        super().__init__()
+        self.setAcceptDrops(True)
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragDrop)
+        self.setDefaultDropAction(Qt.MoveAction)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setIconSize(QSize(16, 16))
+
+    def dragEnterEvent(self, e):
+        if e.source() is self or e.mimeData().hasUrls():
+            e.acceptProposedAction()
+        else:
+            e.ignore()
+
+    def dragMoveEvent(self, e):
+        if e.source() is self:
+            super().dragMoveEvent(e)
+        elif e.mimeData().hasUrls():
+            e.setDropAction(Qt.CopyAction)
+            e.accept()
+
+    def dropEvent(self, e):
+        if e.source() is self:
+            super().dropEvent(e)
+            self.reordered.emit([self.item(i).data(ROLE_PATH) for i in range(self.count())])
+            return
+        if e.mimeData().hasUrls():
+            row = self.indexAt(e.position().toPoint()).row()
+            paths = []
+            for u in e.mimeData().urls():
+                p = u.toLocalFile() if u.isLocalFile() else u.toString()
+                if u.isLocalFile() and os.path.isdir(p):
+                    paths.extend(list_media(p))
+                elif p:
+                    paths.append(p)
+            e.setDropAction(Qt.CopyAction)
+            e.accept()
+            self.dropped_urls.emit(paths, row if row >= 0 else self.count())
+
+
+class LibraryPanel(QWidget):
+    WIDTH = 320
+
+    def __init__(self, win):
+        super().__init__()
+        self.win = win
+        self.store = win.store
+        self.setObjectName("Panel")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setFixedWidth(self.WIDTH)
+        self.folder = None        # current folder in the browser (None = library root)
+        self.history: list = []
+        self.forward: list = []
+        self.sort_mode = "name"
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # --- header: section switcher
+        head = QHBoxLayout()
+        head.setContentsMargins(8, 8, 8, 4)
+        head.setSpacing(2)
+        self.nav_buttons = {}
+        for key, ic, tip in (("library", "library", "Library"), ("recent", "clock", "Recent"),
+                             ("playlists", "playlist", "Playlists"), ("streams", "stream", "Network streams")):
+            b = IconButton(ic, tip, size=18, checkable=True)
+            b.clicked.connect(lambda _=False, k=key: self.show_section(k))
+            self.nav_buttons[key] = b
+            head.addWidget(b)
+        head.addStretch(1)
+        home = IconButton("home", "Home page", size=18)
+        home.clicked.connect(win.show_home)
+        head.addWidget(home)
+        close = IconButton("close", "Close", size=16)
+        close.clicked.connect(lambda: win.toggle_library(False))
+        head.addWidget(close)
+        root.addLayout(head)
+
+        self.section_title = QLabel("Library")
+        self.section_title.setObjectName("H2")
+        self.section_title.setContentsMargins(14, 2, 14, 4)
+        root.addWidget(self.section_title)
+
+        split = QSplitter(Qt.Vertical)
+        split.setHandleWidth(1)
+        split.setChildrenCollapsible(False)
+        root.addWidget(split, 1)
+
+        self.stack = QStackedWidget()
+        split.addWidget(self.stack)
+        self._build_library()
+        self._build_recent()
+        self._build_playlists()
+        self._build_streams()
+
+        # --- queue
+        qw = QWidget()
+        ql = QVBoxLayout(qw)
+        ql.setContentsMargins(8, 6, 8, 8)
+        ql.setSpacing(4)
+        qh = QHBoxLayout()
+        qt = QLabel("Queue")
+        qt.setObjectName("H2")
+        self.queue_count = QLabel("")
+        self.queue_count.setObjectName("Muted")
+        qh.addWidget(qt)
+        qh.addWidget(self.queue_count)
+        qh.addStretch(1)
+        for ic, tip, fn in (("plus", "Add files to the queue", self._add_files_to_queue),
+                            ("shuffle", "Shuffle", self._shuffle),
+                            ("save", "Save queue as a playlist", self._save_queue_as_playlist),
+                            ("trash", "Clear queue", lambda: win.set_queue([], -1))):
+            b = IconButton(ic, tip, size=16)
+            b.clicked.connect(fn)
+            qh.addWidget(b)
+        ql.addLayout(qh)
+        self.queue = QueueList()
+        self.queue.itemDoubleClicked.connect(lambda it: win.play_queue_index(self.queue.row(it)))
+        self.queue.dropped_urls.connect(self._queue_drop)
+        self.queue.reordered.connect(self._queue_reordered)
+        self.queue.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.queue.customContextMenuRequested.connect(self._queue_menu)
+        ql.addWidget(self.queue)
+        hint = QLabel("Drag files here from the library or from your folders")
+        hint.setObjectName("Muted")
+        hint.setStyleSheet(f"color: {theme.FAINT}; font-size: 11px;")
+        ql.addWidget(hint)
+        split.addWidget(qw)
+        split.setSizes([460, 260])
+
+        self.show_section("library")
+        self.store.changed.connect(self._store_changed)
+
+    # ================================================================ sections
+    def show_section(self, key):
+        idx = {"library": 0, "recent": 1, "playlists": 2, "streams": 3}[key]
+        self.stack.setCurrentIndex(idx)
+        for k, b in self.nav_buttons.items():
+            b.setChecked(k == key)
+        self.section_title.setText({"library": "Library", "recent": "Recent", "playlists": "Playlists",
+                                    "streams": "Network streams"}[key])
+        {"library": self.refresh_library, "recent": self.refresh_recent,
+         "playlists": self.refresh_playlists, "streams": self.refresh_streams}[key]()
+
+    def _store_changed(self, section):
+        if section in ("recent",) and self.stack.currentIndex() == 1:
+            self.refresh_recent()
+        elif section in ("library",) and self.stack.currentIndex() == 0:
+            self.refresh_library()
+        elif section == "playlists" and self.stack.currentIndex() == 2:
+            self.refresh_playlists()
+
+    # ---------------------------------------------------------------- library
+    def _build_library(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(8, 0, 8, 4)
+        lay.setSpacing(6)
+        nav = QHBoxLayout()
+        nav.setSpacing(2)
+        self.btn_back = IconButton("chevron_left", "Back", size=16)
+        self.btn_fwd = IconButton("chevron_right", "Forward", size=16)
+        self.btn_up = IconButton("arrow_up", "Up one folder", size=16)
+        self.btn_back.clicked.connect(self.go_back)
+        self.btn_fwd.clicked.connect(self.go_forward)
+        self.btn_up.clicked.connect(self.go_up)
+        self.address = QLineEdit()
+        self.address.setPlaceholderText("Library")
+        self.address.setToolTip("Type a folder path and press Enter")
+        self.address.returnPressed.connect(lambda: self.open_folder(self.address.text().strip() or None))
+        nav.addWidget(self.btn_back)
+        nav.addWidget(self.btn_fwd)
+        nav.addWidget(self.btn_up)
+        nav.addWidget(self.address, 1)
+        lay.addLayout(nav)
+
+        tools = QHBoxLayout()
+        tools.setSpacing(4)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search")
+        self.search.addAction(icon("search", theme.MUTED, 16), QLineEdit.LeadingPosition)
+        self.search.textChanged.connect(lambda _: self.refresh_library())
+        self.btn_sort = IconButton("sort", "Sort", size=16)
+        self.btn_sort.setPopupMode(IconButton.InstantPopup)
+        sm = QMenu(self)
+        self.sort_actions = {}
+        for key, label in (("name", "Name"), ("date", "Date modified (newest)"),
+                           ("unwatched", "Unwatched first"), ("watched", "Watched first")):
+            a = QAction(label, sm, checkable=True)
+            a.triggered.connect(lambda _=False, k=key: self._set_sort(k))
+            sm.addAction(a)
+            self.sort_actions[key] = a
+        self.sort_actions["name"].setChecked(True)
+        self.btn_sort.setMenu(sm)
+        self.btn_add = IconButton("plus", "Add", size=16)
+        self.btn_add.setPopupMode(IconButton.InstantPopup)
+        am = QMenu(self)
+        am.addAction(icon("folder_add", theme.TEXT, 16), "Add a folder to the library…", self.add_library_folder)
+        am.addAction(icon("file", theme.TEXT, 16), "Open a file…", lambda: win_call(self.win.open_file_dialog))
+        am.addAction(icon("folder", theme.TEXT, 16), "Open a folder…", lambda: win_call(self.win.open_folder_dialog))
+        self.btn_add.setMenu(am)
+        tools.addWidget(self.search, 1)
+        tools.addWidget(self.btn_sort)
+        tools.addWidget(self.btn_add)
+        lay.addLayout(tools)
+
+        self.lib_list = MediaList()
+        self.lib_list.itemDoubleClicked.connect(self._lib_activate)
+        self.lib_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.lib_list.customContextMenuRequested.connect(self._lib_menu)
+        lay.addWidget(self.lib_list, 1)
+        self.stack.addWidget(w)
+
+    def _set_sort(self, key):
+        self.sort_mode = key
+        for k, a in self.sort_actions.items():
+            a.setChecked(k == key)
+        self.refresh_library()
+
+    def open_folder(self, folder, record=True):
+        if folder:
+            folder = os.path.normpath(folder)
+        if folder and not os.path.isdir(folder):
+            QMessageBox.warning(self, "Folder not found", f"Can't open:\n{folder}")
+            return
+        if record and folder != self.folder:
+            self.history.append(self.folder)
+            self.forward.clear()
+        self.folder = folder
+        self.show_section("library")
+
+    def go_back(self):
+        if self.history:
+            self.forward.append(self.folder)
+            self.open_folder(self.history.pop(), record=False)
+
+    def go_forward(self):
+        if self.forward:
+            self.history.append(self.folder)
+            self.open_folder(self.forward.pop(), record=False)
+
+    def go_up(self):
+        if not self.folder:
+            return
+        roots = [os.path.normcase(f) for f in self.store.data["library_folders"]]
+        if os.path.normcase(self.folder) in roots:
+            self.open_folder(None)
+            return
+        parent = os.path.dirname(self.folder.rstrip("\\/"))
+        self.open_folder(parent if parent and parent != self.folder else None)
+
+    def refresh_library(self):
+        self.lib_list.clear()
+        self.btn_back.setEnabled(bool(self.history))
+        self.btn_fwd.setEnabled(bool(self.forward))
+        self.btn_up.setEnabled(self.folder is not None)
+        self.address.setText(self.folder or "")
+        q = self.search.text().strip().lower()
+        pos = self.store.data["positions"]
+        current = self.win.engine.current
+
+        if self.folder is None:
+            pinned = self.store.data["pinned"]
+            folders = self.store.data["library_folders"]
+            if pinned:
+                self._header(self.lib_list, "Pinned")
+                for p in pinned:
+                    if q and q not in os.path.basename(p).lower():
+                        continue
+                    self._add_folder_item(p, pinned=True)
+            self._header(self.lib_list, "Folders")
+            for f in folders:
+                if q and q not in os.path.basename(f).lower():
+                    continue
+                self._add_folder_item(f)
+            if not folders:
+                it = QListWidgetItem("Add a folder with  +  to build your library")
+                it.setFlags(Qt.NoItemFlags)
+                self.lib_list.addItem(it)
+            return
+
+        try:
+            entries = os.listdir(self.folder)
+        except OSError:
+            entries = []
+        dirs, files = [], []
+        for name in entries:
+            p = os.path.join(self.folder, name)
+            if q and q not in name.lower():
+                continue
+            if os.path.isdir(p) and not name.startswith("."):
+                dirs.append(p)
+            elif is_media(p):
+                files.append(p)
+        dirs.sort(key=lambda p: natural_key(os.path.basename(p)))
+        files.sort(key=lambda p: natural_key(os.path.basename(p)))
+        if self.sort_mode == "date":
+            files.sort(key=lambda p: -_mtime(p))
+            dirs.sort(key=lambda p: -_mtime(p))
+        elif self.sort_mode in ("unwatched", "watched"):
+            want = self.sort_mode == "watched"
+            files.sort(key=lambda p: (bool(pos.get(p, {}).get("watched")) != want))
+        for d in dirs:
+            self._add_folder_item(d)
+        for f in files:
+            e = pos.get(f, {})
+            watched = e.get("watched")
+            prog = ""
+            if not watched and e.get("len") and e.get("pos", 0) > 10_000:
+                prog = f"   {fmt_time(e['pos'])} / {fmt_time(e['len'])}"
+            name = os.path.basename(f)
+            it = QListWidgetItem(name + prog)
+            ic_name = "check" if watched else ("music" if is_audio(f) else "video")
+            color = theme.FAINT if watched else (theme.accent() if f == current else theme.MUTED)
+            it.setIcon(icon(ic_name, color, 18))
+            if f == current:
+                it.setForeground(Qt.white)
+                font = it.font()
+                font.setBold(True)
+                it.setFont(font)
+            if watched:
+                it.setForeground(Qt.gray)
+            it.setData(ROLE_PATH, f)
+            it.setData(ROLE_KIND, "file")
+            it.setToolTip(f)
+            self.lib_list.addItem(it)
+        if not dirs and not files:
+            it = QListWidgetItem("No media files here")
+            it.setFlags(Qt.NoItemFlags)
+            self.lib_list.addItem(it)
+
+    def _header(self, lst, text):
+        it = QListWidgetItem(text.upper())
+        it.setFlags(Qt.NoItemFlags)
+        f = it.font()
+        f.setPointSizeF(max(7.0, f.pointSizeF() - 1.5))
+        f.setBold(True)
+        it.setFont(f)
+        it.setForeground(Qt.gray)
+        lst.addItem(it)
+
+    def _add_folder_item(self, path, pinned=False):
+        it = QListWidgetItem(icon("pin" if pinned else "folder", theme.accent(), 18),
+                             os.path.basename(path.rstrip("\\/")) or path)
+        it.setData(ROLE_PATH, path)
+        it.setData(ROLE_KIND, "folder")
+        it.setToolTip(path)
+        self.lib_list.addItem(it)
+
+    def _lib_activate(self, it):
+        kind, path = it.data(ROLE_KIND), it.data(ROLE_PATH)
+        if kind == "folder":
+            self.open_folder(path)
+        elif kind == "file":
+            self.win.play_from_folder(path)
+
+    def _selected_files(self, lst):
+        return [i.data(ROLE_PATH) for i in lst.selectedItems() if i.data(ROLE_KIND) == "file"]
+
+    def _lib_menu(self, pos):
+        it = self.lib_list.itemAt(pos)
+        if not it or not it.data(ROLE_PATH):
+            m = QMenu(self)
+            m.addAction(icon("folder_add", theme.TEXT, 16), "Add a folder to the library…", self.add_library_folder)
+            m.exec(self.lib_list.mapToGlobal(pos))
+            return
+        kind, path = it.data(ROLE_KIND), it.data(ROLE_PATH)
+        m = QMenu(self)
+        if kind == "file":
+            files = self._selected_files(self.lib_list) or [path]
+            m.addAction(icon("play", theme.TEXT, 16), "Play", lambda: self.win.play_from_folder(path))
+            m.addAction(icon("queue", theme.TEXT, 16), "Add to queue", lambda: self.win.enqueue(files))
+            m.addAction("Play next", lambda: self.win.enqueue(files, play_next=True))
+            pm = m.addMenu(icon("playlist", theme.TEXT, 16), "Add to playlist")
+            for name in sorted(self.store.data["playlists"]):
+                pm.addAction(name, lambda n=name: self.add_to_playlist(n, files))
+            pm.addSeparator()
+            pm.addAction("New playlist…", lambda: self.new_playlist(files))
+            m.addSeparator()
+            watched = self.store.position(path).get("watched")
+            m.addAction("Mark as unwatched" if watched else "Mark as watched",
+                        lambda: [self.store.set_watched(f, not watched) for f in files])
+            m.addAction(icon("subtitles", theme.TEXT, 16), "Add subtitles for this folder…",
+                        lambda: self.win.open_subtitle_dialog(scope="folder", folder=os.path.dirname(path)))
+            m.addAction("Show in Explorer", lambda: reveal(path))
+        else:
+            m.addAction(icon("play", theme.TEXT, 16), "Play folder", lambda: self.win.play_folder(path))
+            m.addAction(icon("queue", theme.TEXT, 16), "Add folder to queue", lambda: self.win.enqueue(list_media(path)))
+            pinned = path in self.store.data["pinned"]
+            m.addAction(icon("pin", theme.TEXT, 16), "Unpin" if pinned else "Pin to top", lambda: self.toggle_pin(path))
+            m.addAction(icon("subtitles", theme.TEXT, 16), "Add subtitles for this folder…",
+                        lambda: self.win.open_subtitle_dialog(scope="folder", folder=path))
+            m.addAction("Show in Explorer", lambda: reveal(path))
+            if path in self.store.data["library_folders"]:
+                m.addSeparator()
+                m.addAction(icon("trash", theme.TEXT, 16), "Remove from library", lambda: self.remove_library_folder(path))
+        m.exec(self.lib_list.mapToGlobal(pos))
+
+    def add_library_folder(self):
+        d = QFileDialog.getExistingDirectory(self, "Add a folder to the library")
+        if d:
+            d = os.path.normpath(d)
+            if d not in self.store.data["library_folders"]:
+                self.store.data["library_folders"].append(d)
+                self.store.save("library")
+            self.open_folder(None)
+            self.win.home.refresh()
+
+    def remove_library_folder(self, path):
+        self.store.data["library_folders"] = [f for f in self.store.data["library_folders"] if f != path]
+        self.store.save("library")
+        self.refresh_library()
+        self.win.home.refresh()
+
+    def toggle_pin(self, path):
+        pins = self.store.data["pinned"]
+        if path in pins:
+            pins.remove(path)
+        else:
+            pins.insert(0, path)
+        self.store.save("library")
+        self.refresh_library()
+
+    # ---------------------------------------------------------------- recent
+    def _build_recent(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(8, 0, 8, 4)
+        self.recent_list = MediaList()
+        self.recent_list.itemDoubleClicked.connect(lambda it: self.win.play_from_folder(it.data(ROLE_PATH)))
+        lay.addWidget(self.recent_list, 1)
+        clear = QPushButton("Clear history")
+        clear.clicked.connect(self._clear_history)
+        lay.addWidget(clear)
+        self.stack.addWidget(w)
+
+    def refresh_recent(self):
+        self.recent_list.clear()
+        for r in self.store.data["recent"]:
+            p = r["path"]
+            it = QListWidgetItem(icon("stream" if is_url(p) else ("music" if is_audio(p) else "video"),
+                                      theme.MUTED, 18), display_name(p))
+            it.setToolTip(f"{p}\n{time.strftime('%d %b, %H:%M', time.localtime(r['t']))}")
+            it.setData(ROLE_PATH, p)
+            it.setData(ROLE_KIND, "file")
+            self.recent_list.addItem(it)
+
+    def _clear_history(self):
+        if QMessageBox.question(self, "Clear history", "Forget recent files and where you stopped in each?") == QMessageBox.Yes:
+            self.store.clear_history()
+            self.refresh_recent()
+            self.win.home.refresh()
+
+    # ---------------------------------------------------------------- playlists
+    def _build_playlists(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(8, 0, 8, 4)
+        new = QPushButton("New playlist…")
+        new.setIcon(icon("plus", theme.TEXT, 14))
+        new.clicked.connect(lambda: self.new_playlist())
+        lay.addWidget(new)
+        self.pl_list = QListWidget()
+        self.pl_list.setIconSize(QSize(18, 18))
+        self.pl_list.itemDoubleClicked.connect(lambda it: self.win.play_playlist(it.data(ROLE_PATH)))
+        self.pl_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.pl_list.customContextMenuRequested.connect(self._pl_menu)
+        lay.addWidget(self.pl_list, 1)
+        self.stack.addWidget(w)
+
+    def refresh_playlists(self):
+        self.pl_list.clear()
+        for name, items in sorted(self.store.data["playlists"].items()):
+            it = QListWidgetItem(icon("playlist", theme.accent(), 18), f"{name}   ({len(items)})")
+            it.setData(ROLE_PATH, name)
+            self.pl_list.addItem(it)
+        if not self.store.data["playlists"]:
+            it = QListWidgetItem("No playlists yet")
+            it.setFlags(Qt.NoItemFlags)
+            self.pl_list.addItem(it)
+
+    def new_playlist(self, files=None):
+        name, ok = QInputDialog.getText(self, "New playlist", "Name")
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        if files is None:
+            picked, _ = QFileDialog.getOpenFileNames(self, f"Choose files for “{name}”", "", media_filter())
+            files = picked
+        self.store.data["playlists"][name] = list(files or [])
+        self.store.save("playlists")
+        self.refresh_playlists()
+        self.win.toast(f"Playlist “{name}” created")
+
+    def add_to_playlist(self, name, files):
+        self.store.data["playlists"].setdefault(name, []).extend(files)
+        self.store.save("playlists")
+        self.win.toast(f"Added to “{name}”")
+
+    def _pl_menu(self, pos):
+        it = self.pl_list.itemAt(pos)
+        if not it or not it.data(ROLE_PATH):
+            return
+        name = it.data(ROLE_PATH)
+        m = QMenu(self)
+        m.addAction("Play", lambda: self.win.play_playlist(name))
+        m.addAction("Add to queue", lambda: self.win.enqueue(self.store.data["playlists"][name]))
+        m.addAction("Add files…", lambda: self._pl_add_files(name))
+        m.addAction("Rename…", lambda: self._pl_rename(name))
+        m.addAction("Export as .m3u…", lambda: self._pl_export(name))
+        m.addSeparator()
+        m.addAction("Delete", lambda: self._pl_delete(name))
+        m.exec(self.pl_list.mapToGlobal(pos))
+
+    def _pl_add_files(self, name):
+        picked, _ = QFileDialog.getOpenFileNames(self, "Add files", "", media_filter())
+        if picked:
+            self.add_to_playlist(name, picked)
+            self.refresh_playlists()
+
+    def _pl_rename(self, name):
+        new, ok = QInputDialog.getText(self, "Rename playlist", "Name", text=name)
+        if ok and new.strip() and new != name:
+            self.store.data["playlists"][new.strip()] = self.store.data["playlists"].pop(name)
+            self.store.save("playlists")
+            self.refresh_playlists()
+
+    def _pl_delete(self, name):
+        if QMessageBox.question(self, "Delete playlist", f"Delete “{name}”? Your files stay where they are.") == QMessageBox.Yes:
+            self.store.data["playlists"].pop(name, None)
+            self.store.save("playlists")
+            self.refresh_playlists()
+
+    def _pl_export(self, name):
+        path, _ = QFileDialog.getSaveFileName(self, "Export playlist", f"{name}.m3u", "M3U playlist (*.m3u)")
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("#EXTM3U\n")
+                for p in self.store.data["playlists"][name]:
+                    f.write(f"#EXTINF:-1,{display_name(p)}\n{p}\n")
+
+    # ---------------------------------------------------------------- streams
+    def _build_streams(self):
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(8, 0, 8, 4)
+        add = QPushButton("Open a network stream…")
+        add.setIcon(icon("plus", theme.TEXT, 14))
+        add.clicked.connect(lambda: self.win.open_stream_dialog())
+        lay.addWidget(add)
+        self.st_list = QListWidget()
+        self.st_list.setIconSize(QSize(18, 18))
+        self.st_list.itemDoubleClicked.connect(lambda it: self.win.open_stream(it.data(ROLE_PATH), it.text()))
+        self.st_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.st_list.customContextMenuRequested.connect(self._st_menu)
+        lay.addWidget(self.st_list, 1)
+        self.stack.addWidget(w)
+
+    def refresh_streams(self):
+        self.st_list.clear()
+        for s in self.store.data["streams"]:
+            it = QListWidgetItem(icon("stream", theme.accent(), 18), s["name"])
+            it.setData(ROLE_PATH, s["url"])
+            it.setToolTip(s["url"])
+            self.st_list.addItem(it)
+        if not self.store.data["streams"]:
+            it = QListWidgetItem("Saved streams and channel lists appear here")
+            it.setFlags(Qt.NoItemFlags)
+            self.st_list.addItem(it)
+
+    def _st_menu(self, pos):
+        it = self.st_list.itemAt(pos)
+        if not it or not it.data(ROLE_PATH):
+            return
+        url = it.data(ROLE_PATH)
+        m = QMenu(self)
+        m.addAction("Play", lambda: self.win.open_stream(url, it.text()))
+        m.addAction("Remove", lambda: self._st_remove(url))
+        m.exec(self.st_list.mapToGlobal(pos))
+
+    def _st_remove(self, url):
+        self.store.data["streams"] = [s for s in self.store.data["streams"] if s["url"] != url]
+        self.store.save("streams")
+        self.refresh_streams()
+
+    # ================================================================ queue
+    def refresh_queue(self):
+        self.queue.clear()
+        for i, item in enumerate(self.win.queue):
+            p = item["path"]
+            playing = i == self.win.qindex
+            it = QListWidgetItem(item.get("title") or display_name(p))
+            it.setIcon(icon("play" if playing else ("stream" if is_url(p) else "drag"),
+                            theme.accent() if playing else theme.FAINT, 16))
+            if playing:
+                f = it.font()
+                f.setBold(True)
+                it.setFont(f)
+            it.setData(ROLE_PATH, p)
+            it.setToolTip(p)
+            self.queue.addItem(it)
+        n = len(self.win.queue)
+        self.queue_count.setText(f"{n} item{'s' if n != 1 else ''}" if n else "")
+        if 0 <= self.win.qindex < self.queue.count():
+            self.queue.scrollToItem(self.queue.item(self.win.qindex))
+
+    def _queue_drop(self, paths, row):
+        self.win.insert_into_queue(paths, row)
+
+    def _queue_reordered(self, order):
+        self.win.reorder_queue(order)
+
+    def _queue_menu(self, pos):
+        it = self.queue.itemAt(pos)
+        m = QMenu(self)
+        if it:
+            rows = sorted({self.queue.row(i) for i in self.queue.selectedItems()} | {self.queue.row(it)})
+            m.addAction(icon("play", theme.TEXT, 16), "Play", lambda: self.win.play_queue_index(self.queue.row(it)))
+            m.addAction(icon("trash", theme.TEXT, 16), "Remove from queue", lambda: self.win.remove_from_queue(rows))
+            p = it.data(ROLE_PATH)
+            if not is_url(p):
+                m.addAction("Show in Explorer", lambda: reveal(p))
+            m.addSeparator()
+        m.addAction("Add files…", self._add_files_to_queue)
+        m.addAction("Clear queue", lambda: self.win.set_queue([], -1))
+        m.exec(self.queue.mapToGlobal(pos))
+
+    def _add_files_to_queue(self):
+        picked, _ = QFileDialog.getOpenFileNames(self, "Add to queue", "", media_filter())
+        if picked:
+            self.win.enqueue(picked)
+
+    def _shuffle(self):
+        q = self.win.queue
+        if len(q) < 2:
+            return
+        cur = q[self.win.qindex] if 0 <= self.win.qindex < len(q) else None
+        rest = [x for x in q if x is not cur]
+        random.shuffle(rest)
+        new = ([cur] if cur else []) + rest
+        self.win.set_queue(new, 0 if cur else -1, keep_playing=True)
+        self.win.toast("Queue shuffled")
+
+    def _save_queue_as_playlist(self):
+        if not self.win.queue:
+            return
+        self.new_playlist([x["path"] for x in self.win.queue])
+
+
+def win_call(fn):
+    fn()
+
+
+def _mtime(p):
+    try:
+        return os.path.getmtime(p)
+    except OSError:
+        return 0
+
+
+def reveal(path):
+    path = to_path(path)
+    if sys.platform == "win32":
+        subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", "-R", path])
+    else:
+        subprocess.Popen(["xdg-open", os.path.dirname(path)])
+
+
+def media_filter():
+    from .util import AUDIO_EXTS, PLAYLIST_EXTS, VIDEO_EXTS
+    v = " ".join(f"*{e}" for e in sorted(VIDEO_EXTS))
+    a = " ".join(f"*{e}" for e in sorted(AUDIO_EXTS))
+    p = " ".join(f"*{e}" for e in sorted(PLAYLIST_EXTS))
+    return f"Media ({v} {a} {p});;Video ({v});;Audio ({a});;Playlists ({p});;All files (*)"
