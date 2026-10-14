@@ -223,6 +223,7 @@ class Engine(QObject):
         self.extra_subs: list[str] = []  # external subtitle files added to this media
         self.sub_style = dict(DEFAULT_SUB_STYLE)
         self.transform = ""            # "", 90, 180, 270, hflip, vflip
+        self.sharpen = 0.0             # 0 = off, else VLC sharpen strength (sigma, up to 2)
         self.live = {"rate": 1.0, "sub_delay": 0, "audio_delay": 0, "eq": -1,
                      "aspect": "", "crop": "", "zoom": 0.0, "deinterlace": "",
                      "adjust": None}
@@ -252,8 +253,15 @@ class Engine(QObject):
             args.append("--freetype-bold")
         if st["margin"]:
             args.append(f"--sub-margin={int(st['margin'])}")
+        filters = []
         if self.transform:
-            args += ["--video-filter=transform", f"--transform-type={self.transform}"]
+            filters.append("transform")
+            args.append(f"--transform-type={self.transform}")
+        if self.sharpen > 0:
+            filters.append("sharpen")
+            args.append(f"--sharpen-sigma={min(2.0, float(self.sharpen)):.2f}")
+        if filters:
+            args.append("--video-filter=" + ":".join(filters))
         extra = os.environ.get("PYLON_VLC_ARGS", "").split()
         if extra:
             args += extra

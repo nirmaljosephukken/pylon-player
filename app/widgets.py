@@ -12,9 +12,11 @@ from .util import fmt_delay, fmt_time
 
 
 class IconButton(QToolButton):
-    def __init__(self, name: str, tip: str = "", size: int = 20, checkable=False, parent=None, box: int | None = None):
+    def __init__(self, name: str, tip: str = "", size: int = 20, checkable=False, parent=None, box: int | None = None,
+                 color=None):
         super().__init__(parent)
         self._name, self._size = name, size
+        self._color = color          # None, a colour, or a function returning one (e.g. theme.on_accent)
         self.setCheckable(checkable)
         self.setToolTip(tip)
         self.setCursor(Qt.PointingHandCursor)
@@ -29,7 +31,11 @@ class IconButton(QToolButton):
         self.refresh()
 
     def refresh(self):
-        self.setIcon(icon(self._name, theme.TEXT, self._size, active=theme.accent()))
+        c = self._color() if callable(self._color) else self._color
+        if c:
+            self.setIcon(icon(self._name, c, self._size))
+        else:
+            self.setIcon(icon(self._name, theme.TEXT, self._size, active=theme.accent()))
 
 
 def hline():
@@ -166,17 +172,26 @@ class ConeVolume(QWidget):
         self.update()
 
     def _shape(self) -> QPainterPath:
-        w, h = self.width() - 4, self.height() - 2
-        path = QPainterPath()
-        path.moveTo(2, h * 0.62)
-        path.lineTo(w, 2)
-        path.lineTo(w, h)
-        path.lineTo(2, h)
-        path.closeSubpath()
-        return path
+        """A full cone on its side: narrow, rounded tip on the left, wide end on the right."""
+        r = 2.5                                   # corner rounding
+        w, h = self.width(), self.height()
+        cy = h / 2
+        left, right = 1 + r, w - 1 - r
+        tip, base = h * 0.07, h / 2 - 1 - r       # half-heights (before rounding)
+        core = QPainterPath()
+        core.moveTo(left, cy - tip)
+        core.lineTo(right, cy - base)
+        core.lineTo(right, cy + base)
+        core.lineTo(left, cy + tip)
+        core.closeSubpath()
+        from PySide6.QtGui import QPainterPathStroker
+        st = QPainterPathStroker()
+        st.setWidth(2 * r)
+        st.setJoinStyle(Qt.RoundJoin)
+        return st.createStroke(core).united(core).simplified()
 
     def _set_from_x(self, x):
-        v = round(max(0, min(1, (x - 2) / (self.width() - 6))) * self.MAX)
+        v = round(max(0, min(1, (x - 1) / (self.width() - 2))) * self.MAX)
         if abs(v - 100) <= 3:
             v = 100  # snap to 100%
         self.set_value(v)
@@ -198,26 +213,23 @@ class ConeVolume(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         shape = self._shape()
-        w = self.width() - 6
+        w = self.width() - 2
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(255, 255, 255, 38))
         p.drawPath(shape)
         frac = self.value / self.MAX
         p.save()
-        p.setClipRect(QRectF(0, 0, 2 + w * frac, self.height()))
+        p.setClipRect(QRectF(0, 0, 1 + w * frac + (1 if frac >= 1 else 0), self.height()))
         p.setBrush(QColor(theme.FAINT if self.muted else theme.accent()))
         p.drawPath(shape)
-        # reflective bands
-        p.setClipPath(shape, Qt.IntersectClip)
-        p.setBrush(QColor(255, 255, 255, 150 if not self.muted else 60))
-        for fx in (0.38, 0.66):
-            x = 2 + w * fx
-            p.drawRect(QRectF(x, 0, w * 0.09, self.height()))
         p.restore()
-        # 100% notch
-        x100 = 2 + w * (100 / self.MAX)
-        p.setPen(QPen(QColor(255, 255, 255, 120), 1))
-        p.drawLine(QPointF(x100, self.height() - 1), QPointF(x100, self.height() - 4))
+        # 100% mark: a thin gap across the cone
+        x100 = 1 + w * (100 / self.MAX)
+        p.save()
+        p.setClipPath(shape)
+        p.setPen(QPen(QColor(0, 0, 0, 110), 1.5))
+        p.drawLine(QPointF(x100, 0), QPointF(x100, self.height()))
+        p.restore()
         p.end()
 
 
@@ -236,12 +248,15 @@ class OverlayWindow(QWidget):
         self.gradient = gradient
         self.radius = radius
         self.alpha = alpha
+        self.solid = False      # True: fully opaque bar (controls pinned outside fullscreen)
 
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(self.rect())
-        if self.gradient == "up":       # bottom bar: dark at the bottom
+        if self.solid and self.gradient in ("up", "down"):
+            p.fillRect(r, QColor(16, 16, 16))
+        elif self.gradient == "up":       # bottom bar: dark at the bottom
             g = QLinearGradient(0, 0, 0, r.height())
             g.setColorAt(0, QColor(10, 10, 10, int(self.alpha * 0.55)))
             g.setColorAt(1, QColor(10, 10, 10, self.alpha))

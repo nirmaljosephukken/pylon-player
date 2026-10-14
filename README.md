@@ -2,7 +2,7 @@
 
 **A calmer, redesigned interface for the VLC engine, for Windows, Linux and (experimentally) macOS.**
 
-**Download:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.2.0.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.2.0-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.2.0-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)  
+**Download:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.2.1.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.2.1-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.2.1-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)  
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
 
 **The story:** [700,000 people watched a VLC redesign. I built the player.](https://dev.to/nekku/700000-people-watched-a-vlc-redesign-i-built-the-player-1aio) · [Demo video](https://youtu.be/vCV3B_blLU0)
@@ -40,7 +40,7 @@ Pylon plays everything through **VLC**, which you install yourself (Pylon never 
 | | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ (experimental) |
 | --- | --- | --- | --- |
 | **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
-| **2. Pylon** | `Pylon-Setup-1.2.0.exe` | `Pylon-1.2.0-x86_64.AppImage` | `Pylon-1.2.0-macOS.zip` |
+| **2. Pylon** | `Pylon-Setup-1.2.1.exe` | `Pylon-1.2.1-x86_64.AppImage` | `Pylon-1.2.1-macOS.zip` |
 | **3. Run** | Run the setup. No admin rights needed. | `chmod +x Pylon-*.AppImage`, then double-click it | Unzip, move **Pylon** to Applications, see the first-launch note below |
 
 Nothing else is needed: each download carries its own Python and Qt.
@@ -76,7 +76,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 
 | | |
 | --- | --- |
-| **Quiet bars** | Top and bottom bars float over the video, appear when you move the mouse, and vanish when you stop. They work in fullscreen too, so the title is always one hover away. `H` hides everything. |
+| **Quiet bars** | Top and bottom bars float over the video, appear when you move the mouse, and vanish when you stop. They work in fullscreen too, so the title is always one hover away. `H` hides everything. Prefer them always on screen? **Preferences > Interface > Keep the controls visible**. |
 | **Controls** | Play on the left with previous and next around it. Fullscreen and picture-in-picture at top right. One menu button instead of a duplicate menu bar. |
 | **Thick seek bar** | Along the bottom edge, with bookmark ticks and chapter marks. Hover to see a **preview picture** of that moment. Previews are made in the background the first time you play a video and kept for next time. |
 | **Cone volume** | A volume control shaped like a cone. Click, drag or scroll. Goes to 125%. |
@@ -88,7 +88,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **Per-show presets** | Save timing, look, tracks, speed and filters once. Every file in that folder gets them automatically. |
 | **Default tracks** | Pick a subtitle or audio language to switch to on every episode. |
 | **Add subtitles in bulk** | To this file, a whole folder or the whole queue. Files are matched by name or episode number (S01E02, 1x02, E02), you can fix any pairing, and pairings are remembered. "Search online" opens OpenSubtitles. |
-| **Picture and sound presets** | Vivid, Bright, Cinema, Soft, Mono, plus sliders. VLC's equalizer presets as one-click chips. Rotate, flip, crop, zoom and aspect ratio. |
+| **Picture and sound presets** | Vivid, Bright, Cinema, Soft, Mono, plus sliders and **Sharpen**. VLC's equalizer presets as one-click chips. Rotate, flip, crop, zoom and aspect ratio. |
 | **Playback** | Speed, sleep timer (including "end of this file"), repeat, and media info. |
 | **Music** | Songs from your library folders, sorted by **artist, album and song**, with cover art from the files. Open an album and press Play, or double-click any song. |
 | **Library** | Opens from the folder name in the top bar without leaving the video. Back, forward, up, address bar, search, sorting (including unwatched first), pins, recent files, playlists and streams. |

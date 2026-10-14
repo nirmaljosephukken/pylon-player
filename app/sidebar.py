@@ -9,7 +9,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QColorDialog, QComboBox, QFontComboBox,
                                QGridLayout, QHBoxLayout, QInputDialog, QLabel, QListWidget,
                                QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QScrollArea,
-                               QSlider, QSpinBox, QTabWidget, QToolButton, QVBoxLayout, QWidget)
+                               QSizePolicy, QSlider, QSpinBox, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
 from . import theme
 from .engine import DEFAULT_SUB_STYLE
@@ -38,7 +38,7 @@ def scroll_page():
     sc.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     inner = QWidget()
     lay = QVBoxLayout(inner)
-    lay.setContentsMargins(14, 10, 14, 16)
+    lay.setContentsMargins(18, 12, 18, 18)
     lay.setSpacing(8)
     sc.setWidget(inner)
     return sc, lay
@@ -120,6 +120,9 @@ class ChipGroup(QWidget):
             b = QPushButton(label)
             b.setCheckable(True)
             b.setFocusPolicy(Qt.NoFocus)
+            b.setToolTip(label)
+            b.setMinimumWidth(0)
+            b.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
             b.setCursor(Qt.PointingHandCursor)
             if icon_name:
                 b.setIcon(icon(icon_name, theme.MUTED, 14))
@@ -159,7 +162,7 @@ class SettingsSidebar(QWidget):
 
         # header
         head = QHBoxLayout()
-        head.setContentsMargins(14, 10, 8, 6)
+        head.setContentsMargins(18, 10, 10, 6)
         title = QLabel("Settings")
         title.setObjectName("H2")
         head.addWidget(title)
@@ -171,7 +174,7 @@ class SettingsSidebar(QWidget):
 
         # preset row
         pr = QHBoxLayout()
-        pr.setContentsMargins(14, 0, 14, 8)
+        pr.setContentsMargins(18, 0, 18, 10)
         pr.setSpacing(6)
         self.preset_combo = QComboBox()
         self.preset_combo.setToolTip("Presets keep subtitle timing, styles, tracks and filters for a show")
@@ -192,12 +195,17 @@ class SettingsSidebar(QWidget):
         self.tabs.tabBar().setUsesScrollButtons(False)
         self.tabs.tabBar().setElideMode(Qt.ElideNone)
         self.tabs.tabBar().setFocusPolicy(Qt.NoFocus)
+        self.tabs.tabBar().setDrawBase(False)       # the base line was drawn half-way across, above the tabs
         root.addWidget(self.tabs, 1)
         self._build_subtitles()
         self._build_audio()
         self._build_video()
         self._build_playback()
         self._build_bookmarks()
+        for cb in self.findChildren(QComboBox):     # long track names must not widen the panel
+            cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            cb.setMinimumContentsLength(8)
+            cb.setMinimumWidth(0)
         self.refresh_presets()
 
         self.engine.tracks_changed.connect(self.refresh_tracks, Qt.QueuedConnection)
@@ -382,8 +390,9 @@ class SettingsSidebar(QWidget):
         lay.addWidget(self.audio_delay)
         lay.addWidget(section("Sound"))
         names = self.engine.eq_presets()
-        opts = [("Off", -1)] + [(n, i) for i, n in enumerate(names)]
-        self.eq = ChipGroup(opts, cols=3, icon_name="eq")
+        short = {"Full bass and treble": "Bass and treble", "Full bass": "Bass boost", "Full treble": "Treble boost"}
+        opts = [("Off", -1)] + [(short.get(n, n), i) for i, n in enumerate(names)]
+        self.eq = ChipGroup(opts, cols=2, icon_name="eq")
         self.eq.picked.connect(self._set_eq)
         self.eq.select(-1)
         lay.addWidget(self.eq)
@@ -438,14 +447,24 @@ class SettingsSidebar(QWidget):
         self.adj = {}
         for key, label, lo, hi, default in (("brightness", "Brightness", 0, 200, 100),
                                             ("contrast", "Contrast", 0, 200, 100),
-                                            ("saturation", "Saturation", 0, 300, 100),
-                                            ("gamma", "Gamma", 10, 300, 100),
+                                            ("saturation", "Saturation", 0, 200, 100),
+                                            ("gamma", "Gamma", 50, 150, 100),
                                             ("hue", "Hue", -180, 180, 0)):
             lay.addWidget(QLabel(label))
             s = ValueSlider(lo, hi, 1, default, (lambda v: f"{v}°") if key == "hue" else (lambda v: f"{v}%"), reset=default)
             s.changed.connect(self._adjust_changed)
             self.adj[key] = s
             lay.addWidget(s)
+
+        lay.addWidget(section("Sharpen"))
+        self.sharpen = ValueSlider(0, 20, 1, 0, lambda v: "Off" if v == 0 else f"{v / 10:.1f}", reset=0)
+        self._sharpen_timer = QTimer(self)
+        self._sharpen_timer.setSingleShot(True)
+        self._sharpen_timer.setInterval(700)
+        self._sharpen_timer.timeout.connect(self._apply_sharpen)
+        self.sharpen.changed.connect(lambda _v: self._sharpen_timer.start())
+        lay.addWidget(self.sharpen)
+        lay.addWidget(muted("Makes soft or low-resolution video look crisper. Changing it restarts the video at the same spot."))
 
         lay.addWidget(section("Rotate and flip"))
         self.transform = ChipGroup([("Normal", ""), ("90°", "90"), ("180°", "180"), ("270°", "270"),
@@ -493,6 +512,14 @@ class SettingsSidebar(QWidget):
         self.engine.set_adjust({"brightness": vals["brightness"] / 100, "contrast": vals["contrast"] / 100,
                                 "saturation": vals["saturation"] / 100, "gamma": vals["gamma"] / 100,
                                 "hue": float(vals["hue"])})
+
+    def _apply_sharpen(self):
+        v = self.sharpen.value() / 10
+        if abs(v - self.engine.sharpen) < 0.01:
+            return
+        self.engine.sharpen = v
+        self.engine.rebuild()
+        self.win.toast("Sharpen: off" if v == 0 else f"Sharpen: {v:.1f}")
 
     def _set_transform(self, v):
         self.engine.transform = v
@@ -575,7 +602,10 @@ class SettingsSidebar(QWidget):
         lay.addWidget(add)
         lay.addWidget(muted("Click to jump. Double-click to rename."))
         self.bm_list = QListWidget()
-        self.bm_list.setMinimumHeight(180)
+        self.bm_list.setObjectName("InsetList")
+        self.bm_list.setSizeAdjustPolicy(QListWidget.AdjustToContents)
+        self.bm_list.setMinimumHeight(44)
+        self.bm_list.setMaximumHeight(260)
         self.bm_list.itemClicked.connect(lambda it: self.engine.seek(it.data(Qt.UserRole)))
         self.bm_list.itemDoubleClicked.connect(self._rename_bookmark)
         self.bm_list.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -583,7 +613,10 @@ class SettingsSidebar(QWidget):
         lay.addWidget(self.bm_list)
         lay.addWidget(section("Chapters"))
         self.ch_list = QListWidget()
-        self.ch_list.setMinimumHeight(140)
+        self.ch_list.setObjectName("InsetList")
+        self.ch_list.setSizeAdjustPolicy(QListWidget.AdjustToContents)
+        self.ch_list.setMinimumHeight(44)
+        self.ch_list.setMaximumHeight(320)
         self.ch_list.itemClicked.connect(self._chapter_clicked)
         lay.addWidget(self.ch_list)
         lay.addStretch(1)
@@ -596,10 +629,16 @@ class SettingsSidebar(QWidget):
             it = QListWidgetItem(icon("bookmark", theme.accent(), 16), f"{fmt_time(b['t'])}    {b['name']}")
             it.setData(Qt.UserRole, b["t"])
             self.bm_list.addItem(it)
+        if not items:
+            it = QListWidgetItem("No bookmarks yet")
+            it.setFlags(Qt.NoItemFlags)
+            self.bm_list.addItem(it)
         self.win.bottom.seek.markers = [b["t"] for b in items]
         self.win.bottom.seek.update()
 
     def _rename_bookmark(self, it):
+        if it.data(Qt.UserRole) is None:
+            return
         path = self.engine.current
         items = self.store.bookmarks(path)
         row = self.bm_list.row(it)
@@ -614,7 +653,7 @@ class SettingsSidebar(QWidget):
     def _bm_menu(self, pos):
         from PySide6.QtWidgets import QMenu
         it = self.bm_list.itemAt(pos)
-        if not it:
+        if not it or it.data(Qt.UserRole) is None:
             return
         m = QMenu(self)
         m.addAction("Rename", lambda: self._rename_bookmark(it))
@@ -740,6 +779,7 @@ class SettingsSidebar(QWidget):
             "zoom": e.live["zoom"],
             "adjust": e.live["adjust"],
             "deinterlace": e.live["deinterlace"],
+            "sharpen": e.sharpen,
             "sub_style": self.sub_style_from_ui(),
             "sub_track": "off" if e.current_sub() == -1 else track_name(e.sub_tracks(), e.current_sub()),
             "audio_track": track_name(e.audio_tracks(), e.current_audio()),
@@ -807,3 +847,4 @@ class SettingsSidebar(QWidget):
             s.set_value(vals[k])
         self.load_sub_style(self.engine.sub_style)
         self.transform.select(self.engine.transform)
+        self.sharpen.set_value(round(self.engine.sharpen * 10))

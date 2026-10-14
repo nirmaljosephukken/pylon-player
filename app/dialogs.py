@@ -414,6 +414,12 @@ class PreferencesDialog(QDialog):
         cb.setChecked(bool(self.store.setting("osd_shortcuts")))
         cb.toggled.connect(lambda v: self.store.set_setting("osd_shortcuts", v))
         f.addWidget(cb)
+        cb3 = QCheckBox("Keep the controls visible when not in fullscreen")
+        cb3.setToolTip("The top and bottom bars stay on screen in a normal window, and the video sits between them. "
+                       "In fullscreen they still hide when you stop moving the mouse.")
+        cb3.setChecked(bool(self.store.setting("pin_controls")))
+        cb3.toggled.connect(lambda v: self.store.set_setting("pin_controls", v))
+        f.addWidget(cb3)
         cb2 = QCheckBox("Show a preview picture when I hover over the seek bar")
         cb2.setToolTip("Pylon makes small previews of each video in the background and keeps them for next time.")
         cb2.setChecked(bool(self.store.setting("seek_previews")))

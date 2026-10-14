@@ -453,8 +453,25 @@ class MainWindow(QMainWindow):
         if self.osd.isVisible():
             self.osd.move(self.osd.anchor)
 
+    def _pinned(self) -> bool:
+        """Controls stay put (and opaque) in a normal window when the user asked for it."""
+        return (bool(self.store.setting("pin_controls")) and not self.isFullScreen() and not self._pip
+                and self.stage.currentIndex() != PAGE_HOME)
+
+    def _apply_pin(self):
+        pinned = self._pinned()
+        if pinned != getattr(self, "_pin_state", None):
+            self._pin_state = pinned
+            m = (0, TopBar.HEIGHT, 0, BottomBar.HEIGHT) if pinned else (0, 0, 0, 0)
+            self.stage.layout().setContentsMargins(*m)    # the video sits between the bars
+            for bar in (self.top, self.bottom):
+                bar.solid = pinned
+                bar.update()
+            self._overlay_geo = None
+
     def _ui_tick(self):
         page = self.stage.currentIndex()
+        self._apply_pin()
         if page == PAGE_HOME or self.isMinimized() or not self.isVisible():
             self._set_bars(False)
             if self.osd.isVisible() and (self.isMinimized() or not self.isVisible()):
@@ -475,7 +492,9 @@ class MainWindow(QMainWindow):
                                or stage_rect.bottom() - pos.y() < BottomBar.HEIGHT + 24)
         show = False
         if not self.hide_ui:
-            if QApplication.activePopupWidget() is not None:
+            if self._pinned():
+                show = True
+            elif QApplication.activePopupWidget() is not None:
                 show = True
             elif now < self._force_show_until:
                 show = True

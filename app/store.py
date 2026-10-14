@@ -60,6 +60,7 @@ DEFAULT_SETTINGS = {
     "vlc_dir": "",
     "desktop_entry": "",
     "seek_previews": True,      # preview pictures when hovering the seek bar
+    "pin_controls": False,      # keep the bars shown (and the video clear of them) outside fullscreen
 }
 
 

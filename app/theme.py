@@ -23,6 +23,16 @@ def accent() -> str:
     return _accent
 
 
+def on_accent() -> str:
+    """Dark or white, whichever reads better on the accent colour."""
+    c = _accent.lstrip("#")
+    try:
+        r, g, b = (int(c[i:i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return "#111111"
+    return "#111111" if (0.299 * r + 0.587 * g + 0.114 * b) > 140 else "#FFFFFF"
+
+
 def set_accent(color: str) -> None:
     global _accent
     _accent = color or DEFAULT_ACCENT
@@ -57,6 +67,9 @@ def stylesheet() -> str:
     QToolButton:hover {{ background: rgba(255,255,255,0.08); }}
     QToolButton:checked {{ background: rgba(255,255,255,0.10); }}
     QToolButton::menu-indicator {{ image: none; width: 0; }}
+    QListWidget#InsetList {{ background: #0E0E0E; border: 1px solid {BORDER}; border-radius: {RADIUS}px; padding: 4px; }}
+    QToolButton#PlayButton {{ background: {a}; border-radius: 9px; padding: 0; }}
+    QToolButton#PlayButton:hover {{ background: {a}; border: 2px solid rgba(255,255,255,0.35); }}
 
     QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QKeySequenceEdit {{
         background: {SURFACE}; border: 1px solid {BORDER}; border-radius: {RADIUS}px; padding: 5px 8px; selection-background-color: {a}; }}
