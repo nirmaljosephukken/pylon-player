@@ -11,37 +11,156 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from .util import is_url
 
-try:  # VLC must be installed (64-bit VLC for 64-bit Python)
-    if sys.platform == "win32" and "PYTHON_VLC_LIB_PATH" not in os.environ:
-        _app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        _cands = [os.environ.get("PYLON_VLC_DIR", ""),
-                  os.path.join(_app_root, "VLC"),                         # VLC inside the Pylon folder
-                  os.path.join(os.path.dirname(_app_root), "VLC")]        # or next to it
-        try:  # where the VLC installer says it lives
-            import winreg
-            for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
-                try:
-                    with winreg.OpenKey(hive, r"Software\VideoLAN\VLC") as k:
-                        _cands.append(winreg.QueryValueEx(k, "InstallDir")[0])
-                except OSError:
-                    pass
-        except ImportError:
+def _saved_vlc_dir() -> str:
+    """A VLC folder the user picked with "Locate VLC folder..." (stored in data.json)."""
+    try:
+        import json
+        from .store import data_dir
+        with open(os.path.join(data_dir(), "data.json"), encoding="utf-8") as f:
+            return json.load(f).get("settings", {}).get("vlc_dir", "") or ""
+    except Exception:
+        return ""
+
+
+def _windows_candidates() -> list[str]:
+    """Folders where a Windows VLC might be, most specific first."""
+    app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cands = [os.environ.get("PYLON_VLC_DIR", ""), _installer_vlc_dir()]
+    # VLC inside Pylon's folder, or next to it, or next to any folder above it
+    # (setup's Browse button adds "\Pylon", e.g. E:\Apps\Pylon-1.1\Pylon with E:\Apps\VLC).
+    d = app_root
+    for _ in range(4):
+        cands += [os.path.join(d, "VLC"), os.path.join(d, "VideoLAN", "VLC")]
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    try:  # where the VLC installer says it lives
+        import winreg
+        keys = [(winreg.HKEY_LOCAL_MACHINE, r"Software\VideoLAN\VLC", "InstallDir"),
+                (winreg.HKEY_CURRENT_USER, r"Software\VideoLAN\VLC", "InstallDir"),
+                (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\App Paths\vlc.exe", ""),
+                (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\App Paths\vlc.exe", "")]
+        for hive, key, name in keys:
+            try:
+                with winreg.OpenKey(hive, key) as k:
+                    v = winreg.QueryValueEx(k, name)[0]
+                    cands.append(os.path.dirname(v) if v.lower().endswith(".exe") else v)
+            except OSError:
+                pass
+    except ImportError:
+        pass
+    for env in ("ProgramFiles", "ProgramW6432", "LOCALAPPDATA"):
+        base = os.environ.get(env)
+        if base:
+            cands.append(os.path.join(base, "VideoLAN", "VLC"))
+            cands.append(os.path.join(base, "Programs", "VideoLAN", "VLC"))
+    for p in os.environ.get("PATH", "").split(os.pathsep):  # a VLC folder on PATH
+        if p and os.path.isfile(os.path.join(p, "vlc.exe")):
+            cands.append(p)
+    return cands
+
+
+def _installer_vlc_dir() -> str:
+    """Setup writes the VLC folder it found to vlc-path.txt next to Pylon."""
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "vlc-path.txt"), encoding="utf-8-sig") as f:
+            return f.read().strip().strip('"')
+    except OSError:
+        return ""
+
+
+def _point_at(folder: str) -> bool:
+    """Tell python-vlc to use the VLC in `folder`. True if it looks like VLC."""
+    folder = os.path.normpath(folder) if folder else ""
+    if sys.platform == "win32":
+        lib = os.path.join(folder, "libvlc.dll")
+        if not folder or not os.path.isfile(lib):
+            return False
+        try:
+            _DLL_DIRS.append(os.add_dll_directory(folder))
+        except (OSError, AttributeError):
             pass
-        _cands += [os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "VideoLAN", "VLC"),
-                   os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "VideoLAN", "VLC")]
-        for cand in _cands:
-            if not cand:
-                continue
-            if os.path.isfile(os.path.join(cand, "libvlc.dll")):
-                os.add_dll_directory(cand)
-                os.environ.setdefault("PYTHON_VLC_MODULE_PATH", os.path.join(cand, "plugins"))
-                os.environ["PYTHON_VLC_LIB_PATH"] = os.path.join(cand, "libvlc.dll")
-                break
-    import vlc  # noqa: E402
-    VLC_ERROR = None
-except Exception as e:  # pragma: no cover - depends on the machine
-    vlc = None
-    VLC_ERROR = str(e) or e.__class__.__name__
+        os.environ["PATH"] = folder + os.pathsep + os.environ.get("PATH", "")
+        os.environ["PYTHON_VLC_MODULE_PATH"] = os.path.join(folder, "plugins")
+        os.environ["PYTHON_VLC_LIB_PATH"] = lib
+        return True
+    if sys.platform == "darwin":
+        lib = os.path.join(folder, "Contents", "MacOS", "lib", "libvlc.dylib")
+        if not folder or not os.path.isfile(lib):
+            return False
+        os.environ["PYTHON_VLC_LIB_PATH"] = lib
+        os.environ["PYTHON_VLC_MODULE_PATH"] = os.path.join(folder, "Contents", "MacOS", "plugins")
+        os.environ["VLC_PLUGIN_PATH"] = os.path.join(folder, "Contents", "MacOS", "plugins")
+        return True
+    # Linux: a folder holding libvlc.so.5 (rare; normally the system copy is used)
+    for lib in (os.path.join(folder, "libvlc.so.5"), os.path.join(folder, "lib", "libvlc.so.5")):
+        if folder and os.path.isfile(lib):
+            os.environ["PYTHON_VLC_LIB_PATH"] = lib
+            plug = os.path.join(os.path.dirname(lib), "vlc", "plugins")
+            if os.path.isdir(plug):
+                os.environ["PYTHON_VLC_MODULE_PATH"] = plug
+                os.environ["VLC_PLUGIN_PATH"] = plug
+            return True
+    return False
+
+
+_DLL_DIRS = []   # keep os.add_dll_directory handles alive
+vlc = None
+VLC_ERROR = "not loaded yet"
+VLC_DIR = ""     # the folder libVLC was loaded from ("" = found by python-vlc itself)
+
+
+def load_vlc(folder: str = "") -> bool:
+    """Find and load libVLC. With `folder`, use exactly that VLC. Can be called
+    again while Pylon runs (after "Locate VLC folder...") as long as no VLC was
+    loaded yet."""
+    global vlc, VLC_ERROR, VLC_DIR
+    if vlc is not None:
+        return True
+    try:
+        if folder:
+            if not _point_at(folder):
+                raise ImportError(f"{folder} doesn't contain VLC")
+            VLC_DIR = folder
+        elif "PYTHON_VLC_LIB_PATH" not in os.environ:
+            saved = os.environ.get("PYLON_VLC_DIR") or _saved_vlc_dir()
+            if saved:
+                os.environ["PYLON_VLC_DIR"] = saved
+            if sys.platform == "win32":
+                cands = _windows_candidates()
+            elif sys.platform == "darwin":
+                cands = [saved, "/Applications/VLC.app", os.path.expanduser("~/Applications/VLC.app")]
+            else:
+                cands = [saved]
+            seen = set()
+            for cand in cands:
+                key = os.path.normcase(os.path.normpath(cand)) if cand else ""
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                if _point_at(cand):
+                    VLC_DIR = os.path.normpath(cand)
+                    break
+        sys.modules.pop("vlc", None)   # a failed earlier import may have left a module without libVLC
+        import vlc as _vlc  # noqa: E402
+        if getattr(_vlc, "dll", None) is None:
+            raise ImportError("libVLC was not found")
+        vlc = _vlc
+        VLC_ERROR = None
+        return True
+    except (Exception, SystemExit) as e:  # pragma: no cover - depends on the machine
+        sys.modules.pop("vlc", None)
+        vlc = None
+        VLC_ERROR = str(e) or e.__class__.__name__
+        if isinstance(e, SystemExit):   # python-vlc exits when the DLL won't load
+            VLC_ERROR = ("VLC's engine couldn't be loaded. Pylon needs VLC 3.0 for "
+                         + ("64-bit Windows." if sys.platform == "win32" else "this computer."))
+        return False
+
+
+load_vlc()
 
 
 def _pick_log_dir():
@@ -135,6 +254,9 @@ class Engine(QObject):
             args.append(f"--sub-margin={int(st['margin'])}")
         if self.transform:
             args += ["--video-filter=transform", f"--transform-type={self.transform}"]
+        extra = os.environ.get("PYLON_VLC_ARGS", "").split()
+        if extra:
+            args += extra
         if LOG_DIR:
             args += ["--file-logging", f"--logfile={os.path.join(LOG_DIR, 'vlc.log')}", "--log-verbose=1"]
         return args
@@ -154,13 +276,15 @@ class Engine(QObject):
             E.MediaPlayerStopped: lambda e: self.state_changed.emit("stopped"),
             E.MediaPlayerEndReached: lambda e: self.state_changed.emit("ended"),
             E.MediaPlayerEncounteredError: lambda e: self.state_changed.emit("error"),
-            E.MediaPlayerLengthChanged: lambda e: self.length_changed.emit(int(e.u.new_length or 0)),
+            E.MediaPlayerLengthChanged: lambda e: self.length_changed.emit(0),
             E.MediaPlayerESAdded: lambda e: self.tracks_changed.emit(),
             E.MediaPlayerESDeleted: lambda e: self.tracks_changed.emit(),
-            E.MediaPlayerVout: lambda e: self.vout_changed.emit(int(e.u.new_count or 0)),
+            E.MediaPlayerVout: lambda e: self.vout_changed.emit(0),
         }
         # Never call back into libVLC from inside these handlers: they run on a
-        # VLC thread and a nested call can deadlock playback. Only emit signals.
+        # VLC thread and a nested call can deadlock playback. Only emit signals,
+        # and don't trust event payloads (their layout differs between libVLC
+        # builds); the GUI thread asks the player for the real values.
         self._cb = list(hooks.values())
         for ev, fn in hooks.items():
             em.event_attach(ev, fn)
@@ -183,6 +307,21 @@ class Engine(QObject):
     @property
     def ok(self) -> bool:
         return self.player is not None
+
+    def start_engine(self, folder: str = "") -> bool:
+        """Load VLC now (after the user located it) and build the player."""
+        if self.player is not None:
+            return True
+        if not load_vlc(folder):
+            return False
+        try:
+            self._build()
+        except Exception as e:
+            global VLC_ERROR
+            VLC_ERROR = str(e) or e.__class__.__name__
+            self.instance = self.player = None
+            return False
+        return True
 
     # ------------------------------------------------------------------ media
     def open(self, target: str, start_ms: int = 0, subs: list[str] | None = None, title: str = ""):

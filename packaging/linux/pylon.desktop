@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Pylon
+GenericName=Media Player
+Comment=Calmer interface for the VLC engine
+Exec=AppRun %F
+Icon=pylon
+Terminal=false
+Categories=AudioVideo;Player;Video;Audio;
+MimeType=video/mp4;video/x-matroska;video/webm;video/x-msvideo;video/quicktime;video/mpeg;audio/mpeg;audio/flac;audio/ogg;

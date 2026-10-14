@@ -14,7 +14,8 @@ from . import APP_NAME, theme
 from .controls import BottomBar, TopBar
 from .dialogs import (PreferencesDialog, ShortcutsDialog, StreamDialog, SubtitleDialog,
                       WelcomeDialog)
-from .engine import VLC_ERROR, Engine
+from . import engine as engine_mod
+from .engine import Engine
 from .home import HomePage, NowPlayingPage
 from .icons import icon
 from .library import LibraryPanel, media_filter
@@ -155,9 +156,11 @@ class MainWindow(QMainWindow):
         b.set_volume(self.engine.volume(), False)
 
         e = self.engine
-        e.state_changed.connect(self._on_state)
-        e.length_changed.connect(lambda ln: self.bottom.set_time(e.time(), ln))
-        e.tracks_changed.connect(self._on_tracks)
+        # Queued: VLC can fire these from inside our own call into it (e.g. stop()),
+        # and calling back into VLC from there would deadlock.
+        e.state_changed.connect(self._on_state, Qt.QueuedConnection)
+        e.length_changed.connect(lambda _: self.bottom.set_time(e.time(), e.length()), Qt.QueuedConnection)
+        e.tracks_changed.connect(self._on_tracks, Qt.QueuedConnection)
 
         self.install_shortcuts()
 
@@ -184,19 +187,147 @@ class MainWindow(QMainWindow):
             self._shown_once = True
             self._dark_titlebar()
             self.engine.set_window(int(self.video.winId()))
-            if VLC_ERROR is not None:
+            if self.can_integrate_desktop() and self.store.setting("desktop_entry") not in (None, "", os.environ.get("APPIMAGE")):
+                self.install_desktop_entry(quiet=True)   # the AppImage was moved or updated
+            if not self.engine.ok:
                 QTimer.singleShot(200, self._vlc_missing)
             elif not self.store.setting("onboarded"):
                 QTimer.singleShot(300, self._welcome)
 
     def _vlc_missing(self):
-        QMessageBox.critical(
-            self, "VLC not found",
-            "Pylon uses the VLC engine to play media, but it couldn't be found.\n\n"
-            "Install VLC 3.0 (64-bit) from videolan.org, then start Pylon again.\n\n"
-            f"Details: {VLC_ERROR}")
+        if sys.platform == "win32":
+            how = "Install VLC 3.0 (64-bit) from videolan.org, then start Pylon again."
+            url = "https://www.videolan.org/vlc/download-windows.html"
+        elif sys.platform == "darwin":
+            how = "Install VLC from videolan.org (drag it into Applications), then start Pylon again."
+            url = "https://www.videolan.org/vlc/download-macosx.html"
+        else:
+            how = ("Install VLC's engine from your package manager, then start Pylon again:\n"
+                   "  Ubuntu / Debian / Mint:  sudo apt install vlc\n"
+                   "  Fedora:  sudo dnf install vlc  (from RPM Fusion)\n"
+                   "  Arch:  sudo pacman -S vlc\n\n"
+                   "The Flatpak and Snap versions of VLC can't be used by other apps.")
+            url = "https://www.videolan.org/vlc/#download"
+        box = QMessageBox(QMessageBox.Critical, "VLC not found",
+                          "Pylon uses the VLC engine to play media, but it couldn't be found.\n\n"
+                          f"{how}\n\nDetails: {engine_mod.VLC_ERROR}", parent=self)
+        get = box.addButton("Get VLC", QMessageBox.AcceptRole)
+        locate = box.addButton("Locate VLC folder…", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Close)
+        box.exec()
+        if box.clickedButton() is get:
+            from PySide6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl(url))
+        elif box.clickedButton() is locate:
+            self.locate_vlc()
+
+    # ---------------------------------------------------------------- Linux desktop integration
+    def can_integrate_desktop(self) -> bool:
+        return sys.platform.startswith("linux") and bool(os.environ.get("APPIMAGE"))
+
+    def install_desktop_entry(self, quiet=False):
+        """Add the AppImage to the app menu and 'Open with' (per user, no root)."""
+        from .util import AUDIO_EXTS, VIDEO_EXTS
+        appimage = os.environ.get("APPIMAGE")
+        if not appimage:
+            return
+        home = os.path.expanduser("~")
+        data = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share")
+        apps = os.path.join(data, "applications")
+        icons = os.path.join(data, "icons", "hicolor", "256x256", "apps")
+        os.makedirs(apps, exist_ok=True)
+        os.makedirs(icons, exist_ok=True)
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        png = os.path.join(here, "pylon.png")
+        if os.path.isfile(png):
+            import shutil
+            shutil.copyfile(png, os.path.join(icons, "pylon.png"))
+        mimes = sorted({"video/mp4", "video/x-matroska", "video/webm", "video/x-msvideo", "video/quicktime",
+                        "video/x-flv", "video/mpeg", "video/mp2t", "video/x-ms-wmv", "video/3gpp", "video/ogg",
+                        "audio/mpeg", "audio/flac", "audio/x-wav", "audio/mp4", "audio/aac", "audio/ogg",
+                        "audio/x-ms-wma", "audio/x-matroska", "audio/opus", "audio/x-mpegurl", "application/vnd.apple.mpegurl"})
+        entry = ("[Desktop Entry]\nType=Application\nName=Pylon\nGenericName=Media Player\n"
+                 "Comment=Calmer interface for the VLC engine\n"
+                 f"Exec=\"{appimage}\" %F\nIcon=pylon\nTerminal=false\nCategories=AudioVideo;Player;Video;Audio;\n"
+                 f"MimeType={';'.join(mimes)};\nStartupWMClass=Pylon\n")
+        with open(os.path.join(apps, "pylon.desktop"), "w", encoding="utf-8") as f:
+            f.write(entry)
+        for cmd in (["update-desktop-database", apps], ["gtk-update-icon-cache", "-q", os.path.join(data, "icons", "hicolor")]):
+            try:
+                import subprocess
+                subprocess.run(cmd, timeout=10, capture_output=True)
+            except Exception:
+                pass
+        self.store.set_setting("desktop_entry", appimage)
+        if not quiet:
+            QMessageBox.information(self, "Added to your apps",
+                                    "Pylon is now in your applications menu and under \"Open with\" for videos and music.\n\n"
+                                    "If you move the Pylon file, choose this again.")
+
+    def locate_vlc(self):
+        """Let the user point Pylon at a VLC folder (portable VLC, unusual install place)."""
+        if sys.platform == "darwin":
+            folder, _ = QFileDialog.getOpenFileName(self, "Choose VLC.app", "/Applications", "Applications (*.app)")
+            folder = folder or QFileDialog.getExistingDirectory(self, "Choose VLC.app", "/Applications")
+            lib = os.path.join(folder, "Contents", "MacOS", "lib", "libvlc.dylib")
+        else:
+            folder = QFileDialog.getExistingDirectory(self, "Choose the folder that contains VLC")
+            lib = os.path.join(folder, "libvlc.dll" if sys.platform == "win32" else "libvlc.so.5")
+        if not folder:
+            return
+        if not os.path.isfile(lib) and sys.platform != "linux":
+            QMessageBox.warning(self, "That's not VLC",
+                                f"{folder}\ndoesn't contain VLC's engine ({os.path.basename(lib)}). "
+                                "Pick the folder VLC is installed in" + (" (it has vlc.exe in it)." if sys.platform == "win32" else "."))
+            return
+        self.store.set_setting("vlc_dir", folder)
+        self.store.save_now()
+        if not self.engine.ok:
+            if self.engine.start_engine(folder):   # no restart needed
+                QMessageBox.information(self, "VLC found", f"Pylon will use the VLC in\n{folder}")
+                if not self.store.setting("onboarded"):
+                    QTimer.singleShot(300, self._welcome)
+            else:
+                QMessageBox.warning(self, "VLC couldn't start",
+                                    f"Pylon found VLC in\n{folder}\nbut couldn't start it.\n\n"
+                                    f"Details: {engine_mod.VLC_ERROR}")
+            return
+        self.ask_restart("Pylon will use this VLC after it restarts.")
+
+    def ask_restart(self, why: str):
+        box = QMessageBox(QMessageBox.Information, "Restart Pylon", why, parent=self)
+        now = box.addButton("Restart now", QMessageBox.AcceptRole)
+        box.addButton("Later", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is now:
+            self.restart_app()
+
+    def restart_app(self):
+        """Start a fresh Pylon and close this one (keeps the current file and position)."""
+        from PySide6.QtCore import QProcess
+        from PySide6.QtNetwork import QLocalServer
+        from PySide6.QtWidgets import QApplication
+        self._save_position()
+        self.store.save_now()
+        app = QApplication.instance()
+        for srv in app.findChildren(QLocalServer):   # let the new Pylon be the only one
+            srv.close()
+        appimage = os.environ.get("APPIMAGE")
+        if appimage:
+            prog, args = appimage, []
+        else:
+            main_py = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main.py")
+            prog, args = sys.executable, [main_py]
+        if self.engine.current:
+            args.append(self.engine.current)
+        if QProcess.startDetached(prog, args):
+            app.quit()
+        else:
+            QMessageBox.warning(self, "Restart Pylon", "Couldn't restart Pylon. Please close it and open it again.")
 
     def _welcome(self):
+        if self.can_integrate_desktop():
+            self.install_desktop_entry(quiet=True)
         d = WelcomeDialog(self)
         if d.exec():
             if d.color != theme.accent():
@@ -718,6 +849,8 @@ class MainWindow(QMainWindow):
             m.addAction(icon("snapshot", theme.TEXT, 16), "Take a snapshot", lambda: self.do("snapshot", key=False))
         m.addSeparator()
         m.addAction(icon("settings", theme.TEXT, 16), "Preferences…", self.show_preferences)
+        if self.can_integrate_desktop():
+            m.addAction(icon("plus", theme.TEXT, 16), "Add Pylon to the applications menu", self.install_desktop_entry)
         m.addAction(icon("keyboard", theme.TEXT, 16), "Keyboard shortcuts\tF1", self.show_shortcuts)
         m.addAction(icon("info", theme.TEXT, 16), "About", self.show_about)
         m.addSeparator()

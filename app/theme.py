@@ -31,7 +31,7 @@ def set_accent(color: str) -> None:
 def stylesheet() -> str:
     a = _accent
     return f"""
-    * {{ font-family: "Segoe UI Variable Text", "Segoe UI", "Inter", sans-serif; font-size: 13px; color: {TEXT}; }}
+    * {{ font-family: "Segoe UI Variable Text", "Segoe UI", ".AppleSystemUIFont", "SF Pro Text", "Helvetica Neue", "Inter", "Cantarell", "Ubuntu", "Noto Sans", "DejaVu Sans", sans-serif; font-size: 13px; color: {TEXT}; }}
     QMainWindow, QDialog {{ background: {BG}; }}
     QWidget#Panel {{ background: {PANEL}; }}
     QWidget#Home, QWidget#NowPlaying {{ background: {BG}; }}

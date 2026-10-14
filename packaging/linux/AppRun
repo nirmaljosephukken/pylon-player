@@ -1,0 +1,8 @@
+#!/bin/sh
+# Pylon AppImage entry point
+HERE="$(dirname "$(readlink -f "$0")")"
+export LD_LIBRARY_PATH="$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# VLC draws video into an X11 window; on Wayland desktops run through XWayland
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}"
+unset PYTHONHOME PYTHONPATH
+exec "$HERE/usr/python/bin/python3" -s "$HERE/usr/share/pylon/main.py" "$@"

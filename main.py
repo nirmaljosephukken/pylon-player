@@ -5,7 +5,7 @@
 import os
 import sys
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
@@ -13,6 +13,27 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import APP_NAME, theme  # noqa: E402
 from app.store import Store  # noqa: E402
+
+
+class PylonApp(QApplication):
+    """Catches macOS 'open this file' events (double-click in Finder)."""
+    file_opened = Signal(str)
+
+    def __init__(self, argv):
+        super().__init__(argv)
+        self.pending = []
+        self._ready = False
+
+    def event(self, e):
+        if e.type() == QEvent.FileOpen:
+            path = e.file() or e.url().toString()
+            if path:
+                if self._ready:
+                    self.file_opened.emit(path)
+                else:
+                    self.pending.append(path)
+            return True
+        return super().event(e)
 
 
 def _install_error_log():
@@ -55,8 +76,11 @@ def main():
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Pylon.App")
         except Exception:
             pass
+    if sys.platform.startswith("linux") and not os.environ.get("QT_QPA_PLATFORM"):
+        # VLC draws video into an X11 window; under Wayland, run through XWayland
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
-    app = QApplication(sys.argv)
+    app = PylonApp(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("Pylon")
     app.setStyle("Fusion")
@@ -73,8 +97,8 @@ def main():
                            if is_url(q.get("path", "")) or is_media(q.get("path", ""))]
     theme.set_accent(store.setting("accent"))
     app.setStyleSheet(theme.stylesheet())
-    f = QFont("Segoe UI", 10)
-    app.setFont(f)
+    if sys.platform == "win32":
+        app.setFont(QFont("Segoe UI", 10))
 
     me = os.path.normcase(os.path.abspath(__file__))
     args = [a for a in sys.argv[1:]
@@ -98,6 +122,10 @@ def main():
     from app.window import MainWindow
     win = MainWindow(store)
     win.show()
+    app.file_opened.connect(lambda p: win.open_paths([p]))   # macOS: Finder "Open with"
+    app._ready = True
+    for p in app.pending:
+        QTimer.singleShot(400, lambda p=p: win.open_paths([p]))
 
     QLocalServer.removeServer(server_name)
     server = QLocalServer(app)
@@ -127,8 +155,15 @@ def main():
     server.newConnection.connect(on_connection)
 
     if args:
-        from PySide6.QtCore import QTimer
         QTimer.singleShot(300, lambda: win.open_paths(args))
+    def shutdown():
+        # Stop VLC's threads before Qt tears down the window it draws into
+        try:
+            win._save_position()
+            win.engine.shutdown()
+        except Exception:
+            pass
+    app.aboutToQuit.connect(shutdown)
     code = app.exec()
     store.save_now()
     sys.exit(code)

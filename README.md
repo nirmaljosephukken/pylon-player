@@ -1,10 +1,10 @@
 # Pylon
 
-**A calmer, redesigned interface for the VLC engine on Windows.**
+**A calmer, redesigned interface for the VLC engine, for Windows, Linux and (experimentally) macOS.**
 
 Pylon puts a new interface on top of libVLC, the engine inside VLC media player. VLC still does all the playback, decoding, subtitles and streaming, so Pylon plays everything VLC plays. The interface is built around the way people actually watch: quiet bars that get out of the way, a thick seek bar, subtitle timing you can see, per-show presets, and a library and queue you can reach without leaving the video.
 
-> **Beta.** Pylon works on Windows 10 and 11 but has only been tested on a few PCs. Bug reports are very welcome.
+> **Beta.** Tested on Windows 10/11 and Ubuntu; the macOS build hasn't been tried on a real Mac yet. Bug reports are very welcome.
 
 ![Pylon playing a video](docs/player.png)
 
@@ -24,35 +24,42 @@ Pylon is **not affiliated with, sponsored or endorsed by VideoLAN**. VLC and the
 
 ## Install
 
-You need three things:
+Pylon plays everything through **VLC**, which you install yourself (Pylon never includes it). Then grab the Pylon download for your system from [Releases](../../releases).
 
-1. **VLC 3.0, 64-bit**: the normal installer from [videolan.org](https://www.videolan.org/vlc/download-windows.html).
-2. **Python 3.10 or newer, 64-bit**: from [python.org](https://www.python.org/downloads/windows/). Tick **"Add python.exe to PATH"** during setup.
-3. **Pylon**: download the latest zip from [Releases](../../releases) and unzip it anywhere, for example `D:\Apps\Pylon`. You can also clone this repo.
+| | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ (experimental) |
+| --- | --- | --- | --- |
+| **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
+| **2. Pylon** | `Pylon-Setup-1.1.1.exe` | `Pylon-1.1.1-x86_64.AppImage` | `Pylon-1.1.1-macOS.zip` |
+| **3. Run** | Run the setup. No admin rights needed. | `chmod +x Pylon-*.AppImage`, then double-click it | Unzip, move **Pylon** to Applications, see the first-launch note below |
 
-Then double-click **`setup.bat`**. It:
+Nothing else is needed: each download carries its own Python and Qt.
 
-* creates a private Python environment in `.venv` inside the Pylon folder (nothing is installed system-wide),
-* installs PySide6-Essentials and python-vlc (about 80 MB),
-* checks that VLC can be found,
-* offers to add a desktop shortcut and to register Pylon with Windows.
+**Windows.** Setup installs Pylon for your account only, adds Start menu and desktop shortcuts, and lists Pylon under "Open with". Remove it from **Settings > Apps**. Your library and history stay in `%APPDATA%\Pylon` unless you delete that folder.
 
-Start Pylon with **`Pylon.exe`** or the desktop shortcut.
+**Linux.** Needs glibc 2.34 or newer (Ubuntu 22.04+, Debian 12+, Fedora 35+). The first launch adds Pylon to your applications menu and "Open with". On Wayland it runs through XWayland, because VLC draws video into an X11 window. The **Flatpak and Snap versions of VLC can't be used** by other apps, so install VLC from your distribution's packages.
+
+**macOS (experimental).** It hasn't been tested on a real Mac yet: reports are very welcome. Pylon isn't signed by Apple, so the first launch is blocked. Open **System Settings > Privacy & Security**, scroll down and click **Open Anyway** next to Pylon, then confirm. Pylon works on Apple Silicon and Intel Macs.
 
 ### "Windows protected your PC"
 
-`Pylon.exe` is a small launcher (about 90 KB) that starts Python with `main.py`. It isn't code-signed, so Windows SmartScreen may warn you the first time. Click **More info**, then **Run anyway**. Its source is in [`launcher/`](launcher/) if you'd rather build it yourself. You can also skip it and run `.venv\Scripts\pythonw.exe main.py`.
+Pylon's installer and `Pylon.exe` aren't code-signed yet, so Windows SmartScreen may warn you the first time. Click **More info**, then **Run anyway**.
 
-### Make Pylon your default player
+### Make Pylon your default player (Windows)
 
-Run **`register_pylon.bat`** (setup offers to do this). It registers Pylon for your Windows account only, with no admin rights needed, for 34 video and audio types. Then either:
+Setup lists Pylon for 34 video and audio types. Windows doesn't let apps make themselves the default, so the last click is yours:
 
 * right-click a video, choose **Open with**, then **Choose another app**, pick **Pylon** and click **Always**, or
 * open **Settings > Apps > Default apps**, type a file type such as `.mkv` in the top box, click the current app and choose Pylon.
 
-Windows doesn't let apps make themselves the default, so this last click has to be yours. **`unregister_pylon.bat`** undoes the registration.
-
 Opening another file while Pylon is running plays it in the same window.
+
+### VLC somewhere unusual?
+
+Pylon looks in the usual install places, and in a `VLC` folder inside, next to or a few folders above Pylon's own folder (so `E:\Apps\Pylon\…` finds `E:\Apps\VLC`). If it still says it can't find VLC (a portable VLC, say), click **Locate VLC folder…** in that message, or use **Preferences > Performance > Use VLC from a folder…**. Pylon starts using it right away.
+
+### Run from source instead
+
+Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone of this repo. Any OS: `pip install -r requirements.txt`, then `python main.py`. How the downloads are built is described in [`packaging/`](packaging/).
 
 ## Features
 
@@ -110,29 +117,29 @@ Mouse: click the video to play or pause, double-click for fullscreen, scroll for
 ## Good to know
 
 * **Pylon is just a player.** It doesn't include, host or link to any films, shows, music or streams. Only play things you have the right to play.
-* **Your data stays on your PC.** History, resume points, presets, bookmarks and subtitle pairings are stored in `%APPDATA%\Pylon\data.json`. Pylon doesn't phone home.
-* **VLC location.** Pylon finds VLC through the VLC installer's registry entry or `Program Files`. A portable VLC also works if it's in a `VLC` folder inside or next to the Pylon folder, or if you set the `PYLON_VLC_DIR` environment variable to its folder.
+* **Your data stays on your computer.** History, resume points, presets, bookmarks and subtitle pairings are stored in `data.json` in `%APPDATA%\Pylon` (Windows), `~/.local/share/pylon` (Linux) or `~/Library/Application Support/Pylon` (macOS). Pylon doesn't phone home.
+* **VLC location.** Pylon finds a normally installed VLC by itself. For a portable VLC use **Locate VLC folder…** (no restart needed), put it in a `VLC` folder next to Pylon, or set the `PYLON_VLC_DIR` environment variable.
 * **Some changes restart the video.** Changing the subtitle look or rotating restarts the video at the same spot, because VLC reads those settings when its engine starts.
 * **Not built yet** (from the original concept): thumbnails while seeking, a waveform seek bar, reverse playback, music sorted by artist and album, casting, a drag-and-drop layout editor, and the full settings rework.
 
 ## Reporting a bug
 
 1. Note what you did and what happened.
-2. Run **`diag.bat`**. It plays your last file straight through the VLC engine and writes `logs\diag.txt`.
-3. Open an issue and attach `logs\diag.txt` and `logs\error.log`. **Check them first**: they contain your file names and folder paths.
+2. Find Pylon's `error.log` and `vlc.log`, in a `logs` folder: next to Pylon on Windows (`%LOCALAPPDATA%\Programs\Pylon\logs` for an installed copy), `~/.local/share/pylon/logs` on Linux, `~/Library/Application Support/Pylon/logs` on macOS.
+3. On Windows you can also run **`diag.bat`** in the Pylon folder. It plays your last file straight through the VLC engine and writes `logs\diag.txt`.
+4. Open an issue and attach the logs. **Check them first**: they contain your file names and folder paths.
 
 ## Project layout
 
 ```
 main.py              entry point
 app/                 the application (engine, window, controls, sidebars, dialogs)
-launcher/            source for Pylon.exe
-setup.bat            one-time setup
-register_pylon.bat   register with Windows "Open with" / Default apps
+launcher/            source for Pylon.exe (the small Windows launcher)
+packaging/           how the Windows installer, Linux AppImage and macOS app are built
+setup.bat            run-from-source setup on Windows
+register_pylon.bat   register a source checkout with Windows "Open with"
 diag.bat, diag.py    playback diagnostics
 ```
-
-Run from source with `python main.py [file or folder]` after `pip install -r requirements.txt`.
 
 ## Licence
 

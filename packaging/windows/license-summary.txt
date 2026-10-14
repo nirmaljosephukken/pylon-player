@@ -1,0 +1,46 @@
+Pylon 1.1.1
+==========
+
+Pylon is free and open source under the MIT licence:
+
+MIT License
+
+Copyright (c) 2026 Nirmal Joseph Ukken
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+----------------------------------------------------------------------
+
+Software included with Pylon
+----------------------------
+
+This installer also contains a private copy of these, unchanged, as separate
+files inside the Pylon folder:
+
+  Python 3.14.8 ................. PSF License
+  Qt for Python (PySide6 6.12.0,
+    Shiboken6) and Qt 6 libraries  GNU LGPL v3
+  python-vlc 3.0.21203 .......... GNU LGPL v2.1 or later
+
+Full licence texts are installed in the "licenses" folder, and where to get
+each component's source code is listed in THIRD_PARTY_NOTICES.md.
+
+VLC is NOT included. Pylon uses the VLC you install from videolan.org.
+VLC is a trademark of VideoLAN; Pylon isn't affiliated with VideoLAN.

@@ -486,6 +486,28 @@ class PreferencesDialog(QDialog):
         lab.setObjectName("Muted")
         lab.setWordWrap(True)
         f.addWidget(lab)
+        f.addWidget(info_label("VLC engine", "Pylon finds an installed VLC automatically. Use this for a portable VLC "
+                                             "or one installed somewhere unusual."))
+        cur = self.store.setting("vlc_dir") or "Found automatically"
+        where = QLabel(cur)
+        where.setObjectName("Muted")
+        where.setWordWrap(True)
+        f.addWidget(where)
+        row = QHBoxLayout()
+        pick = QPushButton("Use VLC from a folder…")
+        pick.clicked.connect(lambda: (self.win.locate_vlc(), where.setText(self.store.setting("vlc_dir") or "Found automatically")))
+        auto = QPushButton("Find automatically")
+        def find_auto():
+            changed = bool(self.store.setting("vlc_dir"))
+            self.store.set_setting("vlc_dir", "")
+            where.setText("Found automatically")
+            if changed and self.win.engine.ok:
+                self.win.ask_restart("Pylon will look for VLC by itself after it restarts.")
+        auto.clicked.connect(find_auto)
+        row.addWidget(pick)
+        row.addWidget(auto)
+        row.addStretch(1)
+        f.addLayout(row)
 
 
 # ====================================================================== welcome

@@ -14,7 +14,8 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QColorDialog, QComboBox,
 from . import theme
 from .engine import DEFAULT_SUB_STYLE
 from .icons import icon
-from .util import display_name, fmt_delay, fmt_time, parse_subtitles
+from .util import (display_name, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
+                   match_subtitle, parse_subtitles)
 from .widgets import IconButton, SubtitleTimeline, hline
 
 
@@ -199,7 +200,7 @@ class SettingsSidebar(QWidget):
         self._build_bookmarks()
         self.refresh_presets()
 
-        self.engine.tracks_changed.connect(self.refresh_tracks)
+        self.engine.tracks_changed.connect(self.refresh_tracks, Qt.QueuedConnection)
         self.engine.media_changed.connect(lambda _: QTimer.singleShot(50, self.on_media_changed))
 
     # ================================================================ subtitles
@@ -662,6 +663,10 @@ class SettingsSidebar(QWidget):
     def load_cues(self):
         subs = self.engine.extra_subs
         path = subs[-1] if subs else None
+        cur = self.engine.current
+        if not path and cur and not is_url(cur):
+            # VLC loads same-name subtitle files by itself; show those too
+            path = match_subtitle(cur, find_subtitle_candidates(cur), "starts")
         if path and path != self._cues_path:
             self.sub_timeline.set_cues(parse_subtitles(path))
         elif not path:

@@ -1,6 +1,7 @@
-"""JSON persistence in %APPDATA%\\Pylon\\data.json (or ~/.pylon)."""
+"""JSON persistence in the per-OS data folder (see data_dir)."""
 import json
 import os
+import sys
 import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -56,19 +57,28 @@ DEFAULT_SETTINGS = {
     "audio_lang": "",
     "hw_decoding": True,
     "onboarded": False,
+    "vlc_dir": "",
+    "desktop_entry": "",
 }
 
 
 def data_dir() -> str:
-    base = os.environ.get("APPDATA")
-    path = os.path.join(base, "Pylon") if base else os.path.join(os.path.expanduser("~"), ".pylon")
-    if base and not os.path.exists(path):
+    """Windows: %APPDATA%\\Pylon   macOS: ~/Library/Application Support/Pylon
+    Linux: $XDG_DATA_HOME/pylon (~/.local/share/pylon)"""
+    home = os.path.expanduser("~")
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or home
+        path = os.path.join(base, "Pylon")
         legacy = os.path.join(base, "ConePlayer")   # Pylon's earlier name
-        if os.path.isdir(legacy):
+        if not os.path.exists(path) and os.path.isdir(legacy):
             try:
                 os.rename(legacy, path)
             except OSError:
                 return legacy
+    elif sys.platform == "darwin":
+        path = os.path.join(home, "Library", "Application Support", "Pylon")
+    else:
+        path = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share"), "pylon")
     os.makedirs(path, exist_ok=True)
     return path
 
