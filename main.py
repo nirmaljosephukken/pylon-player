@@ -95,6 +95,7 @@ def main():
                             if is_url(r.get("path", "")) or is_media(r.get("path", ""))]
     store.data["queue"] = [q for q in store.data.get("queue", [])
                            if is_url(q.get("path", "")) or is_media(q.get("path", ""))]
+    theme.set_theme(store.setting("theme"), store.setting("theme_tint"))
     theme.set_accent(store.setting("accent"))
     app.setStyleSheet(theme.stylesheet())
     if sys.platform == "win32":

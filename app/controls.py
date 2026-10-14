@@ -102,6 +102,7 @@ class BottomBar(OverlayWindow):
         self.btn_play = IconButton("play", "Play / pause (Space)", size=20, box=40, color=theme.on_accent)
         self.btn_play.setObjectName("PlayButton")
         self.btn_play.setFixedSize(50, 36)
+        self.apply_glow()
         self.btn_next = IconButton("next", "Next (N)", size=18)
         self.btn_prev.clicked.connect(self.prev_clicked)
         self.btn_play.clicked.connect(self.play_clicked)
@@ -164,6 +165,21 @@ class BottomBar(OverlayWindow):
         self.seek = SeekBar()
         outer.addWidget(self.seek)
         self._pos = self._len = 0
+
+    def apply_glow(self):
+        """Neon themes: a soft coloured glow around the play button."""
+        if theme.glow():
+            from PySide6.QtGui import QColor
+            from PySide6.QtWidgets import QGraphicsDropShadowEffect
+            fx = QGraphicsDropShadowEffect(self.btn_play)
+            fx.setBlurRadius(22)
+            fx.setOffset(0, 0)
+            c = QColor(theme.accent2())
+            c.setAlpha(200)
+            fx.setColor(c)
+            self.btn_play.setGraphicsEffect(fx)
+        else:
+            self.btn_play.setGraphicsEffect(None)
 
     def set_playing(self, playing: bool):
         self.btn_play.set_icon("pause" if playing else "play")

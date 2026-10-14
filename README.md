@@ -2,7 +2,7 @@
 
 **A calmer, redesigned interface for the VLC engine, for Windows, Linux and (experimentally) macOS.**
 
-**Download:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.2.1.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.2.1-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.2.1-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)  
+**Download:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.3.0.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.0-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.0-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)  
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
 
 **The story:** [700,000 people watched a VLC redesign. I built the player.](https://dev.to/nekku/700000-people-watched-a-vlc-redesign-i-built-the-player-1aio) · [Demo video](https://youtu.be/vCV3B_blLU0)
@@ -40,7 +40,7 @@ Pylon plays everything through **VLC**, which you install yourself (Pylon never 
 | | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ (experimental) |
 | --- | --- | --- | --- |
 | **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
-| **2. Pylon** | `Pylon-Setup-1.2.1.exe` | `Pylon-1.2.1-x86_64.AppImage` | `Pylon-1.2.1-macOS.zip` |
+| **2. Pylon** | `Pylon-Setup-1.3.0.exe` | `Pylon-1.3.0-x86_64.AppImage` | `Pylon-1.3.0-macOS.zip` |
 | **3. Run** | Run the setup. No admin rights needed. | `chmod +x Pylon-*.AppImage`, then double-click it | Unzip, move **Pylon** to Applications, see the first-launch note below |
 
 Nothing else is needed: each download carries its own Python and Qt.
@@ -96,6 +96,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **Streams** | Paste a link or a channel list (`.m3u`) and it becomes a queue of channels. |
 | **Bookmarks** | `Ctrl+B` adds one instantly. A list with chapters in the sidebar. |
 | **Shortcut hints** | On-screen messages show which key you pressed. Every shortcut can be changed (`F1`). |
+| **Themes** | Dark, Pitch black, Warm grey, Midnight blue, a custom tint from any colour, and **neon** themes (Neon, Sunset, Aurora, Synthwave) with glowing gradient highlights. Preferences > General. |
 | **Preferences in plain words** | Accent color, auto-hide delay, resume behaviour, subtitle auto-detection. Each has an info icon. |
 
 ![Home page](docs/home.png)
@@ -133,7 +134,7 @@ Mouse: click the video to play or pause, double-click for fullscreen, scroll for
 * **VLC location.** Pylon finds a normally installed VLC by itself. For a portable VLC use **Locate VLC folder…** (no restart needed), put it in a `VLC` folder next to Pylon, or set the `PYLON_VLC_DIR` environment variable.
 * **Some changes restart the video.** Changing the subtitle look or rotating restarts the video at the same spot, because VLC reads those settings when its engine starts.
 * **Seek previews** work for video files on your computer (not online streams). Turn them off in **Preferences > Interface** if you prefer.
-* **Not built yet** (from the original concept): a waveform seek bar, reverse playback, casting, a drag-and-drop layout editor, and the full settings rework.
+* **Not built yet** (from the original concept): a waveform seek bar, reverse playback, casting, and a drag-and-drop layout editor.
 
 ## Reporting a bug
 

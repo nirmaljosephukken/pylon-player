@@ -18,9 +18,104 @@ RADIUS = 4              # "rectangular but a little less sharp"
 
 _accent = DEFAULT_ACCENT
 
+# Background themes. Text and icons stay light on every theme, so they are always readable.
+THEMES = {
+    "dark":     {"name": "Dark",          "BG": "#0E0E0E", "PANEL": "#171717", "SURFACE": "#212121", "SURFACE_HI": "#2A2A2A", "BORDER": "#2F2F2F"},
+    "black":    {"name": "Pitch black",   "BG": "#000000", "PANEL": "#0A0A0A", "SURFACE": "#151515", "SURFACE_HI": "#1E1E1E", "BORDER": "#262626"},
+    "warm":     {"name": "Warm grey",     "BG": "#13110F", "PANEL": "#1C1916", "SURFACE": "#26221E", "SURFACE_HI": "#302B26", "BORDER": "#3A332C"},
+    "midnight": {"name": "Midnight blue", "BG": "#0A0E16", "PANEL": "#101725", "SURFACE": "#182133", "SURFACE_HI": "#202B40", "BORDER": "#29354B"},
+    # Neon themes: their own accent colours (a gradient plus a second accent) and a soft glow.
+    # The video area stays black; only the controls, panels and highlights light up.
+    "neon":      {"name": "Neon", "BG": "#000000", "PANEL": "#06060A", "SURFACE": "#101018", "SURFACE_HI": "#181826",
+                  "BORDER": "#26263C", "vibe": {"stops": ["#00F0FF", "#FF2BD6"], "accent2": "#FF2BD6", "glow": True}},
+    "sunset":    {"name": "Sunset", "BG": "#0E070F", "PANEL": "#170A17", "SURFACE": "#26101F", "SURFACE_HI": "#331628",
+                  "BORDER": "#45203A", "panel_grad": ("#24102A", "#10070E"),
+                  "vibe": {"stops": ["#FF9A1F", "#FF3D7F", "#A24DFF"], "accent2": "#FF3D7F", "glow": True}},
+    "aurora":    {"name": "Aurora", "BG": "#040C0D", "PANEL": "#071214", "SURFACE": "#0E2125", "SURFACE_HI": "#132C30",
+                  "BORDER": "#1B3B3F", "panel_grad": ("#0A1E21", "#060C12"),
+                  "vibe": {"stops": ["#3DFFA0", "#22D3EE", "#A06BFF"], "accent2": "#22D3EE", "glow": True}},
+    "synthwave": {"name": "Synthwave", "BG": "#0A0720", "PANEL": "#120C2E", "SURFACE": "#1D1545", "SURFACE_HI": "#271C57",
+                  "BORDER": "#352868", "panel_grad": ("#1C1040", "#0C0822"),
+                  "vibe": {"stops": ["#FF2E97", "#B84DFF", "#4D7CFF"], "accent2": "#2DE2E6", "glow": True}},
+}
+_theme = "dark"
+_vibe = None          # the neon theme's colours while one is active
+_panel_grad = None    # (top, bottom) for a gently graded side panel
+
+
+def tint_palette(color: str) -> dict:
+    """Dark shades of any colour, kept dark enough that light text stays readable."""
+    from PySide6.QtGui import QColor
+    c = QColor(color)
+    if not c.isValid():
+        return dict(THEMES["dark"])
+    h = max(0, c.hslHueF())
+    s = min(0.45, c.hslSaturationF())
+    shade = lambda l: QColor.fromHslF(h, s, l).name().upper()
+    return {"name": "Custom", "BG": shade(0.05), "PANEL": shade(0.08), "SURFACE": shade(0.12),
+            "SURFACE_HI": shade(0.155), "BORDER": shade(0.19)}
+
+
+def set_theme(name: str, tint: str = ""):
+    """Switch the background palette ("dark", "black", "warm", "midnight" or "custom" with a tint colour)."""
+    global BG, PANEL, SURFACE, SURFACE_HI, BORDER, _theme, _vibe, _panel_grad
+    pal = tint_palette(tint) if name == "custom" and tint else THEMES.get(name, THEMES["dark"])
+    _theme = name if (name in THEMES or (name == "custom" and tint)) else "dark"
+    BG, PANEL, SURFACE, SURFACE_HI, BORDER = pal["BG"], pal["PANEL"], pal["SURFACE"], pal["SURFACE_HI"], pal["BORDER"]
+    _vibe = pal.get("vibe")
+    _panel_grad = pal.get("panel_grad")
+
+
+def rgb(hex_color: str):
+    c = hex_color.lstrip("#")
+    return int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+
 
 def accent() -> str:
+    """Main highlight colour: the user's accent, or the neon theme's first colour."""
+    return _vibe["stops"][0] if _vibe else _accent
+
+
+def user_accent() -> str:
     return _accent
+
+
+def accent2() -> str:
+    """Second highlight colour (selected tabs, chips, list items) for mix-and-match neon themes."""
+    return _vibe.get("accent2", accent()) if _vibe else _accent
+
+
+def stops() -> list:
+    return list(_vibe["stops"]) if _vibe else [_accent]
+
+
+def glow() -> bool:
+    return bool(_vibe and _vibe.get("glow"))
+
+
+def is_vibe(name: str) -> bool:
+    return "vibe" in THEMES.get(name, {})
+
+
+def brush(x0: float, x1: float):
+    """A QBrush/QColor for accent fills: a horizontal gradient on neon themes, else the flat accent."""
+    from PySide6.QtGui import QColor, QLinearGradient
+    st = stops()
+    if len(st) == 1:
+        return QColor(st[0])
+    g = QLinearGradient(x0, 0, max(x0 + 1, x1), 0)
+    for i, c in enumerate(st):
+        g.setColorAt(i / (len(st) - 1), QColor(c))
+    return g
+
+
+def css_gradient(vertical=False) -> str:
+    st = stops()
+    if len(st) == 1:
+        return st[0]
+    end = "x2:0, y2:1" if vertical else "x2:1, y2:0"
+    parts = ", ".join(f"stop:{i / (len(st) - 1):.2f} {c}" for i, c in enumerate(st))
+    return f"qlineargradient(x1:0, y1:0, {end}, {parts})"
 
 
 def on_accent() -> str:
@@ -39,11 +134,15 @@ def set_accent(color: str) -> None:
 
 
 def stylesheet() -> str:
-    a = _accent
+    a = accent()
+    a2 = accent2()
+    ag = css_gradient()
+    panel = (f"qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {_panel_grad[0]}, stop:1 {_panel_grad[1]})"
+             if _panel_grad else PANEL)
     return f"""
     * {{ font-family: "Segoe UI Variable Text", "Segoe UI", ".AppleSystemUIFont", "SF Pro Text", "Helvetica Neue", "Inter", "Cantarell", "Ubuntu", "Noto Sans", "DejaVu Sans", sans-serif; font-size: 13px; color: {TEXT}; }}
     QMainWindow, QDialog {{ background: {BG}; }}
-    QWidget#Panel {{ background: {PANEL}; }}
+    QWidget#Panel {{ background: {panel}; }}
     QWidget#Home, QWidget#NowPlaying {{ background: {BG}; }}
     QLabel#H1 {{ font-size: 22px; font-weight: 600; }}
     QLabel#H2 {{ font-size: 15px; font-weight: 600; }}
@@ -56,20 +155,20 @@ def stylesheet() -> str:
     QPushButton {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: {RADIUS}px; padding: 6px 12px; }}
     QPushButton:hover {{ background: {SURFACE_HI}; }}
     QPushButton:pressed {{ background: {BORDER}; }}
-    QPushButton:checked {{ border-color: {a}; color: {a}; }}
-    QPushButton#Primary {{ background: {a}; border-color: {a}; color: #111; font-weight: 600; }}
-    QPushButton#Primary:hover {{ background: {a}; }}
+    QPushButton:checked {{ border-color: {a2}; color: {a2}; }}
+    QPushButton#Primary {{ background: {ag}; border-color: {a}; color: #111; font-weight: 600; }}
+    QPushButton#Primary:hover {{ background: {ag}; }}
     QPushButton#Chip {{ background: transparent; border: 1px solid {BORDER}; padding: 3px 10px; color: {TEXT}; }}
     QPushButton#Chip:hover {{ border-color: {a}; color: {a}; }}
-    QPushButton#ResumeChip {{ background: {a}; color: #111; border: none; font-weight: 600; padding: 4px 12px; }}
+    QPushButton#ResumeChip {{ background: {ag}; color: #111; border: none; font-weight: 600; padding: 4px 12px; }}
 
     QToolButton {{ background: transparent; border: none; border-radius: {RADIUS}px; padding: 4px; }}
     QToolButton:hover {{ background: rgba(255,255,255,0.08); }}
     QToolButton:checked {{ background: rgba(255,255,255,0.10); }}
     QToolButton::menu-indicator {{ image: none; width: 0; }}
-    QListWidget#InsetList {{ background: #0E0E0E; border: 1px solid {BORDER}; border-radius: {RADIUS}px; padding: 4px; }}
-    QToolButton#PlayButton {{ background: {a}; border-radius: 9px; padding: 0; }}
-    QToolButton#PlayButton:hover {{ background: {a}; border: 2px solid rgba(255,255,255,0.35); }}
+    QListWidget#InsetList {{ background: {BG}; border: 1px solid {BORDER}; border-radius: {RADIUS}px; padding: 4px; }}
+    QToolButton#PlayButton {{ background: {ag}; border-radius: 9px; padding: 0; }}
+    QToolButton#PlayButton:hover {{ background: {ag}; border: 2px solid rgba(255,255,255,0.35); }}
 
     QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QKeySequenceEdit {{
         background: {SURFACE}; border: 1px solid {BORDER}; border-radius: {RADIUS}px; padding: 5px 8px; selection-background-color: {a}; }}
@@ -78,7 +177,7 @@ def stylesheet() -> str:
     QComboBox QAbstractItemView {{ background: {SURFACE}; border: 1px solid {BORDER}; selection-background-color: {SURFACE_HI}; selection-color: {a}; outline: 0; }}
 
     QSlider::groove:horizontal {{ height: 6px; background: {SURFACE_HI}; border-radius: 2px; }}
-    QSlider::sub-page:horizontal {{ background: {a}; border-radius: 2px; }}
+    QSlider::sub-page:horizontal {{ background: {ag}; border-radius: 2px; }}
     QSlider::handle:horizontal {{ background: {TEXT}; width: 12px; margin: -5px 0; border-radius: 2px; }}
 
     QCheckBox {{ spacing: 8px; }}
@@ -90,12 +189,12 @@ def stylesheet() -> str:
     QListWidget, QTreeWidget, QTableWidget {{ background: transparent; border: none; outline: 0; }}
     QListWidget::item, QTreeWidget::item {{ padding: 6px 6px; border-radius: {RADIUS}px; }}
     QListWidget::item:hover, QTreeWidget::item:hover {{ background: {SURFACE}; }}
-    QListWidget::item:selected, QTreeWidget::item:selected {{ background: {SURFACE_HI}; color: {a}; }}
+    QListWidget::item:selected, QTreeWidget::item:selected {{ background: {SURFACE_HI}; color: {a2}; }}
     QHeaderView::section {{ background: {PANEL}; color: {MUTED}; border: none; border-bottom: 1px solid {BORDER}; padding: 6px; }}
     QTableWidget {{ gridline-color: {BORDER}; }}
 
     QTabBar::tab {{ background: transparent; color: {MUTED}; padding: 8px 6px; border: none; border-bottom: 2px solid transparent; }}
-    QTabBar::tab:selected {{ color: {TEXT}; border-bottom: 2px solid {a}; }}
+    QTabBar::tab:selected {{ color: {TEXT}; border-bottom: 2px solid {a2}; }}
     QTabBar::tab:hover {{ color: {TEXT}; }}
     QTabWidget::pane {{ border: none; border-top: 1px solid {BORDER}; }}
 

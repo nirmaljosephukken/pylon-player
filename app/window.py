@@ -335,7 +335,7 @@ class MainWindow(QMainWindow):
             self.install_desktop_entry(quiet=True)
         d = WelcomeDialog(self)
         if d.exec():
-            if d.color != theme.accent():
+            if d.color != theme.user_accent():
                 self.store.set_setting("accent", d.color)
                 self.apply_theme()
         self.store.set_setting("onboarded", True)
@@ -354,6 +354,7 @@ class MainWindow(QMainWindow):
             pass
 
     def apply_theme(self):
+        theme.set_theme(self.store.setting("theme"), self.store.setting("theme_tint"))
         theme.set_accent(self.store.setting("accent"))
         QApplication.instance().setStyleSheet(theme.stylesheet())
         widgets = self.findChildren(IconButton)
@@ -366,6 +367,10 @@ class MainWindow(QMainWindow):
         self.library.refresh_queue()
         self.bottom.update()
         self.bottom.cone.update()
+        self.bottom.apply_glow()
+        self.top.update()
+        self.osd.update()
+        self.library.refresh_music() if self.library.stack.currentIndex() == 4 else None
 
     # ================================================================ pages / panels
     def show_home(self):

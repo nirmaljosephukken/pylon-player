@@ -124,8 +124,15 @@ class SeekBar(QWidget):
             p.drawRoundedRect(QRectF(0, top, self._hover_x, th), 2, 2)
         if self.length:
             frac = min(1.0, self.position / self.length)
-            p.setBrush(QColor(theme.accent()))
-            p.drawRoundedRect(QRectF(0, top, w * frac, th), 2, 2)
+            fill = QRectF(0, top, w * frac, th)
+            if theme.glow() and frac > 0:          # neon themes: soft light around the bar
+                for grow, alpha in ((5, 28), (3, 45), (1.5, 70)):
+                    gc = QColor(theme.accent2())
+                    gc.setAlpha(alpha)
+                    p.setBrush(gc)
+                    p.drawRoundedRect(fill.adjusted(-grow, -grow, grow, grow), 2 + grow, 2 + grow)
+            p.setBrush(theme.brush(0, w))
+            p.drawRoundedRect(fill, 2, 2)
             # chapter gaps
             p.setBrush(QColor(0, 0, 0, 170))
             for c in self.chapters:
@@ -220,7 +227,7 @@ class ConeVolume(QWidget):
         frac = self.value / self.MAX
         p.save()
         p.setClipRect(QRectF(0, 0, 1 + w * frac + (1 if frac >= 1 else 0), self.height()))
-        p.setBrush(QColor(theme.FAINT if self.muted else theme.accent()))
+        p.setBrush(QColor(theme.FAINT) if self.muted else theme.brush(0, self.width()))
         p.drawPath(shape)
         p.restore()
         # 100% mark: a thin gap across the cone
@@ -254,21 +261,23 @@ class OverlayWindow(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(self.rect())
+        br, bg_, bb = theme.rgb(theme.BG)
         if self.solid and self.gradient in ("up", "down"):
-            p.fillRect(r, QColor(16, 16, 16))
+            p.fillRect(r, QColor(theme.PANEL))
         elif self.gradient == "up":       # bottom bar: dark at the bottom
             g = QLinearGradient(0, 0, 0, r.height())
-            g.setColorAt(0, QColor(10, 10, 10, int(self.alpha * 0.55)))
-            g.setColorAt(1, QColor(10, 10, 10, self.alpha))
+            g.setColorAt(0, QColor(br, bg_, bb, int(self.alpha * 0.55)))
+            g.setColorAt(1, QColor(br, bg_, bb, self.alpha))
             p.fillRect(r, QBrush(g))
         elif self.gradient == "down":   # top bar
             g = QLinearGradient(0, 0, 0, r.height())
-            g.setColorAt(0, QColor(10, 10, 10, self.alpha))
-            g.setColorAt(1, QColor(10, 10, 10, int(self.alpha * 0.55)))
+            g.setColorAt(0, QColor(br, bg_, bb, self.alpha))
+            g.setColorAt(1, QColor(br, bg_, bb, int(self.alpha * 0.55)))
             p.fillRect(r, QBrush(g))
         else:
+            sr, sg, sb = theme.rgb(theme.SURFACE)
             p.setPen(QPen(QColor(255, 255, 255, 28), 1))
-            p.setBrush(QColor(20, 20, 20, self.alpha))
+            p.setBrush(QColor(sr, sg, sb, self.alpha))
             p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), self.radius, self.radius)
         p.end()
 
@@ -461,7 +470,7 @@ class ProgressLine(QWidget):
         p.setBrush(QColor(255, 255, 255, 38))
         p.drawRoundedRect(r, 2, 2)
         if self.value > 0:
-            p.setBrush(QColor(theme.accent()))
+            p.setBrush(theme.brush(0, r.width()))
             p.drawRoundedRect(QRectF(0, 0, max(4.0, r.width() * self.value), r.height()), 2, 2)
         p.end()
 

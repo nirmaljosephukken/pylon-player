@@ -327,6 +327,13 @@ ACCENTS = [("Cone orange", "#FF8800"), ("Amber", "#FFB300"), ("Red", "#F0483E"),
            ("Violet", "#9B6BFF"), ("Blue", "#3D8BFF"), ("Teal", "#1EC7B2"), ("Green", "#52C35A")]
 
 
+def muted_note(text):
+    lab = QLabel(text)
+    lab.setObjectName("Muted")
+    lab.setWordWrap(True)
+    return lab
+
+
 class PreferencesDialog(QDialog):
     """Settings grouped in plain words, each with an info icon."""
 
@@ -379,6 +386,8 @@ class PreferencesDialog(QDialog):
         grid = QGridLayout()
         grid.setSpacing(8)
         cur = self.store.setting("accent")
+        if theme.is_vibe(self.store.setting("theme")):
+            f.addWidget(muted_note("The current neon theme uses its own colours. Your accent colour returns when you pick a non-neon theme."))
         for i, (name, col) in enumerate(ACCENTS):
             b = QPushButton(name)
             b.setStyleSheet(f"QPushButton {{ border-left: 16px solid {col}; text-align: left; padding-left: 10px; }}"
@@ -389,6 +398,65 @@ class PreferencesDialog(QDialog):
         custom.clicked.connect(self._custom_accent)
         grid.addWidget(custom, 2, 0)
         f.addLayout(grid)
+        f.addSpacing(10)
+        self._theme_section(f)
+
+    def _theme_section(self, f):
+        f.addWidget(info_label("Theme", "The background colours of Pylon. Text always stays light, so it's easy to read."))
+        cur = self.store.setting("theme") or "dark"
+
+        def chip(key, pal):
+            b = QPushButton(pal["name"])
+            v = pal.get("vibe")
+            left = v["stops"][0] if v else pal["BG"]
+            right = v["stops"][-1] if v else pal["SURFACE"]
+            on = key == cur
+            b.setStyleSheet(f"QPushButton {{ background: {pal['SURFACE']}; border-left: 14px solid {left}; "
+                            f"border-right: 6px solid {right}; text-align: left; padding-left: 10px; "
+                            + (f"border-top: 1px solid {theme.accent2()}; border-bottom: 1px solid {theme.accent2()}; "
+                               f"color: {theme.accent2()}; " if on else "") + "}")
+            b.clicked.connect(lambda _=False, k=key: self._set_theme(k))
+            return b
+
+        grid = QGridLayout()
+        grid.setSpacing(8)
+        plain = [(k, t) for k, t in theme.THEMES.items() if "vibe" not in t]
+        neon = [(k, t) for k, t in theme.THEMES.items() if "vibe" in t]
+        for i, (k, t) in enumerate(plain):
+            grid.addWidget(chip(k, t), i // 2, i % 2)
+        tint = self.store.setting("theme_tint")
+        custom = QPushButton("Custom tint (on)…" if cur == "custom" and tint else "Custom tint…")
+        if cur == "custom" and tint:
+            pal = theme.tint_palette(tint)
+            custom.setStyleSheet(f"QPushButton {{ background: {pal['SURFACE']}; border-left: 14px solid {tint}; "
+                                 f"color: {theme.accent2()}; text-align: left; padding-left: 10px; }}")
+        custom.setToolTip("Pick any colour; Pylon uses dark shades of it for the background.")
+        custom.clicked.connect(self._custom_theme)
+        row = (len(plain) + 1) // 2
+        grid.addWidget(custom, row, 0, 1, 2)
+        f.addLayout(grid)
+        f.addSpacing(6)
+        f.addWidget(info_label("Neon", "Black or deep-tinted backgrounds with glowing gradient highlights. "
+                                       "These use their own colours instead of your accent colour."))
+        g2 = QGridLayout()
+        g2.setSpacing(8)
+        for i, (k, t) in enumerate(neon):
+            g2.addWidget(chip(k, t), i // 2, i % 2)
+        f.addLayout(g2)
+
+    def _set_theme(self, key, tint=None):
+        self.store.set_setting("theme", key)
+        if tint is not None:
+            self.store.set_setting("theme_tint", tint)
+        self.win.apply_theme()
+        self.accept()
+        self.win.toast("Theme: " + (theme.THEMES[key]["name"] if key in theme.THEMES else "Custom tint"))
+
+    def _custom_theme(self):
+        start = self.store.setting("theme_tint") or "#3D5A80"
+        c = QColorDialog.getColor(QColor(start), self, "Background tint")
+        if c.isValid():
+            self._set_theme("custom", c.name())
 
     def _set_accent(self, c):
         self.store.set_setting("accent", c)

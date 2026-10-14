@@ -60,6 +60,8 @@ DEFAULT_SETTINGS = {
     "vlc_dir": "",
     "desktop_entry": "",
     "seek_previews": True,      # preview pictures when hovering the seek bar
+    "theme": "dark",            # dark | black | warm | midnight | custom
+    "theme_tint": "",           # colour for the custom theme
     "pin_controls": False,      # keep the bars shown (and the video clear of them) outside fullscreen
 }
 
