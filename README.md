@@ -15,11 +15,21 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 
 ![Library, queue and settings sidebar](docs/panels.png)
 
-**New in 1.2:** preview pictures on the seek bar, and a music library sorted by artist and album.
+## What's new
+
+**1.3:** Themes. Dark, Pitch black, Warm grey and Midnight blue, a custom tint from any colour, and four **neon themes** (Neon, Sunset, Aurora, Synthwave) with gradient highlights and a soft glow. Preferences > General > Theme.
+
+![The four neon themes: Neon, Sunset, Aurora and Synthwave](docs/themes.png)
+
+**1.2.1:** Polish from the first round of user feedback. A Sharpen slider, an option to keep the controls visible outside fullscreen, a new play button and a rounder volume cone, watch progress on the home page, cleaner titles, and a tidier settings panel.
+
+**1.2:** Preview pictures on the seek bar, and a music library sorted by artist and album.
 
 ![Preview picture while hovering the seek bar](docs/seek-preview.png)
 
 ![Music library: artists, albums and songs with cover art](docs/music.png)
+
+Full history on the [Releases](../../releases) page.
 
 ## Credit
 
@@ -92,7 +102,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **Playback** | Speed, sleep timer (including "end of this file"), repeat, and media info. |
 | **Music** | Songs from your library folders, sorted by **artist, album and song**, with cover art from the files. Open an album and press Play, or double-click any song. |
 | **Library** | Opens from the folder name in the top bar without leaving the video. Back, forward, up, address bar, search, sorting (including unwatched first), pins, recent files, playlists and streams. |
-| **Continue watching** | A home page with what you were watching, plus a "Continue from 12:34" button next to the play controls. |
+| **Continue watching** | A home page with what you were watching and how far you got, plus a "Continue from 12:34" button next to the play controls. Playlists show how many items you've watched. |
 | **Streams** | Paste a link or a channel list (`.m3u`) and it becomes a queue of channels. |
 | **Bookmarks** | `Ctrl+B` adds one instantly. A list with chapters in the sidebar. |
 | **Shortcut hints** | On-screen messages show which key you pressed. Every shortcut can be changed (`F1`). |
