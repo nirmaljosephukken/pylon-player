@@ -2,6 +2,9 @@
 
 **A calmer, redesigned interface for the VLC engine, for Windows, Linux and (experimentally) macOS.**
 
+**Download:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.1.1.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.1.1-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.1.1-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)  
+You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
+
 Pylon puts a new interface on top of libVLC, the engine inside VLC media player. VLC still does all the playback, decoding, subtitles and streaming, so Pylon plays everything VLC plays. The interface is built around the way people actually watch: quiet bars that get out of the way, a thick seek bar, subtitle timing you can see, per-show presets, and a library and queue you can reach without leaving the video.
 
 > **Beta.** Tested on Windows 10/11 and Ubuntu; the macOS build hasn't been tried on a real Mac yet. Bug reports are very welcome.
