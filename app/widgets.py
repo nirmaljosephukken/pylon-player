@@ -30,6 +30,23 @@ class IconButton(QToolButton):
         self._name = name
         self.refresh()
 
+    def set_dot(self, on: bool):
+        """A small accent-coloured dot in the corner, for a mode that is switched on."""
+        self._dot = bool(on)
+        self.update()
+
+    def paintEvent(self, e):
+        super().paintEvent(e)
+        if getattr(self, "_dot", False):
+            from PySide6.QtGui import QPainter
+            p = QPainter(self)
+            p.setRenderHint(QPainter.Antialiasing)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(theme.accent()))
+            r = max(3.0, self.width() / 9)
+            p.drawEllipse(QPointF(self.width() - r - 2, r + 2), r, r)
+            p.end()
+
     def refresh(self):
         c = self._color() if callable(self._color) else self._color
         if c:
@@ -514,6 +531,29 @@ class Card(QWidget):
         if progress is not None:          # how far you've watched, as a thin bar at the bottom of the card
             lay.addSpacing(4)
             lay.addWidget(ProgressLine(progress))
+
+        self._corner = None
+
+    def add_corner_button(self, name: str, tip: str, callback):
+        """A small round button in the top-right corner that shows while the mouse is over the card."""
+        b = IconButton(name, tip, size=18, box=30, parent=self)
+        b.setObjectName("CardCorner")
+        b.move(self.width() - 30 - 8, 8)
+        b.clicked.connect(lambda *_: callback())    # clicked(bool) would land in the callback's arguments
+        b.hide()
+        self._corner = b
+        return b
+
+    def enterEvent(self, e):
+        if self._corner:
+            self._corner.show()
+            self._corner.raise_()
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        if self._corner:
+            self._corner.hide()
+        super().leaveEvent(e)
 
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.LeftButton and self.rect().contains(e.position().toPoint()):

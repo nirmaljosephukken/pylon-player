@@ -1,6 +1,7 @@
 """Dialogs: add subtitles (file / folder / queue with auto-matching), network
 stream, keyboard shortcuts, preferences, and the first-run welcome."""
 import os
+import sys
 
 from PySide6.QtCore import QSize, Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QKeySequence
@@ -552,6 +553,19 @@ class PreferencesDialog(QDialog):
         b = QPushButton("Clear history now")
         b.clicked.connect(self._clear)
         f.addWidget(b)
+        cb_up = QCheckBox("Check for new versions of Pylon once a day")
+        cb_up.setToolTip("Pylon asks GitHub for its list of releases. Nothing about you or your files is sent.")
+        cb_up.setChecked(bool(self.store.setting("check_updates")))
+        cb_up.toggled.connect(lambda v: self.store.set_setting("check_updates", v))
+        f.addWidget(cb_up)
+        up_row = QHBoxLayout()
+        up_now = QPushButton("Check now")
+        up_now.clicked.connect(lambda: self.win.check_for_updates(manual=True))
+        up_row.addWidget(up_now)
+        up_row.addStretch(1)
+        f.addLayout(up_row)
+        f.addWidget(muted_note("This is the only time Pylon goes online by itself. It's an anonymous request "
+                               "for the release list on GitHub; nothing about you or your files is sent."))
         lab = QLabel(f"Your data is stored only on this computer:\n{self.store.path}")
         lab.setObjectName("Muted")
         lab.setWordWrap(True)
@@ -655,3 +669,136 @@ class WelcomeDialog(QDialog):
 
     def _pick(self, c):
         self.color = c
+
+
+# ====================================================================== updates
+
+class UpdateDialog(QDialog):
+    """Shown when a newer Pylon is out: what's new, and Update now / Later / Skip."""
+
+    def __init__(self, win, release: dict):
+        super().__init__(win)
+        from PySide6.QtWidgets import QProgressBar, QTextBrowser
+        from . import APP_VERSION
+        from .updates import installer_asset, RELEASES_PAGE
+        self.win = win
+        self.release = release
+        self.checker = win.updater
+        self.tag = (release.get("tag_name") or "").lstrip("vV")
+        self.asset = installer_asset(release) if sys.platform == "win32" else None
+        self.page = release.get("html_url") or RELEASES_PAGE
+        self.setWindowTitle("Update available")
+        self.resize(560, 440)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 18, 20, 16)
+        lay.setSpacing(10)
+        t = QLabel(f"Pylon {self.tag} is out")
+        t.setObjectName("H1")
+        lay.addWidget(t)
+        how = ("Update now downloads the installer and closes Pylon so it can install. "
+               "Your library, presets and settings are kept.") if self.asset else \
+              "Download it from the release page. Your library, presets and settings are kept."
+        sub = QLabel(f"You have {APP_VERSION}. {how}")
+        sub.setObjectName("Muted")
+        sub.setWordWrap(True)
+        lay.addWidget(sub)
+        notes = QTextBrowser()
+        notes.setOpenExternalLinks(True)
+        body = (release.get("body") or "").strip()
+        # the downloads table and checksums aren't useful here
+        body = body.split("### Downloads")[0].split("## Downloads")[0].strip()
+        if body.startswith("#"):            # the release title repeats the heading above
+            body = body.split("\n", 1)[1].strip() if "\n" in body else ""
+        notes.setMarkdown(body or "See the release page for what's new.")
+        lay.addWidget(notes, 1)
+        self.bar = QProgressBar()
+        self.bar.setTextVisible(True)
+        self.bar.hide()
+        lay.addWidget(self.bar)
+        self.status = QLabel("")
+        self.status.setObjectName("Muted")
+        self.status.setWordWrap(True)
+        self.status.hide()
+        lay.addWidget(self.status)
+
+        row = QHBoxLayout()
+        self.skip = QPushButton("Skip this version")
+        self.skip.clicked.connect(self._skip)
+        row.addWidget(self.skip)
+        row.addStretch(1)
+        self.later = QPushButton("Later")
+        self.later.clicked.connect(self.reject)
+        row.addWidget(self.later)
+        self.go = QPushButton("Update now" if self.asset else "Open download page")
+        self.go.setObjectName("Primary")
+        self.go.setDefault(True)
+        self.go.clicked.connect(self._go)
+        row.addWidget(self.go)
+        lay.addLayout(row)
+
+        c = self.checker
+        c.download_progress.connect(self._progress)
+        c.downloaded.connect(self._downloaded)
+        c.download_failed.connect(self._failed)
+        self._downloading = False
+
+    def _skip(self):
+        self.win.store.set_setting("skipped_version", self.tag)
+        self.reject()
+
+    def _go(self):
+        if not self.asset:
+            QDesktopServices.openUrl(QUrl(self.page))
+            self.accept()
+            return
+        self._downloading = True
+        self.go.setEnabled(False)
+        self.skip.setEnabled(False)
+        self.later.setText("Cancel")
+        self.bar.setRange(0, 0)
+        self.bar.show()
+        self.status.setText("Downloading the installer…")
+        self.status.show()
+        self.checker.download(self.asset)
+
+    def _progress(self, done, total):
+        if total > 0:
+            self.bar.setRange(0, 1000)
+            self.bar.setValue(int(done * 1000 / total))
+            self.bar.setFormat(f"{done / 1048576:.1f} of {total / 1048576:.1f} MB")
+
+    def _downloaded(self, path):
+        from .updates import run_installer
+        self._downloading = False
+        self.status.setText("Starting the installer. Pylon will close now.")
+        if run_installer(path):
+            self.accept()
+            self.win.quit_for_update()
+        else:
+            self._failed("Couldn't start the installer")
+
+    def _failed(self, why):
+        self._downloading = False
+        self.bar.hide()
+        self.go.setEnabled(True)
+        self.go.setText("Open download page")
+        self.asset = None
+        self.later.setText("Later")
+        self.status.setText(f"The download didn't work ({why}). You can get the installer from the release page instead.")
+        self.status.show()
+
+    def reject(self):
+        if self._downloading:
+            self.checker.cancel()
+            self._downloading = False
+        super().reject()
+
+    def done(self, r):
+        c = self.checker
+        for sig, fn in ((c.download_progress, self._progress), (c.downloaded, self._downloaded),
+                        (c.download_failed, self._failed)):
+            try:
+                sig.disconnect(fn)
+            except (RuntimeError, TypeError):
+                pass
+        super().done(r)

@@ -63,6 +63,9 @@ DEFAULT_SETTINGS = {
     "theme": "dark",            # dark | black | warm | midnight | custom
     "theme_tint": "",           # colour for the custom theme
     "pin_controls": False,      # keep the bars shown (and the video clear of them) outside fullscreen
+    "check_updates": True,      # ask GitHub once a day whether a newer Pylon is out
+    "last_update_check": 0,
+    "skipped_version": "",
 }
 
 

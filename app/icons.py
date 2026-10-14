@@ -51,6 +51,7 @@ ICONS = {
     "search": f'<circle {_S} cx="11" cy="11" r="6.5"/><path {_S} d="M16 16l4 4"/>',
     "sort": f'<path {_S} d="M7 5v14M4 16l3 3 3-3M17 19V5M14 8l3-3 3 3"/>',
     "check": f'<path {_S} d="M5 12.5l4.5 4.5L19 7.5"/>',
+    "check_all": f'<path {_S} d="M2 12.5l4.5 4.5L16.5 7M11.6 15.6l1.4 1.4L22.5 7.5"/>',
     "trash": f'<path {_S} d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/>',
     "chevron_right": f'<path {_S} d="M9.5 6l6 6-6 6"/>',
     "chevron_left": f'<path {_S} d="M14.5 6l-6 6 6 6"/>',
@@ -71,7 +72,7 @@ ICONS = {
     "save": f'<path {_S} d="M5 4h11l3 3v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/><path {_S} d="M8 4v5h7V4M8 20v-6h8v6"/>',
     "drag": f'<circle {_F} cx="9" cy="6" r="1.4"/><circle {_F} cx="15" cy="6" r="1.4"/><circle {_F} cx="9" cy="12" r="1.4"/><circle {_F} cx="15" cy="12" r="1.4"/><circle {_F} cx="9" cy="18" r="1.4"/><circle {_F} cx="15" cy="18" r="1.4"/>',
     # App mark: an accent tile with a striped play arrow (original design, not the VLC logo)
-    "cone": '<rect fill="{c}" x="2" y="2" width="20" height="20" rx="4.5"/><path fill="#111111" d="M9 6.8v10.4a.7.7 0 0 0 1.05.6l8.2-5.2a.7.7 0 0 0 0-1.2l-8.2-5.2A.7.7 0 0 0 9 6.8z"/><path fill="{c}" d="M8.6 9.75h6.9v1.35H8.6zM8.6 12.9h6.9v1.35H8.6z"/>',
+    "cone": '<rect fill="{c}" x="2" y="2" width="20" height="20" rx="4.5"/><g transform="translate(-0.8 0)"><path fill="#111111" d="M9 6.8v10.4a.7.7 0 0 0 1.05.6l8.2-5.2a.7.7 0 0 0 0-1.2l-8.2-5.2A.7.7 0 0 0 9 6.8z"/><path fill="{c}" d="M8.6 9.75h6.9v1.35H8.6zM8.6 12.9h6.9v1.35H8.6z"/></g>',   # nudged left so it looks centred
 }
 
 

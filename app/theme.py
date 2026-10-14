@@ -220,4 +220,6 @@ def stylesheet() -> str:
     QFrame#Divider {{ background: {BORDER}; max-height: 1px; min-height: 1px; border: none; }}
     QFrame#Card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: {RADIUS + 2}px; }}
     QFrame#Card:hover {{ border-color: {a}; }}
+    QToolButton#CardCorner {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 15px; padding: 0; }}
+    QToolButton#CardCorner:hover {{ border-color: {a}; background: {PANEL}; }}
     """

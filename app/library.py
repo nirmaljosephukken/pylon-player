@@ -15,7 +15,7 @@ import sys
 import time
 
 from PySide6.QtCore import QMimeData, QSize, Qt, QUrl, Signal
-from PySide6.QtGui import QAction, QColor, QDrag, QFont, QIcon, QPixmap
+from PySide6.QtGui import QAction, QColor, QDrag, QFont, QIcon, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
                                QPushButton, QSplitter, QStackedWidget, QStyle, QStyledItemDelegate,
@@ -226,13 +226,16 @@ class LibraryPanel(QWidget):
         qh.addWidget(qt)
         qh.addWidget(self.queue_count)
         qh.addStretch(1)
+        self._unshuffled = None          # the queue's order before shuffling (None = shuffle is off)
         for ic, tip, fn in (("plus", "Add files to the queue", self._add_files_to_queue),
-                            ("shuffle", "Shuffle", self._shuffle),
+                            ("shuffle", SHUFFLE_OFF_TIP, self._shuffle),
                             ("save", "Save queue as a playlist", self._save_queue_as_playlist),
                             ("trash", "Clear queue", lambda: win.set_queue([], -1))):
             b = IconButton(ic, tip, size=16)
-            b.clicked.connect(fn)
+            b.clicked.connect(lambda *_, fn=fn: fn())
             qh.addWidget(b)
+            if ic == "shuffle":
+                self.shuffle_btn = b
         ql.addLayout(qh)
         self.queue = QueueList()
         self.queue.itemDoubleClicked.connect(lambda it: win.play_queue_index(self.queue.row(it)))
@@ -240,6 +243,10 @@ class LibraryPanel(QWidget):
         self.queue.reordered.connect(self._queue_reordered)
         self.queue.setContextMenuPolicy(Qt.CustomContextMenu)
         self.queue.customContextMenuRequested.connect(self._queue_menu)
+        for seq in (QKeySequence.Delete, QKeySequence(Qt.Key_Backspace)):
+            sc = QShortcut(seq, self.queue)
+            sc.setContext(Qt.WidgetShortcut)
+            sc.activated.connect(self._queue_delete_key)
         ql.addWidget(self.queue)
         hint = QLabel("Drag files here from the library or from your folders")
         hint.setObjectName("Muted")
@@ -1030,9 +1037,12 @@ class LibraryPanel(QWidget):
         for i, item in enumerate(self.win.queue):
             p = item["path"]
             playing = i == self.win.qindex
+            watched = not is_url(p) and self.store.position(p).get("watched")
             it = QListWidgetItem(item.get("title") or display_name(p))
-            it.setIcon(icon("play" if playing else ("stream" if is_url(p) else "drag"),
+            it.setIcon(icon("play" if playing else ("stream" if is_url(p) else ("check" if watched else "drag")),
                             theme.accent() if playing else theme.FAINT, 16))
+            if watched and not playing:
+                it.setForeground(QColor(theme.MUTED))
             if playing:
                 f = it.font()
                 f.setBold(True)
@@ -1051,41 +1061,115 @@ class LibraryPanel(QWidget):
     def _queue_reordered(self, order):
         self.win.reorder_queue(order)
 
+    def _queue_rows(self, it=None):
+        """Rows the menu acts on: the selection if the clicked item is part of it, else just that item."""
+        if it is not None and not it.isSelected():
+            return [self.queue.row(it)]
+        return sorted(self.queue.row(i) for i in self.queue.selectedItems())
+
     def _queue_menu(self, pos):
         it = self.queue.itemAt(pos)
         m = QMenu(self)
         if it:
-            rows = sorted({self.queue.row(i) for i in self.queue.selectedItems()} | {self.queue.row(it)})
-            m.addAction(icon("play", theme.TEXT, 16), "Play", lambda: self.win.play_queue_index(self.queue.row(it)))
-            m.addAction(icon("trash", theme.TEXT, 16), "Remove from queue", lambda: self.win.remove_from_queue(rows))
+            rows = self._queue_rows(it)
+            n = len(rows)
+            files = [self.win.queue[r]["path"] for r in rows
+                     if 0 <= r < len(self.win.queue) and not is_url(self.win.queue[r]["path"])]
+            if n == 1:
+                m.addAction(icon("play", theme.TEXT, 16), "Play", lambda: self.win.play_queue_index(self.queue.row(it)))
+            if files:
+                seen = [f for f in files if self.store.position(f).get("watched")]
+                unseen = [f for f in files if f not in seen]
+                if unseen:
+                    m.addAction(icon("check_all", theme.TEXT, 16),
+                                f"Mark as watched ({len(unseen)})" if n > 1 else "Mark as watched",
+                                lambda: self._mark_queue(unseen, True))
+                if seen:
+                    m.addAction(f"Mark as unwatched ({len(seen)})" if n > 1 else "Mark as unwatched",
+                                lambda: self._mark_queue(seen, False))
+            m.addAction(icon("trash", theme.TEXT, 16),
+                        f"Remove {n} from queue\tDel" if n > 1 else "Remove from queue\tDel",
+                        lambda: self.win.remove_from_queue(rows))
             p = it.data(ROLE_PATH)
-            if not is_url(p):
+            if n == 1 and not is_url(p):
                 m.addAction("Show in Explorer", lambda: reveal(p))
             m.addSeparator()
+        if self.queue.count() > 1:
+            m.addAction("Select all\tCtrl+A", self.queue.selectAll)
         m.addAction("Add files…", self._add_files_to_queue)
         m.addAction("Clear queue", lambda: self.win.set_queue([], -1))
         m.exec(self.queue.mapToGlobal(pos))
+
+    def _mark_queue(self, files, watched):
+        for f in files:
+            self.store.set_watched(f, watched)
+        n = len(files)
+        what = f"{n} items" if n > 1 else f"“{display_name(files[0])}”"
+        self.win.toast(f"Marked {what} as {'watched' if watched else 'unwatched'}")
+        self.refresh_queue()
+        if self.win.home.isVisible():
+            self.win.home.refresh()
+
+    def _queue_delete_key(self):
+        rows = self._queue_rows()
+        if rows:
+            self.win.remove_from_queue(rows)
 
     def _add_files_to_queue(self):
         picked, _ = QFileDialog.getOpenFileNames(self, "Add to queue", "", media_filter())
         if picked:
             self.win.enqueue(picked)
 
+    @property
+    def shuffled(self) -> bool:
+        return self._unshuffled is not None
+
     def _shuffle(self):
-        q = self.win.queue
-        if len(q) < 2:
-            return
-        cur = q[self.win.qindex] if 0 <= self.win.qindex < len(q) else None
-        rest = [x for x in q if x is not cur]
-        random.shuffle(rest)
-        new = ([cur] if cur else []) + rest
-        self.win.set_queue(new, 0 if cur else -1, keep_playing=True)
-        self.win.toast("Queue shuffled")
+        """Shuffle on: mix up everything except what's playing. Shuffle off: put the original order back."""
+        win = self.win
+        q = win.queue
+        cur = q[win.qindex] if 0 <= win.qindex < len(q) else None
+        if self.shuffled:
+            # original order for items that are still here; anything added while shuffled goes after them
+            ids = {id(x) for x in q}
+            new = [x for x in self._unshuffled if id(x) in ids]
+            kept = {id(x) for x in new}
+            new += [x for x in q if id(x) not in kept]
+            self._set_shuffle(None)
+            msg = "Shuffle off: original order"
+        else:
+            if len(q) < 2:
+                win.toast("Add more to the queue to shuffle it")
+                return
+            self._set_shuffle(list(q))
+            rest = [x for x in q if x is not cur]
+            random.shuffle(rest)
+            new = ([cur] if cur else []) + rest
+            msg = "Shuffle on"
+        win.queue = new
+        win.qindex = next((i for i, x in enumerate(new) if x is cur), -1)
+        self.refresh_queue()
+        win.toast(msg)
+
+    def _set_shuffle(self, order):
+        self._unshuffled = order
+        on = order is not None
+        self.shuffle_btn.set_dot(on)
+        self.shuffle_btn.setToolTip(SHUFFLE_ON_TIP if on else SHUFFLE_OFF_TIP)
+
+    def reset_shuffle(self):
+        """A brand-new queue (a folder, a playlist, Clear) starts in its normal order."""
+        if self.shuffled:
+            self._set_shuffle(None)
 
     def _save_queue_as_playlist(self):
         if not self.win.queue:
             return
         self.new_playlist([x["path"] for x in self.win.queue])
+
+
+SHUFFLE_OFF_TIP = "Shuffle the queue"
+SHUFFLE_ON_TIP = "Shuffle is on. Click to go back to the original order"
 
 
 def win_call(fn):

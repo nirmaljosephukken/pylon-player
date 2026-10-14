@@ -2,7 +2,7 @@
 library, playlists, streams) and the Now Playing page used for music."""
 import os
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea,
                                QSizePolicy, QVBoxLayout, QWidget)
@@ -47,6 +47,14 @@ class HomePage(QScrollArea):
         self.setFrameShape(QFrame.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.refresh()
+
+    def _mark_watched(self, path):
+        self.store.set_watched(path, True)
+        title = pretty_title(path)
+        self.win.toast(f"Marked “{title}” as watched")
+        QTimer.singleShot(0, self.refresh)     # rebuilding the page from inside a click
+        if self.win.library.isVisible():
+            self.win.library.refresh_queue()
 
     def refresh(self):
         inner = QWidget()
@@ -106,6 +114,7 @@ class HomePage(QScrollArea):
                          "music" if is_audio(p) else "play", progress=e["pos"] / max(1, e["len"]))
                 c.setToolTip(p)
                 c.clicked.connect(lambda p=p, t=e["pos"]: self.win.play_from_folder(p, start_ms=t))
+                c.add_corner_button("check_all", "Mark as watched", lambda p=p: self._mark_watched(p))
                 row.add(c)
             lay.addWidget(hscroll(row))
 

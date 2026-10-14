@@ -7,7 +7,7 @@ signals, which Qt delivers on the GUI thread.
 import os
 import sys
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
 from .util import is_url
 
@@ -228,6 +228,11 @@ class Engine(QObject):
                      "aspect": "", "crop": "", "zoom": 0.0, "deinterlace": "",
                      "adjust": None}
         self._cb = []
+        self._live_pending = False     # re-apply live settings once the new player plays
+        # The picture filter (brightness, saturation...) only sticks once VLC has
+        # made its video output, so apply it again whenever a new one appears.
+        self.vout_changed.connect(self._on_vout, Qt.QueuedConnection)
+        self.state_changed.connect(self._on_state_internal, Qt.QueuedConnection)
         if vlc is not None:
             self._build()
 
@@ -382,6 +387,7 @@ class Engine(QObject):
         self._build()
         self.player.audio_set_volume(vol)
         if target:
+            self._live_pending = True     # the new player starts with VLC defaults
             self.open(target, start_ms=pos, subs=subs, title=self.current_title)
             def restore():
                 if sub_id is not None:
@@ -406,6 +412,26 @@ class Engine(QObject):
             pass
         self._build()
         self.player.audio_set_volume(vol)
+
+    def _on_vout(self, _n=0):
+        if self.ok and self.live.get("adjust"):
+            QTimer.singleShot(150, self._reapply_picture)
+
+    def _reapply_picture(self):
+        if not self.ok:
+            return
+        L = self.live
+        if L.get("adjust"):
+            self.set_adjust(L["adjust"], force=True)
+        self.player.video_set_aspect_ratio(L["aspect"] or None)
+        self.player.video_set_crop_geometry(L["crop"] or None)
+        self.player.video_set_scale(L["zoom"])
+
+    def _on_state_internal(self, state):
+        if state == "playing" and self._live_pending:
+            self._live_pending = False
+            self.apply_live()
+            QTimer.singleShot(400, self._reapply_picture)
 
     def apply_live(self):
         """Re-apply per-session tweaks after a new media starts."""
@@ -624,7 +650,7 @@ class Engine(QObject):
         if self.ok:
             self.player.video_set_deinterlace(mode or None)
 
-    def set_adjust(self, adj: dict | None):
+    def set_adjust(self, adj: dict | None, force: bool = False):
         """adj: {brightness, contrast, saturation, hue, gamma} or None to disable."""
         self.live["adjust"] = adj
         if not self.ok:
@@ -633,6 +659,9 @@ class Engine(QObject):
         if not adj:
             self.player.video_set_adjust_int(A.Enable, 0)
             return
+        if force:
+            # a reused or brand-new video output can miss the filter; switch it off and on
+            self.player.video_set_adjust_int(A.Enable, 0)
         self.player.video_set_adjust_int(A.Enable, 1)
         self.player.video_set_adjust_float(A.Brightness, float(adj.get("brightness", 1.0)))
         self.player.video_set_adjust_float(A.Contrast, float(adj.get("contrast", 1.0)))

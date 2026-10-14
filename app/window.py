@@ -25,6 +25,7 @@ from .util import (SUB_EXTS, PLAYLIST_EXTS, display_name, norm, find_subtitle_ca
                    fmt_time, is_audio, is_media, is_url, list_media, match_subtitle, natural_key,
                    parse_m3u, to_path)
 from .thumbs import ThumbnailMaker
+from .updates import UpdateChecker
 from .widgets import IconButton, SeekPreview, Toast
 
 PAGE_HOME, PAGE_VIDEO, PAGE_AUDIO = 0, 1, 2
@@ -118,6 +119,12 @@ class MainWindow(QMainWindow):
         self.osd = Toast(self)
         self.seek_preview = SeekPreview(self)
         self.thumbs = ThumbnailMaker(self)
+        self.updater = UpdateChecker(self.store, self)
+        self.updater.found.connect(self._update_found)
+        self.updater.none.connect(self._update_none)
+        self.updater.failed.connect(self._update_failed)
+        self._update_release = None      # a newer release we know about
+        self._manual_update_check = False
 
         self.library = LibraryPanel(self)
         self.library.hide()
@@ -198,6 +205,51 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(200, self._vlc_missing)
             elif not self.store.setting("onboarded"):
                 QTimer.singleShot(300, self._welcome)
+            if not os.environ.get("PYLON_NO_UPDATE_CHECK"):
+                QTimer.singleShot(8000, self._auto_update_check)
+
+    # ================================================================ updates
+    def _auto_update_check(self):
+        if self.updater.due():
+            self._manual_update_check = False
+            self.updater.check(manual=False)
+
+    def check_for_updates(self, manual=True):
+        self._manual_update_check = manual
+        if manual:
+            self.toast("Checking for updates…")
+        self.updater.check(manual=manual)
+
+    def _update_found(self, release):
+        self._update_release = release
+        tag = (release.get("tag_name") or "").lstrip("vV")
+        if self._manual_update_check or not (self.engine.current and self.engine.is_playing()):
+            self.show_update(release)
+        else:   # don't interrupt a video; the menu offers it
+            self.toast(f"Pylon {tag} is out. Open the menu to update.")
+
+    def _update_none(self):
+        if self._manual_update_check:
+            from . import APP_VERSION
+            QMessageBox.information(self, "No updates", f"You have the latest version of Pylon ({APP_VERSION}).")
+
+    def _update_failed(self, why):
+        if self._manual_update_check:
+            QMessageBox.warning(self, "Couldn't check for updates",
+                                f"Pylon couldn't reach GitHub to check for a new version.\n\n{why}")
+
+    def show_update(self, release=None):
+        from .dialogs import UpdateDialog
+        release = release or self._update_release
+        if release:
+            UpdateDialog(self, release).exec()
+
+    def quit_for_update(self):
+        """Close Pylon so the installer can replace its files."""
+        self._save_position()
+        self.store.save_now()
+        self.close()
+        QApplication.instance().quit()
 
     def _vlc_missing(self):
         if sys.platform == "win32":
@@ -883,6 +935,11 @@ class MainWindow(QMainWindow):
         if self.can_integrate_desktop():
             m.addAction(icon("plus", theme.TEXT, 16), "Add Pylon to the applications menu", self.install_desktop_entry)
         m.addAction(icon("keyboard", theme.TEXT, 16), "Keyboard shortcuts\tF1", self.show_shortcuts)
+        if self._update_release:
+            tag = (self._update_release.get("tag_name") or "").lstrip("vV")
+            m.addAction(icon("arrow_up", theme.accent(), 16), f"Update to Pylon {tag}…", lambda: self.show_update())
+        else:
+            m.addAction(icon("arrow_up", theme.TEXT, 16), "Check for updates…", lambda: self.check_for_updates(True))
         m.addAction(icon("info", theme.TEXT, 16), "About", self.show_about)
         m.addSeparator()
         m.addAction("Quit", self.close)
@@ -1044,9 +1101,15 @@ class MainWindow(QMainWindow):
 
     def play_playlist(self, name):
         items = self.store.data["playlists"].get(name, [])
-        if items:
-            self.set_queue([{"path": p} for p in items], 0)
-            self.toggle_queue(True)
+        if not items:
+            return
+        # pick up where you left off: the first item you haven't finished
+        start = next((i for i, p in enumerate(items)
+                      if is_url(p) or not self.store.position(norm(p)).get("watched")), 0)
+        self.set_queue([{"path": p} for p in items], start)
+        self.toggle_queue(True)
+        if start > 0:
+            QTimer.singleShot(500, lambda: self.toast(f"Continuing “{name}” at item {start + 1} of {len(items)}"))
 
     def play_from_folder(self, path, start_ms=None):
         """Play a file and queue the rest of its folder so the next episode is ready."""
@@ -1065,11 +1128,13 @@ class MainWindow(QMainWindow):
         if path not in files:
             files = [path]
         self.queue = [{"path": f} for f in files]
+        self.library.reset_shuffle()
         self.play_queue_index(files.index(path), start_ms=start_ms)
 
     # ---------------------------------------------------------------- queue
     def set_queue(self, items, index, keep_playing=False):
         self.queue = [{**it, "path": norm(it["path"])} for it in items]
+        self.library.reset_shuffle()
         self.qindex = index if 0 <= index < len(self.queue) else -1
         self.library.refresh_queue()
         if not keep_playing and self.qindex >= 0:
@@ -1257,19 +1322,28 @@ class MainWindow(QMainWindow):
             if k in p:
                 e.live[k] = p[k]
         style = p.get("sub_style")
-        style_changed = bool(style) and style != e.sub_style
-        if style_changed:
+        needs_new_player = bool(style) and style != e.sub_style
+        if needs_new_player:
             e.sub_style = dict(style)
+        # sharpen is a VLC filter, so a change needs a fresh player too
+        if "sharpen" in p:
+            try:
+                sharpen = max(0.0, min(2.0, float(p.get("sharpen") or 0)))
+            except (TypeError, ValueError):
+                sharpen = 0.0
+            if abs(sharpen - e.sharpen) > 0.01:
+                e.sharpen = sharpen
+                needs_new_player = True
         self._track_prefs = (p.get("sub_track", ""), p.get("audio_track", ""))
         self.bottom.set_speed(e.live["rate"])
         self.sidebar.sync_from_engine()
         if live:
-            if style_changed:
+            if needs_new_player and e.current:
                 e.rebuild()
             else:
                 e.apply_live()
             self._apply_track_prefs()
-        elif style_changed:
+        elif needs_new_player:
             e.recreate()
 
     def _apply_track_prefs(self):
