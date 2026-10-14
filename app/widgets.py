@@ -444,6 +444,28 @@ class SubtitleTimeline(QWidget):
         p.end()
 
 
+class ProgressLine(QWidget):
+    """Thin rounded progress bar (track plus accent fill)."""
+
+    def __init__(self, value: float, parent=None):
+        super().__init__(parent)
+        self.value = max(0.0, min(1.0, float(value)))
+        self.setFixedHeight(4)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+        r = QRectF(self.rect())
+        p.setBrush(QColor(255, 255, 255, 38))
+        p.drawRoundedRect(r, 2, 2)
+        if self.value > 0:
+            p.setBrush(QColor(theme.accent()))
+            p.drawRoundedRect(QRectF(0, 0, max(4.0, r.width() * self.value), r.height()), 2, 2)
+        p.end()
+
+
 class Card(QWidget):
     """Clickable card used on the home page."""
     clicked = Signal()
@@ -480,15 +502,9 @@ class Card(QWidget):
             s.setStyleSheet(f"color: {theme.MUTED}; font-size: 12px; background: transparent; border: none;")
             lay.addWidget(s)
         self.progress = progress
-
-    def paintEvent(self, e):
-        super().paintEvent(e)
-        if self.progress is not None:
-            p = QPainter(self)
-            r = QRect(1, self.height() - 4, self.width() - 2, 3)
-            p.fillRect(r, QColor(255, 255, 255, 30))
-            p.fillRect(QRect(1, self.height() - 4, int((self.width() - 2) * self.progress), 3), QColor(theme.accent()))
-            p.end()
+        if progress is not None:          # how far you've watched, as a thin bar at the bottom of the card
+            lay.addSpacing(4)
+            lay.addWidget(ProgressLine(progress))
 
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.LeftButton and self.rect().contains(e.position().toPoint()):

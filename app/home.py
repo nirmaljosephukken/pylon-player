@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushBu
 
 from . import theme
 from .icons import icon, pixmap
-from .util import display_name, fmt_time, is_audio, is_url, to_path
+from .util import display_name, fmt_time, is_audio, is_url, pretty_title, to_path
 from .widgets import Card, IconButton
 
 
@@ -100,8 +100,11 @@ class HomePage(QScrollArea):
             row = FlowRow()
             for e in cont:
                 p = e["path"]
-                c = Card(display_name(p), f"{fmt_time(e['pos'])} of {fmt_time(e['len'])}  ·  {_parent(p)}",
+                title, _, code = pretty_title(p).partition("  ·  ")
+                c = Card(title, f"{code + '  ·  ' if code else ''}{fmt_time(e['pos'])} of {fmt_time(e['len'])}"
+                         f"{'' if code else '  ·  ' + _parent(p)}",
                          "music" if is_audio(p) else "play", progress=e["pos"] / max(1, e["len"]))
+                c.setToolTip(p)
                 c.clicked.connect(lambda p=p, t=e["pos"]: self.win.play_from_folder(p, start_ms=t))
                 row.add(c)
             lay.addWidget(hscroll(row))
@@ -112,8 +115,9 @@ class HomePage(QScrollArea):
             row = FlowRow()
             for r in recent:
                 p = r["path"]
-                c = Card(display_name(p), "Stream" if is_url(p) else _parent(p),
+                c = Card(pretty_title(p), "Stream" if is_url(p) else _parent(p),
                          "stream" if is_url(p) else ("music" if is_audio(p) else "video"))
+                c.setToolTip(p)
                 c.clicked.connect(lambda p=p: self.win.play_from_folder(p))
                 row.add(c)
             lay.addWidget(hscroll(row))
@@ -135,8 +139,13 @@ class HomePage(QScrollArea):
         if pls:
             lay.addWidget(self._section("Playlists"))
             row = FlowRow()
+            positions = self.store.data["positions"]
             for name, items in sorted(pls.items()):
-                c = Card(name, f"{len(items)} items", "playlist")
+                done = sum(1 for p in items if positions.get(p, {}).get("watched"))
+                sub = f"{len(items)} item{'s' if len(items) != 1 else ''}"
+                if done:
+                    sub += f"  ·  {done} watched"
+                c = Card(name, sub, "playlist", progress=done / len(items) if items and done else None)
                 c.clicked.connect(lambda n=name: self.win.play_playlist(n))
                 row.add(c)
             lay.addWidget(hscroll(row))

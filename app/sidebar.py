@@ -392,7 +392,7 @@ class SettingsSidebar(QWidget):
         names = self.engine.eq_presets()
         short = {"Full bass and treble": "Bass and treble", "Full bass": "Bass boost", "Full treble": "Treble boost"}
         opts = [("Off", -1)] + [(short.get(n, n), i) for i, n in enumerate(names)]
-        self.eq = ChipGroup(opts, cols=2, icon_name="eq")
+        self.eq = ChipGroup(opts, cols=2)
         self.eq.picked.connect(self._set_eq)
         self.eq.select(-1)
         lay.addWidget(self.eq)
@@ -468,7 +468,7 @@ class SettingsSidebar(QWidget):
 
         lay.addWidget(section("Rotate and flip"))
         self.transform = ChipGroup([("Normal", ""), ("90°", "90"), ("180°", "180"), ("270°", "270"),
-                                    ("Flip H", "hflip"), ("Flip V", "vflip")], cols=3, icon_name="rotate")
+                                    ("Flip H", "hflip"), ("Flip V", "vflip")], cols=3)
         self.transform.picked.connect(self._set_transform)
         self.transform.select("")
         lay.addWidget(self.transform)
@@ -540,7 +540,7 @@ class SettingsSidebar(QWidget):
 
         lay.addWidget(section("Sleep timer"))
         self.sleep = ChipGroup([("Off", 0), ("15 min", 15), ("30 min", 30), ("45 min", 45), ("1 hour", 60),
-                                ("End of file", -1)], cols=3, icon_name="timer")
+                                ("End of file", -1)], cols=3)
         self.sleep.picked.connect(self.win.set_sleep_timer)
         self.sleep.select(0)
         lay.addWidget(self.sleep)
@@ -552,7 +552,7 @@ class SettingsSidebar(QWidget):
         self.binge.setChecked(bool(self.store.setting("binge")))
         self.binge.toggled.connect(lambda on: self.store.set_setting("binge", on))
         lay.addWidget(self.binge)
-        self.repeat = ChipGroup([("No repeat", "off"), ("Queue", "all"), ("This file", "one")], cols=3, icon_name="repeat")
+        self.repeat = ChipGroup([("No repeat", "off"), ("Queue", "all"), ("This file", "one")], cols=3)
         self.repeat.picked.connect(self.win.set_repeat)
         self.repeat.select("off")
         lay.addWidget(self.repeat)

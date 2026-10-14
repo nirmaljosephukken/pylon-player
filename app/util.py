@@ -67,6 +67,31 @@ def display_name(path: str) -> str:
     return Path(path).stem
 
 
+_JUNK = re.compile(r"\b(2160p|1080p|720p|480p|4k|uhd|hdr10?\+?|dv|web-?dl|webrip|web|bluray|blu-ray|brrip|bdrip|"
+                   r"dvdrip|hdtv|x26[45]|h\.?26[45]|hevc|avc|aac\d?(\.\d)?|ddp?\d?(\.\d)?|atmos|10bit|8bit|"
+                   r"proper|repack|extended|remastered|multi|dual|subs?|esub)\b.*$", re.I)
+
+
+def pretty_title(path: str) -> str:
+    """A readable name for cards: "Shameless.US.S02E01.1080p.WEB" -> "Shameless US · S02E01",
+    "Movie.Name.2019.1080p.BluRay" -> "Movie Name (2019)". Falls back to the plain file name."""
+    name = display_name(path)
+    if is_url(path):
+        return name
+    text = re.sub(r"[._]+", " ", name).strip()
+    m = re.search(r"\b[Ss](\d{1,2})[ ._-]?[Ee](\d{1,3})\b", text) or re.search(r"\b(\d{1,2})x(\d{2,3})\b", text)
+    if m:
+        show = text[:m.start()].strip(" -[(")
+        code = f"S{int(m.group(1)):02d}E{int(m.group(2)):02d}"
+        return f"{show}  ·  {code}" if show else code
+    years = [y for y in re.finditer(r"[\[(]?\b(19[3-9]\d|20[0-4]\d)\b[\])]?", text) if y.start() > 0]
+    m = years[-1] if years else None
+    if m:
+        return f"{text[:m.start()].strip(' -[(')} ({m.group(1)})"
+    cleaned = _JUNK.sub("", text).strip(" -[(")
+    return cleaned or name
+
+
 def is_media(path: str) -> bool:
     return Path(path).suffix.lower() in MEDIA_EXTS
 
