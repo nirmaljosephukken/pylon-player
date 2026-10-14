@@ -59,6 +59,7 @@ DEFAULT_SETTINGS = {
     "onboarded": False,
     "vlc_dir": "",
     "desktop_entry": "",
+    "seek_previews": True,      # preview pictures when hovering the seek bar
 }
 
 

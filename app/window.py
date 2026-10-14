@@ -24,7 +24,8 @@ from .store import DEFAULT_SHORTCUTS
 from .util import (SUB_EXTS, PLAYLIST_EXTS, display_name, norm, find_subtitle_candidates, fmt_delay,
                    fmt_time, is_audio, is_media, is_url, list_media, match_subtitle, natural_key,
                    parse_m3u, to_path)
-from .widgets import IconButton, Toast
+from .thumbs import ThumbnailMaker
+from .widgets import IconButton, SeekPreview, Toast
 
 PAGE_HOME, PAGE_VIDEO, PAGE_AUDIO = 0, 1, 2
 
@@ -115,6 +116,8 @@ class MainWindow(QMainWindow):
         self.top = TopBar(self)
         self.bottom = BottomBar(self)
         self.osd = Toast(self)
+        self.seek_preview = SeekPreview(self)
+        self.thumbs = ThumbnailMaker(self)
 
         self.library = LibraryPanel(self)
         self.library.hide()
@@ -152,6 +155,8 @@ class MainWindow(QMainWindow):
         b.resume_clicked.connect(self._accept_resume)
         b.speed_clicked.connect(lambda: self.open_sidebar_tab(3))
         b.seek.seek_requested.connect(self.engine.seek)
+        b.seek.hovered.connect(self._seek_hover)
+        b.seek.hover_left.connect(self.seek_preview.hide)
         b.cone.volume_changed.connect(self._cone_volume)
         b.set_volume(self.engine.volume(), False)
 
@@ -426,6 +431,8 @@ class MainWindow(QMainWindow):
         if visible == self._bars_visible:
             return
         self._bars_visible = visible
+        if not visible:
+            self.seek_preview.hide()
         for w in (self.top, self.bottom):
             if visible:
                 w.show()
@@ -1147,6 +1154,8 @@ class MainWindow(QMainWindow):
         e = self.engine
         self._resume_ms = 0
         self.bottom.resume.hide()
+        if self.thumbs.path != path:
+            self.thumbs.cancel()
 
         # where to start
         if start_ms is None:
@@ -1302,6 +1311,28 @@ class MainWindow(QMainWindow):
             self.toast("Couldn't play this file")
             QTimer.singleShot(1500, lambda: self.play_next() if self.qindex + 1 < len(self.queue) else None)
 
+    # ---------------------------------------------------------------- seek previews
+    def start_previews(self, tries=0):
+        e = self.engine
+        if not self.store.setting("seek_previews") or not e.current or is_url(e.current):
+            return
+        if self.thumbs.path == e.current:
+            return
+        if e.length() <= 0 and tries < 5:      # length not known yet
+            QTimer.singleShot(1000, lambda: self.start_previews(tries + 1))
+            return
+        self.thumbs.start(e.current, e.length(), e.video_size())
+
+    def _seek_hover(self, ms, x):
+        seek = self.bottom.seek
+        g = seek.mapToGlobal(QPoint(int(x), 0))
+        img = None
+        if self.store.setting("seek_previews") and self.thumbs.path == self.engine.current:
+            img = self.thumbs.frame_at(ms)
+        left = self.mapToGlobal(QPoint(0, 0)).x()
+        line_top = g.y() + seek.height() - 10     # the visible bar sits at the bottom of the widget
+        self.seek_preview.show_at(g.x(), line_top - 5, ms, img, left + 8, left + self.width() - 8)
+
     def _after_start(self):
         e = self.engine
         if e.current and self.stage.currentIndex() != PAGE_HOME:
@@ -1311,6 +1342,8 @@ class MainWindow(QMainWindow):
                 self.stage.setCurrentIndex(PAGE_AUDIO)
             elif self.stage.currentIndex() == PAGE_AUDIO:
                 self.stage.setCurrentIndex(PAGE_VIDEO)
+            if has_video:
+                self.start_previews()
             meta_title = e.meta().get("now_playing") or ""
             if meta_title and is_url(e.current):
                 self.top.set_title(f"{e.current_title or display_name(e.current)}  ·  {meta_title}")
@@ -1426,6 +1459,7 @@ class MainWindow(QMainWindow):
 
     # ================================================================ closing
     def closeEvent(self, e):
+        self.thumbs.cancel()
         self._save_position()
         self.store.data["queue"] = [{k: v for k, v in q.items() if k in ("path", "title")} for q in self.queue][:500]
         self.engine.shutdown()

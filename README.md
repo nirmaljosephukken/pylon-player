@@ -2,8 +2,10 @@
 
 **A calmer, redesigned interface for the VLC engine, for Windows, Linux and (experimentally) macOS.**
 
-**Download:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.1.1.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.1.1-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.1.1-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)  
+**Download:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.2.0.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.2.0-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.2.0-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)  
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
+
+**The story:** [700,000 people watched a VLC redesign. I built the player.](https://dev.to/nekku/700000-people-watched-a-vlc-redesign-i-built-the-player-1aio) · [Demo video](https://youtu.be/vCV3B_blLU0)
 
 Pylon puts a new interface on top of libVLC, the engine inside VLC media player. VLC still does all the playback, decoding, subtitles and streaming, so Pylon plays everything VLC plays. The interface is built around the way people actually watch: quiet bars that get out of the way, a thick seek bar, subtitle timing you can see, per-show presets, and a library and queue you can reach without leaving the video.
 
@@ -12,6 +14,12 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 ![Pylon playing a video](docs/player.png)
 
 ![Library, queue and settings sidebar](docs/panels.png)
+
+**New in 1.2:** preview pictures on the seek bar, and a music library sorted by artist and album.
+
+![Preview picture while hovering the seek bar](docs/seek-preview.png)
+
+![Music library: artists, albums and songs with cover art](docs/music.png)
 
 ## Credit
 
@@ -32,7 +40,7 @@ Pylon plays everything through **VLC**, which you install yourself (Pylon never 
 | | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ (experimental) |
 | --- | --- | --- | --- |
 | **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
-| **2. Pylon** | `Pylon-Setup-1.1.1.exe` | `Pylon-1.1.1-x86_64.AppImage` | `Pylon-1.1.1-macOS.zip` |
+| **2. Pylon** | `Pylon-Setup-1.2.0.exe` | `Pylon-1.2.0-x86_64.AppImage` | `Pylon-1.2.0-macOS.zip` |
 | **3. Run** | Run the setup. No admin rights needed. | `chmod +x Pylon-*.AppImage`, then double-click it | Unzip, move **Pylon** to Applications, see the first-launch note below |
 
 Nothing else is needed: each download carries its own Python and Qt.
@@ -70,7 +78,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | --- | --- |
 | **Quiet bars** | Top and bottom bars float over the video, appear when you move the mouse, and vanish when you stop. They work in fullscreen too, so the title is always one hover away. `H` hides everything. |
 | **Controls** | Play on the left with previous and next around it. Fullscreen and picture-in-picture at top right. One menu button instead of a duplicate menu bar. |
-| **Thick seek bar** | Along the bottom edge, with hover time, bookmark ticks and chapter marks. |
+| **Thick seek bar** | Along the bottom edge, with bookmark ticks and chapter marks. Hover to see a **preview picture** of that moment. Previews are made in the background the first time you play a video and kept for next time. |
 | **Cone volume** | A volume control shaped like a cone. Click, drag or scroll. Goes to 125%. |
 | **Subtitle and audio buttons** | Bottom right. Audio also lists output devices (speakers, headphones). |
 | **Queue** | A real queue. Drag files in from the library or from Explorer, and reorder by dragging. Playing a file queues the rest of its folder, so the next episode just plays. |
@@ -82,6 +90,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **Add subtitles in bulk** | To this file, a whole folder or the whole queue. Files are matched by name or episode number (S01E02, 1x02, E02), you can fix any pairing, and pairings are remembered. "Search online" opens OpenSubtitles. |
 | **Picture and sound presets** | Vivid, Bright, Cinema, Soft, Mono, plus sliders. VLC's equalizer presets as one-click chips. Rotate, flip, crop, zoom and aspect ratio. |
 | **Playback** | Speed, sleep timer (including "end of this file"), repeat, and media info. |
+| **Music** | Songs from your library folders, sorted by **artist, album and song**, with cover art from the files. Open an album and press Play, or double-click any song. |
 | **Library** | Opens from the folder name in the top bar without leaving the video. Back, forward, up, address bar, search, sorting (including unwatched first), pins, recent files, playlists and streams. |
 | **Continue watching** | A home page with what you were watching, plus a "Continue from 12:34" button next to the play controls. |
 | **Streams** | Paste a link or a channel list (`.m3u`) and it becomes a queue of channels. |
@@ -123,7 +132,8 @@ Mouse: click the video to play or pause, double-click for fullscreen, scroll for
 * **Your data stays on your computer.** History, resume points, presets, bookmarks and subtitle pairings are stored in `data.json` in `%APPDATA%\Pylon` (Windows), `~/.local/share/pylon` (Linux) or `~/Library/Application Support/Pylon` (macOS). Pylon doesn't phone home.
 * **VLC location.** Pylon finds a normally installed VLC by itself. For a portable VLC use **Locate VLC folder…** (no restart needed), put it in a `VLC` folder next to Pylon, or set the `PYLON_VLC_DIR` environment variable.
 * **Some changes restart the video.** Changing the subtitle look or rotating restarts the video at the same spot, because VLC reads those settings when its engine starts.
-* **Not built yet** (from the original concept): thumbnails while seeking, a waveform seek bar, reverse playback, music sorted by artist and album, casting, a drag-and-drop layout editor, and the full settings rework.
+* **Seek previews** work for video files on your computer (not online streams). Turn them off in **Preferences > Interface** if you prefer.
+* **Not built yet** (from the original concept): a waveform seek bar, reverse playback, casting, a drag-and-drop layout editor, and the full settings rework.
 
 ## Reporting a bug
 

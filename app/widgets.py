@@ -2,7 +2,7 @@
 floating overlay windows, the on-screen toast and the subtitle timeline."""
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (QBrush, QColor, QCursor, QFont, QFontMetrics, QLinearGradient,
-                           QPainter, QPainterPath, QPen, QPolygonF)
+                           QPainter, QPainterPath, QPen, QPixmap, QPolygonF)
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QSizePolicy, QToolButton, QToolTip,
                                QVBoxLayout, QWidget)
 
@@ -45,6 +45,8 @@ class SeekBar(QWidget):
     """A thick seek bar with hover time, bookmark and chapter markers."""
     seek_requested = Signal(int)   # ms
     seek_preview = Signal(int)
+    hovered = Signal(int, float)   # ms under the mouse, x in this widget
+    hover_left = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -84,7 +86,7 @@ class SeekBar(QWidget):
         self._hover_x = e.position().x()
         ms = self._ms_at(self._hover_x)
         if self.length:
-            QToolTip.showText(self.mapToGlobal(QPoint(int(self._hover_x) - 18, -34)), fmt_time(ms), self)
+            self.hovered.emit(ms, float(self._hover_x))
         if self._dragging:
             self.position = ms
             self.seek_requested.emit(ms)
@@ -97,7 +99,7 @@ class SeekBar(QWidget):
 
     def leaveEvent(self, e):
         self._hover_x = None
-        QToolTip.hideText()
+        self.hover_left.emit()
         self.update()
 
     def paintEvent(self, e):
@@ -285,6 +287,49 @@ class Toast(OverlayWindow):
         self.show()
         self.raise_()
         self._timer.start(ms)
+
+
+class SeekPreview(OverlayWindow):
+    """Floats above the seek bar: a preview frame (when there is one) and the time."""
+
+    def __init__(self, owner):
+        super().__init__(owner, radius=theme.RADIUS + 2, alpha=235)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(4, 4, 4, 6)
+        lay.setSpacing(4)
+        self.image = QLabel()
+        self.image.setAlignment(Qt.AlignCenter)
+        self.image.setStyleSheet("background: transparent; border-radius: 4px;")
+        self.time = QLabel()
+        self.time.setAlignment(Qt.AlignCenter)
+        self.time.setStyleSheet("font-size: 13px; font-weight: 600; background: transparent;")
+        lay.addWidget(self.image)
+        lay.addWidget(self.time)
+
+    def show_at(self, gx: int, bottom_y: int, ms: int, img=None, min_x=None, max_x=None):
+        """Centre horizontally on gx, sitting just above bottom_y (global coordinates)."""
+        if img is not None and not img.isNull():
+            dpr = self.devicePixelRatioF() or 1.0
+            pm = QPixmap.fromImage(img)
+            tw = 168
+            pm = pm.scaledToWidth(int(tw * dpr), Qt.SmoothTransformation)
+            pm.setDevicePixelRatio(dpr)
+            self.image.setPixmap(pm)
+            self.image.setFixedSize(int(pm.width() / dpr), int(pm.height() / dpr))
+            self.image.show()
+        else:
+            self.image.hide()
+        self.time.setText(fmt_time(ms))
+        self.adjustSize()
+        x = int(gx - self.width() / 2)
+        if min_x is not None:
+            x = max(min_x, x)
+        if max_x is not None:
+            x = min(max_x - self.width(), x)
+        self.move(x, int(bottom_y - self.height()))
+        if not self.isVisible():
+            self.show()
+        self.raise_()
 
 
 # ---------------------------------------------------------------- subtitle timeline

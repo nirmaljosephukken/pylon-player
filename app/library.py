@@ -2,6 +2,7 @@
 
 Library  : your folders, browsable with back / up / address line, search,
            sorting (incl. unwatched first) and drag-to-queue.
+Music    : songs from those folders by artist, album and title, with cover art.
 Recent   : recently played files.
 Playlists: named collections; double-click to load into the queue.
 Streams  : saved network streams and channel lists.
@@ -14,10 +15,11 @@ import sys
 import time
 
 from PySide6.QtCore import QMimeData, QSize, Qt, QUrl, Signal
-from PySide6.QtGui import QAction, QDrag
+from PySide6.QtGui import QAction, QColor, QDrag, QFont, QIcon, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
-                               QPushButton, QSplitter, QStackedWidget, QVBoxLayout, QWidget)
+                               QPushButton, QSplitter, QStackedWidget, QStyle, QStyledItemDelegate,
+                               QVBoxLayout, QWidget)
 
 from . import theme
 from .icons import icon
@@ -52,6 +54,60 @@ class MediaList(QListWidget):
 
     def mimeTypes(self):
         return ["text/uri-list"]
+
+
+class TwoLineDelegate(QStyledItemDelegate):
+    """Rows written as "title<TAB>right\nsubtitle": title in normal text, the
+    right part (e.g. a song's length) right-aligned, the subtitle smaller and grey."""
+
+    def paint(self, p, opt, idx):
+        self.initStyleOption(opt, idx)
+        style = opt.widget.style() if opt.widget else None
+        if style:
+            style.drawPrimitive(QStyle.PE_PanelItemViewItem, opt, p, opt.widget)
+        r = opt.rect.adjusted(6, 0, -8, 0)
+        ic = opt.icon
+        isz = opt.decorationSize
+        if not ic.isNull():
+            ic.paint(p, r.left(), r.top() + (r.height() - isz.height()) // 2, isz.width(), isz.height())
+            r.setLeft(r.left() + isz.width() + 10)
+        text = idx.data(Qt.DisplayRole) or ""
+        line1, _, line2 = text.partition("\n")
+        left, _, right = line1.partition("\t")
+        f1 = QFont(opt.font)
+        fg = idx.data(Qt.ForegroundRole)
+        c1 = fg.color() if fg is not None else QColor(theme.TEXT)
+        if not (idx.flags() & Qt.ItemIsEnabled):
+            c1 = QColor(theme.MUTED)
+        f2 = QFont(opt.font)
+        f2.setPointSizeF(max(7.5, f2.pointSizeF() - 0.8))
+        fm1 = p.fontMetrics()
+        h1 = fm1.height()
+        h2 = int(h1 * 0.9) if line2 else 0
+        top = r.top() + (r.height() - h1 - h2) // 2
+        p.save()
+        p.setFont(f1)
+        rw = fm1.horizontalAdvance(right) + 8 if right else 0
+        p.setPen(c1)
+        p.drawText(r.left(), top, r.width() - rw, h1, Qt.AlignLeft | Qt.AlignVCenter,
+                   p.fontMetrics().elidedText(left, Qt.ElideRight, r.width() - rw))
+        if right:
+            p.setPen(QColor(theme.MUTED))
+            p.drawText(r.left(), top, r.width(), h1, Qt.AlignRight | Qt.AlignVCenter, right)
+        if line2:
+            p.setFont(f2)
+            p.setPen(QColor(theme.MUTED))
+            p.drawText(r.left(), top + h1, r.width(), h2, Qt.AlignLeft | Qt.AlignVCenter,
+                       p.fontMetrics().elidedText(line2, Qt.ElideRight, r.width()))
+        p.restore()
+
+    def sizeHint(self, opt, idx):
+        self.initStyleOption(opt, idx)
+        text = idx.data(Qt.DisplayRole) or ""
+        h1 = opt.fontMetrics.height()
+        lines = h1 + (int(h1 * 0.9) if "\n" in text else 0)
+        h = max(lines, opt.decorationSize.height() if not opt.icon.isNull() else 0) + 10
+        return QSize(10, h)
 
 
 class QueueList(QListWidget):
@@ -124,7 +180,7 @@ class LibraryPanel(QWidget):
         head.setContentsMargins(8, 8, 8, 4)
         head.setSpacing(2)
         self.nav_buttons = {}
-        for key, ic, tip in (("library", "library", "Library"), ("recent", "clock", "Recent"),
+        for key, ic, tip in (("library", "library", "Library"), ("music", "music", "Music"), ("recent", "clock", "Recent"),
                              ("playlists", "playlist", "Playlists"), ("streams", "stream", "Network streams")):
             b = IconButton(ic, tip, size=18, checkable=True)
             b.clicked.connect(lambda _=False, k=key: self.show_section(k))
@@ -155,6 +211,7 @@ class LibraryPanel(QWidget):
         self._build_recent()
         self._build_playlists()
         self._build_streams()
+        self._build_music()
 
         # --- queue
         qw = QWidget()
@@ -196,14 +253,15 @@ class LibraryPanel(QWidget):
 
     # ================================================================ sections
     def show_section(self, key):
-        idx = {"library": 0, "recent": 1, "playlists": 2, "streams": 3}[key]
+        idx = {"library": 0, "recent": 1, "playlists": 2, "streams": 3, "music": 4}[key]
         self.stack.setCurrentIndex(idx)
         for k, b in self.nav_buttons.items():
             b.setChecked(k == key)
         self.section_title.setText({"library": "Library", "recent": "Recent", "playlists": "Playlists",
-                                    "streams": "Network streams"}[key])
+                                    "streams": "Network streams", "music": "Music"}[key])
         {"library": self.refresh_library, "recent": self.refresh_recent,
-         "playlists": self.refresh_playlists, "streams": self.refresh_streams}[key]()
+         "playlists": self.refresh_playlists, "streams": self.refresh_streams,
+         "music": self._open_music}[key]()
 
     def _store_changed(self, section):
         if section in ("recent",) and self.stack.currentIndex() == 1:
@@ -466,12 +524,14 @@ class LibraryPanel(QWidget):
             if d not in self.store.data["library_folders"]:
                 self.store.data["library_folders"].append(d)
                 self.store.save("library")
+                self._music_stale = True
             self.open_folder(None)
             self.win.home.refresh()
 
     def remove_library_folder(self, path):
         self.store.data["library_folders"] = [f for f in self.store.data["library_folders"] if f != path]
         self.store.save("library")
+        self._music_stale = True
         self.refresh_library()
         self.win.home.refresh()
 
@@ -645,6 +705,324 @@ class LibraryPanel(QWidget):
         self.store.data["streams"] = [s for s in self.store.data["streams"] if s["url"] != url]
         self.store.save("streams")
         self.refresh_streams()
+
+
+    # ================================================================ music
+    def _build_music(self):
+        from .music import MusicLibrary
+        from .sidebar import ChipGroup
+        self.music = MusicLibrary(self.store, self)
+        self.music.progress.connect(self._music_progress)
+        self.music.finished.connect(self._music_done)
+        self._music_stale = True
+        self.music_mode = "artists"
+        self.music_trail: list = []        # drill-down: [("artist", name) | ("album", key)]
+        self._icons: dict = {}
+
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(8, 0, 8, 4)
+        lay.setSpacing(6)
+        self.music_tabs = ChipGroup([("Artists", "artists"), ("Albums", "albums"), ("Songs", "songs")], cols=3)
+        self.music_tabs.picked.connect(self._music_mode)
+        self.music_tabs.select("artists")
+        lay.addWidget(self.music_tabs)
+
+        tools = QHBoxLayout()
+        tools.setSpacing(4)
+        self.music_back = IconButton("chevron_left", "Back", size=16)
+        self.music_back.clicked.connect(self._music_up)
+        self.music_search = QLineEdit()
+        self.music_search.setPlaceholderText("Search music")
+        self.music_search.addAction(icon("search", theme.MUTED, 16), QLineEdit.LeadingPosition)
+        self.music_search.textChanged.connect(lambda _: self.refresh_music())
+        rescan = IconButton("rotate", "Look for new music", size=16)
+        rescan.clicked.connect(lambda: self._scan_music(force=True))
+        tools.addWidget(self.music_back)
+        tools.addWidget(self.music_search, 1)
+        tools.addWidget(rescan)
+        lay.addLayout(tools)
+
+        self.music_crumb = QLabel("")
+        self.music_crumb.setObjectName("Muted")
+        self.music_crumb.setStyleSheet(f"color: {theme.MUTED}; font-size: 12px;")
+        lay.addWidget(self.music_crumb)
+
+        # album header: cover, name, details, play
+        self.album_head = QWidget()
+        ah = QHBoxLayout(self.album_head)
+        ah.setContentsMargins(0, 2, 0, 4)
+        ah.setSpacing(10)
+        self.album_cover = QLabel()
+        self.album_cover.setFixedSize(84, 84)
+        ah.addWidget(self.album_cover)
+        av = QVBoxLayout()
+        av.setSpacing(2)
+        self.album_name = QLabel()
+        self.album_name.setWordWrap(True)
+        self.album_name.setStyleSheet("font-size: 15px; font-weight: 700;")
+        self.album_meta = QLabel()
+        self.album_meta.setObjectName("Muted")
+        self.album_meta.setWordWrap(True)
+        self.album_meta.setStyleSheet(f"color: {theme.MUTED}; font-size: 12px;")
+        self.album_play = QPushButton("Play")
+        self.album_play.setObjectName("Primary")
+        self.album_play.setIcon(icon("play", "#111111", 14))
+        self.album_play.setCursor(Qt.PointingHandCursor)
+        self.album_play.clicked.connect(lambda: self.play_songs(self._album_by_key(self._album_key)["tracks"])
+                                        if self._album_by_key(self._album_key) else None)
+        av.addWidget(self.album_name)
+        av.addWidget(self.album_meta)
+        av.addStretch(1)
+        av.addWidget(self.album_play, 0, Qt.AlignLeft)
+        ah.addLayout(av, 1)
+        self.album_head.hide()
+        self._album_key = None
+        lay.addWidget(self.album_head)
+
+        self.music_list = MediaList()
+        self.music_list.setUniformItemSizes(False)
+        self.music_list.setSpacing(1)
+        self.music_list.setItemDelegate(TwoLineDelegate(self.music_list))
+        self.music_list.setTextElideMode(Qt.ElideRight)
+        self.music_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.music_list.itemDoubleClicked.connect(self._music_activate)
+        self.music_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.music_list.customContextMenuRequested.connect(self._music_menu)
+        lay.addWidget(self.music_list, 1)
+        self.music_status = QLabel("")
+        self.music_status.setObjectName("Muted")
+        self.music_status.setWordWrap(True)
+        self.music_status.setStyleSheet(f"color: {theme.FAINT}; font-size: 11px;")
+        lay.addWidget(self.music_status)
+        self.stack.addWidget(w)
+
+    def _open_music(self):
+        self._scan_music()
+        self.refresh_music()
+
+    def _scan_music(self, force=False):
+        if self.music.scanning:
+            return
+        if force or self._music_stale:
+            self._music_stale = False
+            if not self.store.data["library_folders"]:
+                return
+            self.music.scan()
+            self.music_status.setText("Looking for music in your library folders…")
+
+    def _music_progress(self, done, total):
+        if total:
+            self.music_status.setText(f"Reading your music… {done} of {total}")
+
+    def _music_done(self):
+        n = len(self.music.songs)
+        self.music_status.setText(f"{n} song{'s' if n != 1 else ''}" if n else "")
+        if self.stack.currentIndex() == 4:
+            self.refresh_music()
+
+    def _music_mode(self, mode):
+        self.music_mode = mode
+        self.music_trail = []
+        self.refresh_music()
+
+    def _music_up(self):
+        if self.music_trail:
+            self.music_trail.pop()
+            self.refresh_music()
+
+    def _cover(self, art, size):
+        key = (art, size)
+        if key not in self._icons:
+            pm = QPixmap(art) if art else QPixmap()
+            if pm.isNull():
+                self._icons[key] = icon("music", theme.accent(), size)
+            else:
+                dpr = self.devicePixelRatioF() or 1.0
+                side = int(size * dpr)
+                pm = pm.scaled(side, side, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                pm = pm.copy((pm.width() - side) // 2, (pm.height() - side) // 2, side, side)
+                pm.setDevicePixelRatio(dpr)
+                self._icons[key] = QIcon(pm)
+        return self._icons[key]
+
+    def _music_item(self, text, kind, value, ic=None, tip=""):
+        it = QListWidgetItem(text)
+        if ic is not None:
+            it.setIcon(ic)
+        it.setData(ROLE_PATH, value)
+        it.setData(ROLE_KIND, kind)
+        if tip:
+            it.setToolTip(tip)
+        self.music_list.addItem(it)
+        return it
+
+    def _album_by_key(self, key):
+        return next((a for a in self.music.albums() if a["key"] == key), None)
+
+    def refresh_music(self):
+        lst = self.music_list
+        lst.clear()
+        m = self.music
+        q = self.music_search.text().strip().lower()
+        current = self.win.engine.current
+        self.music_back.setEnabled(bool(self.music_trail))
+        self.album_head.hide()
+        songs = m.songs
+
+        def song_text(p, with_artist=True):
+            s = songs.get(p, {})
+            t = m.title_of(p, s)
+            n = f"{s['track']}.  " if s.get("track") and not with_artist else ""
+            dur = f"\t{fmt_time(s['dur'])}" if s.get("dur") else ""
+            line2 = f"\n{m.artist_of(s)}  ·  {m.album_of(p, s)}" if with_artist else ""
+            return f"{n}{t}{dur}{line2}"
+
+        def add_song(p, with_artist=True):
+            s = songs.get(p, {})
+            it = self._music_item(song_text(p, with_artist), "file", p,
+                                  self._cover(s.get("art", ""), 36) if with_artist else icon("music", theme.FAINT, 18), p)
+            if p == current:
+                f = it.font()
+                f.setBold(True)
+                it.setFont(f)
+                it.setForeground(Qt.white)
+
+        if not songs:
+            lst.setIconSize(QSize(18, 18))
+            self.music_crumb.setText("")
+            msg = ("Add a folder with music to your library (Library tab,  + ) and it shows up here."
+                   if not self.store.data["library_folders"] else
+                   ("Reading your music…" if m.scanning else "No songs found in your library folders."))
+            it = QListWidgetItem(msg)
+            it.setFlags(Qt.NoItemFlags)
+            lst.addItem(it)
+            return
+
+        trail = self.music_trail
+        if trail and trail[-1][0] == "album":
+            a = self._album_by_key(trail[-1][1])
+            if not a:
+                self.music_trail = []
+                return self.refresh_music()
+            self.music_crumb.setText(f"{a['artist']}  ›  {a['album']}")
+            total = sum(songs.get(p, {}).get("dur", 0) for p in a["tracks"])
+            self._album_key = a["key"]
+            self.album_cover.setPixmap(self._cover(a["art"], 84).pixmap(84, 84))
+            self.album_name.setText(a["album"])
+            self.album_meta.setText(f"{a['artist']}{'  ·  ' + a['year'] if a['year'] else ''}\n"
+                                    f"{len(a['tracks'])} song{'s' if len(a['tracks']) != 1 else ''}  ·  {fmt_time(total)}")
+            self.album_head.show()
+            lst.setIconSize(QSize(18, 18))
+            for p in a["tracks"]:
+                if q and q not in song_text(p).lower():
+                    continue
+                add_song(p, with_artist=False)
+            return
+
+        if trail and trail[-1][0] == "artist":
+            name = trail[-1][1]
+            albums = dict(m.artists()).get(name, [])
+            self.music_crumb.setText(f"Artists  ›  {name}")
+            lst.setIconSize(QSize(44, 44))
+            n = sum(len(a["tracks"]) for a in albums)
+            self._music_item(f"Play all\n{n} songs", "play_artist", name, icon("play", theme.accent(), 44))
+            for a in albums:
+                if q and q not in a["album"].lower():
+                    continue
+                self._music_item(f"{a['album']}\n{a['year'] + '  ·  ' if a['year'] else ''}{len(a['tracks'])} songs",
+                                 "album", a["key"], self._cover(a["art"], 44))
+            return
+
+        self.music_crumb.setText("")
+        if self.music_mode == "artists":
+            lst.setIconSize(QSize(44, 44))
+            for name, albums in m.artists():
+                if q and q not in name.lower():
+                    continue
+                n = sum(len(a["tracks"]) for a in albums)
+                art = next((a["art"] for a in albums if a["art"]), "")
+                self._music_item(f"{name}\n{len(albums)} album{'s' if len(albums) != 1 else ''}  ·  {n} song{'s' if n != 1 else ''}",
+                                 "artist", name, self._cover(art, 44))
+        elif self.music_mode == "albums":
+            lst.setIconSize(QSize(44, 44))
+            for a in m.albums():
+                if q and q not in f"{a['album']} {a['artist']}".lower():
+                    continue
+                self._music_item(f"{a['album']}\n{a['artist']}{'  ·  ' + a['year'] if a['year'] else ''}",
+                                 "album", a["key"], self._cover(a["art"], 44))
+        else:
+            lst.setIconSize(QSize(36, 36))
+            for p in m.all_songs():
+                if q and q not in song_text(p).lower():
+                    continue
+                add_song(p)
+
+    def _visible_songs(self):
+        return [self.music_list.item(i).data(ROLE_PATH) for i in range(self.music_list.count())
+                if self.music_list.item(i).data(ROLE_KIND) == "file"]
+
+    def _queue_items(self, paths):
+        m = self.music
+        out = []
+        for p in paths:
+            s = m.songs.get(p, {})
+            out.append({"path": p, "title": f"{m.title_of(p, s)}  ·  {m.artist_of(s)}"})
+        return out
+
+    def _artist_tracks(self, name):
+        return [p for a in dict(self.music.artists()).get(name, []) for p in a["tracks"]]
+
+    def play_songs(self, paths, index=0):
+        if paths:
+            self.win.set_queue(self._queue_items(paths), index)
+
+    def _music_activate(self, it):
+        kind, val = it.data(ROLE_KIND), it.data(ROLE_PATH)
+        if kind == "artist":
+            self.music_trail.append(("artist", val))
+            self.music_search.clear()
+            self.refresh_music()
+        elif kind == "album":
+            self.music_trail.append(("album", val))
+            self.music_search.clear()
+            self.refresh_music()
+        elif kind == "play_album":
+            a = self._album_by_key(val)
+            if a:
+                self.play_songs(a["tracks"])
+        elif kind == "play_artist":
+            self.play_songs(self._artist_tracks(val))
+        elif kind == "file":
+            paths = self._visible_songs()
+            self.play_songs(paths, paths.index(val) if val in paths else 0)
+
+    def _music_menu(self, pos):
+        it = self.music_list.itemAt(pos)
+        if not it or not it.data(ROLE_KIND):
+            return
+        kind, val = it.data(ROLE_KIND), it.data(ROLE_PATH)
+        if kind in ("album", "play_album"):
+            a = self._album_by_key(val)
+            paths = a["tracks"] if a else []
+        elif kind in ("artist", "play_artist"):
+            paths = self._artist_tracks(val)
+        else:
+            paths = self._selected_files(self.music_list) or [val]
+        m = QMenu(self)
+        m.addAction(icon("play", theme.TEXT, 16), "Play", lambda: self.play_songs(paths))
+        m.addAction(icon("queue", theme.TEXT, 16), "Add to queue",
+                    lambda: self.win.enqueue(paths))
+        m.addAction("Play next", lambda: self.win.enqueue(paths, play_next=True))
+        pm = m.addMenu(icon("playlist", theme.TEXT, 16), "Add to playlist")
+        for name in sorted(self.store.data["playlists"]):
+            pm.addAction(name, lambda n=name: self.add_to_playlist(n, paths))
+        pm.addSeparator()
+        pm.addAction("New playlist…", lambda: self.new_playlist(paths))
+        if kind == "file":
+            m.addSeparator()
+            m.addAction("Show in Explorer", lambda: reveal(val))
+        m.exec(self.music_list.mapToGlobal(pos))
 
     # ================================================================ queue
     def refresh_queue(self):

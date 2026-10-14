@@ -414,6 +414,18 @@ class PreferencesDialog(QDialog):
         cb.setChecked(bool(self.store.setting("osd_shortcuts")))
         cb.toggled.connect(lambda v: self.store.set_setting("osd_shortcuts", v))
         f.addWidget(cb)
+        cb2 = QCheckBox("Show a preview picture when I hover over the seek bar")
+        cb2.setToolTip("Pylon makes small previews of each video in the background and keeps them for next time.")
+        cb2.setChecked(bool(self.store.setting("seek_previews")))
+        cb2.toggled.connect(self._set_previews)
+        f.addWidget(cb2)
+
+    def _set_previews(self, on):
+        self.store.set_setting("seek_previews", on)
+        if on:
+            self.win.start_previews()
+        else:
+            self.win.thumbs.cancel()
 
     def _playback(self, f):
         f.addWidget(info_label("When I open something I didn't finish", "Pylon remembers where you stopped in every file."))
