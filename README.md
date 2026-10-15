@@ -1,6 +1,6 @@
 # Pylon
 
-**A calmer, redesigned interface for the VLC engine, for Windows, Linux and (experimentally) macOS.**
+**Juxtopposed's VLC redesign, as a real app you can download.** Free and open source, for Windows, Linux and (experimentally) macOS. Pylon runs on VLC's engine, so it plays everything VLC plays, with a calmer interface on top.
 
 **Download:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.3.2.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.2-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.2-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)  
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
