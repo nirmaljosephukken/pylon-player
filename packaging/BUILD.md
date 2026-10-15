@@ -84,3 +84,17 @@ archive integrity, executable modes and symlinks. Generate SHA256SUMS.txt only
 after all packages are final. SOURCE-MANIFEST.json records the exact source and
 launcher hashes used. Windows staging was smoke-tested; Linux and macOS runtime
 testing remains outstanding. See RELEASE-NOTES-1.3.3.md for the known Mac issue.
+
+
+### 1.3.4 maintenance release
+
+The repack script now reads APP_VERSION from app/__init__.py and names the output
+folder and packages accordingly. Version 1.3.4 reuses the same verified 1.3.2
+runtime baseline as 1.3.3; it replaces Pylon application files and platform
+version metadata. Rebuild the Windows launcher before staging. The Windows
+installer excludes generated __pycache__ directories and .pyc files.
+
+Regression checks: `python tests/check_music_playlists.py` and
+`python tests/check_minimum_layout.py`. These use temporary settings and exercise
+Qt; run them in a desktop session (or with an available headless Qt plugin).
+See RELEASE-NOTES-1.3.4.md for scope and known platform limitations.

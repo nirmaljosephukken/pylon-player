@@ -18,6 +18,19 @@ Thanks to @UserSpringRoll for the suggestions and examples.
 
 VLC must be installed separately. Your library and settings are preserved when upgrading. SHA256SUMS.txt contains the package checksums.
 
+
+### macOS package rebuild — 15 October 2026
+
+The macOS ZIP was rebuilt with a candidate fix for #13: preload VLC's core
+library before its engine and preserve the original dynamic-library loading
+error. The version remains 1.3.4. Download the Mac ZIP again manually; existing
+1.3.4 installations will not receive a new-version notification for this rebuild.
+
+This is not yet a confirmed fix. Please report whether VLC starts and a local
+video plays. If it fails, paste the complete Details text along with the Mac
+model/architecture, macOS version and VLC version. Windows and Linux downloads
+are unchanged. SHA256SUMS.txt has the revised Mac checksum.
+
 ### Known issue
 The macOS VLC startup problem in #13 remains open pending the reporter's system and error details. This release does not claim to fix it.
 

@@ -4,6 +4,7 @@ Everything VLC-specific lives here so the UI never touches the binding
 directly. libVLC events arrive on a VLC thread; they are re-emitted as Qt
 signals, which Qt delivers on the GUI thread.
 """
+import ctypes
 import os
 import sys
 import time
@@ -108,6 +109,7 @@ def _point_at(folder: str) -> bool:
 
 
 _DLL_DIRS = []   # keep os.add_dll_directory handles alive
+_MAC_LIBS = []   # keep the preloaded VLC core and engine alive on macOS
 vlc = None
 VLC_ERROR = "not loaded yet"
 VLC_DIR = ""     # the folder libVLC was loaded from ("" = found by python-vlc itself)
@@ -144,6 +146,19 @@ def load_vlc(folder: str = "") -> bool:
                 if _point_at(cand):
                     VLC_DIR = os.path.normpath(cand)
                     break
+        if sys.platform == "darwin":
+            lib = os.environ.get("PYTHON_VLC_LIB_PATH")
+            if lib:
+                # The environment override bypasses python-vlc's own macOS
+                # core preload. Load both here so dependencies resolve in order
+                # and retain the original dlopen error instead of SystemExit(1).
+                core = os.path.join(os.path.dirname(lib), "libvlccore.dylib")
+                mode = getattr(ctypes, "RTLD_GLOBAL", 0)
+                _MAC_LIBS.append(ctypes.CDLL(core, mode=mode))
+                _MAC_LIBS.append(ctypes.CDLL(lib, mode=mode))
+                plugins = os.environ.get("PYTHON_VLC_MODULE_PATH")
+                if plugins and not os.path.isdir(plugins):
+                    raise ImportError(f"VLC plugin folder does not exist: {plugins}")
         sys.modules.pop("vlc", None)   # a failed earlier import may have left a module without libVLC
         import vlc as _vlc  # noqa: E402
         if getattr(_vlc, "dll", None) is None:

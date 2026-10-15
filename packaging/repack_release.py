@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 BUILD=ROOT/'build'
 VERSION=re.search(r'APP_VERSION = "([^"]+)"', (ROOT/'app/__init__.py').read_text()).group(1)
-OUT=ROOT.parent/f'Pylon-{VERSION}/Downloads' 
+OUT=ROOT.parent/f'Pylon-{VERSION}/Downloads'
 BASE=ROOT.parent/'Pylon-1.3.2/Downloads'
 
 def sources():

@@ -22,3 +22,6 @@ launcher/*.exe
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Installer compiler output (downloads belong in release folders)
+packaging/windows/Pylon-Setup-*.exe
