@@ -66,6 +66,7 @@ class ThumbnailMaker(QObject):
         self.path = None
         self.step = 0
         self.size = (THUMB_W, 180)
+        self.timestamps: dict[int, int] = {}
         self.frames: dict[int, QImage] = {}   # index -> image
         self.total = 0
         self._thread = None
@@ -86,6 +87,7 @@ class ThumbnailMaker(QObject):
         self.step = max(MIN_STEP_MS, length_ms // MAX_THUMBS)
         self.total = min(MAX_THUMBS, max(1, length_ms // self.step))
         self.frames = {}
+        self.timestamps = {}
         if self._load_cache():
             self.progress.emit(path, self.total, self.total)
             return
@@ -100,21 +102,21 @@ class ThumbnailMaker(QObject):
         self._thread = None
         self.path = None
         self.frames = {}
+        self.timestamps = {}
+
+    def preview_at(self, ms: int):
+        """Image and recorded playback time belonging to the same cached sample."""
+        with self._lock:
+            if not self.frames or self.step <= 0:
+                return None, None
+            i = min(self.frames, key=lambda k: abs(k * self.step - ms))
+            if abs(i * self.step - ms) > max(30_000, self.step * 12):
+                return None, None
+            return self.frames[i], self.timestamps.get(i, i * self.step)
 
     def frame_at(self, ms: int):
         """Nearest finished preview to `ms`, or None."""
-        if not self.frames or self.step <= 0:
-            return None
-        i = int(round(ms / self.step))
-        with self._lock:
-            if i in self.frames:
-                return self.frames[i]
-            keys = list(self.frames)
-        best = min(keys, key=lambda k: abs(k - i))
-        # only use a neighbour that is reasonably close (coarse pass fills gaps first)
-        if abs(best - i) * self.step > max(30_000, self.step * 12):
-            return None
-        return self.frames.get(best)
+        return self.preview_at(ms)[0]
 
     # ------------------------------------------------------------------ cache
     def _sheet_paths(self, path):
@@ -126,7 +128,7 @@ class ThumbnailMaker(QObject):
         try:
             with open(meta, encoding="utf-8") as f:
                 info = json.load(f)
-            if info.get("step") != self.step or info.get("w") != self.size[0]:
+            if info.get("version") != 2 or info.get("step") != self.step or info.get("w") != self.size[0]:
                 return False
             sheet = QImage(jpg)
             if sheet.isNull():
@@ -137,6 +139,7 @@ class ThumbnailMaker(QObject):
         for i in info["have"]:
             r, c = divmod(i, COLS)
             self.frames[i] = sheet.copy(QRect(c * w, r * h, w, h))
+            self.timestamps[i] = int(info["timestamps"][str(i)])
         self.size = (w, h)
         try:
             os.utime(jpg)
@@ -144,7 +147,7 @@ class ThumbnailMaker(QObject):
             pass
         return True
 
-    def _save_cache(self, path, frames, size, step):
+    def _save_cache(self, path, frames, size, step, timestamps):
         if not frames:
             return
         w, h = size
@@ -159,7 +162,8 @@ class ThumbnailMaker(QObject):
         jpg, meta = self._sheet_paths(path)
         if sheet.save(jpg, "JPG", 82):
             with open(meta, "w", encoding="utf-8") as f:
-                json.dump({"w": w, "h": h, "step": step, "have": sorted(frames)}, f)
+                json.dump({"version": 2, "w": w, "h": h, "step": step,
+                           "have": sorted(frames), "timestamps": timestamps}, f)
             _prune_cache()
 
     # ------------------------------------------------------------------ worker
@@ -196,6 +200,7 @@ class ThumbnailMaker(QObject):
 
         inst = player = None
         frames = {}
+        timestamps = {}
         try:
             inst = vlc.Instance(["--no-audio", "--no-spu", "--no-osd", "--no-sub-autodetect-file",
                                  "--no-video-title-show", "--no-snapshot-preview", "--avcodec-hw=none",
@@ -223,11 +228,14 @@ class ThumbnailMaker(QObject):
                 if stop.is_set():
                     break
                 time.sleep(0.02)
+                captured_ms = max(0, player.get_time())
                 img = QImage(bytes(buf), w, h, w * 4, QImage.Format_RGB32).copy()
                 with self._lock:
                     if self.path == path:
                         self.frames[i] = img
+                        self.timestamps[i] = captured_ms
                 frames[i] = img
+                timestamps[i] = captured_ms
                 done += 1
                 if done % 8 == 0 or done == total:
                     self.progress.emit(path, done, total)
@@ -235,7 +243,7 @@ class ThumbnailMaker(QObject):
                     player.stop()
                     player.play()
             if frames and not stop.is_set():
-                self._save_cache(path, frames, (w, h), step)
+                self._save_cache(path, frames, (w, h), step, timestamps)
         except Exception:
             pass
         finally:

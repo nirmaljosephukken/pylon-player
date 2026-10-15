@@ -168,7 +168,7 @@ def stylesheet() -> str:
     QToolButton::menu-indicator {{ image: none; width: 0; }}
     QListWidget#InsetList {{ background: {BG}; border: 1px solid {BORDER}; border-radius: {RADIUS}px; padding: 4px; }}
     QToolButton#PlayButton {{ background: {ag}; border-radius: 9px; padding: 0; }}
-    QToolButton#PlayButton:hover {{ background: {ag}; border: 2px solid rgba(255,255,255,0.35); }}
+    QToolButton#PlayButton:hover {{ background: {ag}; border: none; }}
 
     QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QKeySequenceEdit {{
         background: {SURFACE}; border: 1px solid {BORDER}; border-radius: {RADIUS}px; padding: 5px 8px; selection-background-color: {a}; }}

@@ -3,8 +3,8 @@ stream, keyboard shortcuts, preferences, and the first-run welcome."""
 import os
 import sys
 
-from PySide6.QtCore import QSize, Qt, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QKeySequence
+from PySide6.QtCore import QSize, Qt, QUrl, QTimer
+from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QIcon, QPixmap, QPainter
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QColorDialog, QComboBox, QDialog,
                                QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout,
                                QHeaderView, QKeySequenceEdit, QLabel, QLineEdit, QListWidget,
@@ -382,6 +382,42 @@ class PreferencesDialog(QDialog):
         nav.currentRowChanged.connect(self.pages.setCurrentIndex)
         nav.setCurrentRow(0)
 
+    def _colour_button(self, name, colours, selected, callback):
+        b = QPushButton(name)
+        b.setCheckable(True)
+        b.setChecked(selected)
+        b.setMinimumHeight(32)
+        swatch = QPixmap(20, 20)
+        swatch.fill(Qt.transparent)
+        p = QPainter(swatch)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+        for i, colour in enumerate(colours):
+            p.setBrush(QColor(colour))
+            p.drawEllipse(2 + i * 8, 4, 12, 12)
+        p.end()
+        b.setIcon(QIcon(swatch))
+        b.setStyleSheet("QPushButton { text-align: left; padding: 5px 8px; }"
+                       f"QPushButton:checked {{ border: 1px solid {theme.accent()}; }}")
+        b.clicked.connect(callback)
+        return b
+
+    def _refresh_general(self):
+        # Rebuild only this page so theme-dependent styles and selections stay current.
+        old = self.pages.widget(0)
+        page = QWidget()
+        form = QVBoxLayout(page)
+        form.setSpacing(10)
+        h = QLabel("General")
+        h.setObjectName("H1")
+        form.addWidget(h)
+        self._general(form)
+        form.addStretch(1)
+        self.pages.removeWidget(old)
+        self.pages.insertWidget(0, page)
+        self.pages.setCurrentIndex(0)
+        old.deleteLater()
+
     def _general(self, f):
         f.addWidget(info_label("Accent color", "Changes the orange used for highlights, the seek bar and the cone."))
         grid = QGridLayout()
@@ -390,10 +426,8 @@ class PreferencesDialog(QDialog):
         if theme.is_vibe(self.store.setting("theme")):
             f.addWidget(muted_note("The current neon theme uses its own colours. Your accent colour returns when you pick a non-neon theme."))
         for i, (name, col) in enumerate(ACCENTS):
-            b = QPushButton(name)
-            b.setStyleSheet(f"QPushButton {{ border-left: 16px solid {col}; text-align: left; padding-left: 10px; }}"
-                            + (f"QPushButton {{ border-color: {col}; }}" if col.lower() == cur.lower() else ""))
-            b.clicked.connect(lambda _=False, c=col: self._set_accent(c))
+            b = self._colour_button(name, [col], col.lower() == cur.lower(),
+                                    lambda _=False, c=col: self._set_accent(c))
             grid.addWidget(b, i // 4, i % 4)
         custom = QPushButton("Custom…")
         custom.clicked.connect(self._custom_accent)
@@ -407,16 +441,10 @@ class PreferencesDialog(QDialog):
         cur = self.store.setting("theme") or "dark"
 
         def chip(key, pal):
-            b = QPushButton(pal["name"])
             v = pal.get("vibe")
-            left = v["stops"][0] if v else pal["BG"]
-            right = v["stops"][-1] if v else pal["SURFACE"]
-            on = key == cur
-            b.setStyleSheet(f"QPushButton {{ background: {pal['SURFACE']}; border-left: 14px solid {left}; "
-                            f"border-right: 6px solid {right}; text-align: left; padding-left: 10px; "
-                            + (f"border-top: 1px solid {theme.accent2()}; border-bottom: 1px solid {theme.accent2()}; "
-                               f"color: {theme.accent2()}; " if on else "") + "}")
-            b.clicked.connect(lambda _=False, k=key: self._set_theme(k))
+            colours = [v["stops"][0], v["stops"][-1]] if v else [pal["BG"]]
+            b = self._colour_button(pal["name"], colours, key == cur,
+                                    lambda _=False, k=key: self._set_theme(k))
             return b
 
         grid = QGridLayout()
@@ -424,17 +452,13 @@ class PreferencesDialog(QDialog):
         plain = [(k, t) for k, t in theme.THEMES.items() if "vibe" not in t]
         neon = [(k, t) for k, t in theme.THEMES.items() if "vibe" in t]
         for i, (k, t) in enumerate(plain):
-            grid.addWidget(chip(k, t), i // 2, i % 2)
+            grid.addWidget(chip(k, t), i // 4, i % 4)
         tint = self.store.setting("theme_tint")
-        custom = QPushButton("Custom tint (on)…" if cur == "custom" and tint else "Custom tint…")
-        if cur == "custom" and tint:
-            pal = theme.tint_palette(tint)
-            custom.setStyleSheet(f"QPushButton {{ background: {pal['SURFACE']}; border-left: 14px solid {tint}; "
-                                 f"color: {theme.accent2()}; text-align: left; padding-left: 10px; }}")
+        custom = self._colour_button("Custom tint (on)…" if cur == "custom" and tint else "Custom tint…",
+                                     [tint or theme.BG], cur == "custom", self._custom_theme)
         custom.setToolTip("Pick any colour; Pylon uses dark shades of it for the background.")
-        custom.clicked.connect(self._custom_theme)
-        row = (len(plain) + 1) // 2
-        grid.addWidget(custom, row, 0, 1, 2)
+        row = (len(plain) + 3) // 4
+        grid.addWidget(custom, row, 0, 1, 4)
         f.addLayout(grid)
         f.addSpacing(6)
         f.addWidget(info_label("Neon", "Black or deep-tinted backgrounds with glowing gradient highlights. "
@@ -442,7 +466,7 @@ class PreferencesDialog(QDialog):
         g2 = QGridLayout()
         g2.setSpacing(8)
         for i, (k, t) in enumerate(neon):
-            g2.addWidget(chip(k, t), i // 2, i % 2)
+            g2.addWidget(chip(k, t), i // 4, i % 4)
         f.addLayout(g2)
 
     def _set_theme(self, key, tint=None):
@@ -450,10 +474,10 @@ class PreferencesDialog(QDialog):
         if tint is not None:
             self.store.set_setting("theme_tint", tint)
         self.win.apply_theme()
-        self.accept()
+        QTimer.singleShot(0, self._refresh_general)
         self.win.toast("Theme: " + (theme.THEMES[key]["name"] if key in theme.THEMES else "Custom tint"))
 
-    def _custom_theme(self):
+    def _custom_theme(self, checked=False):
         start = self.store.setting("theme_tint") or "#3D5A80"
         c = QColorDialog.getColor(QColor(start), self, "Background tint")
         if c.isValid():
@@ -462,7 +486,7 @@ class PreferencesDialog(QDialog):
     def _set_accent(self, c):
         self.store.set_setting("accent", c)
         self.win.apply_theme()
-        self.accept()
+        QTimer.singleShot(0, self._refresh_general)
         self.win.toast("Accent color changed")
 
     def _custom_accent(self):

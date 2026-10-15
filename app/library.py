@@ -514,6 +514,8 @@ class LibraryPanel(QWidget):
         else:
             m.addAction(icon("play", theme.TEXT, 16), "Play folder", lambda: self.win.play_folder(path))
             m.addAction(icon("queue", theme.TEXT, 16), "Add folder to queue", lambda: self.win.enqueue(list_media(path)))
+            m.addAction(icon("save", theme.TEXT, 16), "Save folder as playlist…",
+                        lambda: self.new_playlist(list_media(path)))
             pinned = path in self.store.data["pinned"]
             m.addAction(icon("pin", theme.TEXT, 16), "Unpin" if pinned else "Pin to top", lambda: self.toggle_pin(path))
             m.addAction(icon("subtitles", theme.TEXT, 16), "Add subtitles for this folder…",
@@ -590,6 +592,10 @@ class LibraryPanel(QWidget):
         new.setIcon(icon("plus", theme.TEXT, 14))
         new.clicked.connect(lambda: self.new_playlist())
         lay.addWidget(new)
+        self.pl_search = QLineEdit()
+        self.pl_search.setPlaceholderText("Search playlists")
+        self.pl_search.textChanged.connect(lambda _: self.refresh_playlists())
+        lay.addWidget(self.pl_search)
         self.pl_list = QListWidget()
         self.pl_list.setIconSize(QSize(18, 18))
         self.pl_list.itemDoubleClicked.connect(lambda it: self.win.play_playlist(it.data(ROLE_PATH)))
@@ -601,6 +607,8 @@ class LibraryPanel(QWidget):
     def refresh_playlists(self):
         self.pl_list.clear()
         for name, items in sorted(self.store.data["playlists"].items()):
+            if self.pl_search.text().strip().casefold() not in name.casefold():
+                continue
             it = QListWidgetItem(icon("playlist", theme.accent(), 18), f"{name}   ({len(items)})")
             it.setData(ROLE_PATH, name)
             self.pl_list.addItem(it)
@@ -678,6 +686,10 @@ class LibraryPanel(QWidget):
         add.setIcon(icon("plus", theme.TEXT, 14))
         add.clicked.connect(lambda: self.win.open_stream_dialog())
         lay.addWidget(add)
+        self.st_search = QLineEdit()
+        self.st_search.setPlaceholderText("Search streams")
+        self.st_search.textChanged.connect(lambda _: self.refresh_streams())
+        lay.addWidget(self.st_search)
         self.st_list = QListWidget()
         self.st_list.setIconSize(QSize(18, 18))
         self.st_list.itemDoubleClicked.connect(lambda it: self.win.open_stream(it.data(ROLE_PATH), it.text()))
@@ -689,6 +701,8 @@ class LibraryPanel(QWidget):
     def refresh_streams(self):
         self.st_list.clear()
         for s in self.store.data["streams"]:
+            if self.st_search.text().strip().casefold() not in (s["name"] + " " + s["url"]).casefold():
+                continue
             it = QListWidgetItem(icon("stream", theme.accent(), 18), s["name"])
             it.setData(ROLE_PATH, s["url"])
             it.setToolTip(s["url"])
@@ -871,6 +885,9 @@ class LibraryPanel(QWidget):
         lst = self.music_list
         lst.clear()
         m = self.music
+        scope = "songs" if self.music_trail and self.music_trail[-1][0] == "album" else (
+            "albums" if self.music_trail else self.music_mode)
+        self.music_search.setPlaceholderText("Search " + scope)
         q = self.music_search.text().strip().lower()
         current = self.win.engine.current
         self.music_back.setEnabled(bool(self.music_trail))

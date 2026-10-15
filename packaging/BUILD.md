@@ -49,3 +49,38 @@ Uses the system's `libvlc.so.5` (install the `vlc` package).
 4. `zip -ry Pylon-<version>-macOS.zip Pylon.app` (keeps the framework symlinks).
 
 Uses `/Applications/VLC.app`. The app isn't signed or notarized by Apple.
+
+## Repacking the 1.3.3 release on Windows
+
+`repack_release.py` preserves the bundled runtime from the local 1.3.2 release
+and replaces the application with the current repository source. It checks the
+baseline files against that release's SHA256SUMS.txt before use. This is a
+maintenance repack, not a fresh dependency build.
+
+Build tools used: Zig 0.15.2 (PyPI), NSIS 3.12 (conda-forge), and
+squashfs-tools-ng 1.3.2 (the upstream Windows binary package). Keep these under
+`build/tools` (ignored by Git). All outputs go to the sibling
+`Pylon-1.3.3/Downloads` folder.
+
+- macOS: `python packaging/repack_release.py macos`. ZIP Unix mode bits and
+  symlink entries are preserved; both bundled Python architectures and Qt
+  binaries are retained unchanged. No signing or notarization is performed.
+- Linux: retain the first 944632 bytes of the 1.3.2 AppImage as
+  `build/linux-runtime`; the following SquashFS becomes `build/linux-old.sqfs`.
+  Export it with `sqfs2tar` into `build/linux-old.tar`, using binary-safe
+  subprocess redirection. Run `python packaging/repack_release.py linux`.
+  The script patches a tar archive and runs `tar2sqfs`, preserving file modes
+  and symlink targets rather than extracting Linux files onto NTFS.
+- Windows: build `Pylon.exe` using `launcher/build.md`, then run
+  `python packaging/repack_release.py windows`. This stages Python and licences
+  from the installed `Pylon-1.1/Pylon` copy, plus current repository files.
+  Compile `packaging/windows/pylon.nsi` with NSIS and define SRC as the absolute
+  `build/windows/Pylon` path. The compiler writes the installer next to the NSI
+  script; move it to Downloads after compilation succeeds.
+
+No VLC libraries are bundled. Check the packaged application files against the
+repository, Windows PE version resources, macOS plist, Linux AppStream XML,
+archive integrity, executable modes and symlinks. Generate SHA256SUMS.txt only
+after all packages are final. SOURCE-MANIFEST.json records the exact source and
+launcher hashes used. Windows staging was smoke-tested; Linux and macOS runtime
+testing remains outstanding. See RELEASE-NOTES-1.3.3.md for the known Mac issue.

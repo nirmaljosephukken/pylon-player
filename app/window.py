@@ -6,7 +6,7 @@ import sys
 import time
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QActionGroup, QCursor, QGuiApplication, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QActionGroup, QCursor, QGuiApplication, QKeySequence, QShortcut, QRegion
 from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QMainWindow, QMenu,
                                QMessageBox, QStackedWidget, QWidget)
 
@@ -91,6 +91,7 @@ class MainWindow(QMainWindow):
         self._last_mouse = QPoint()
         self._last_move = 0.0
         self._force_show_until = 0.0
+        self._resume_until = 0.0
         self._resume_ms = 0
         self._track_prefs = ("", "")
         self._prefs_applied = False
@@ -163,7 +164,8 @@ class MainWindow(QMainWindow):
         b.speed_clicked.connect(lambda: self.open_sidebar_tab(3))
         b.seek.seek_requested.connect(self.engine.seek)
         b.seek.hovered.connect(self._seek_hover)
-        b.seek.hover_left.connect(self.seek_preview.hide)
+        b.seek.hover_left.connect(self.seek_preview.defer_hide)
+        self.seek_preview.clicked.connect(self.engine.seek)
         b.cone.volume_changed.connect(self._cone_volume)
         b.set_volume(self.engine.volume(), False)
 
@@ -500,12 +502,25 @@ class MainWindow(QMainWindow):
     def _place_overlays(self):
         tl = self.stage.mapToGlobal(QPoint(0, 0))
         w, h = self.stage.width(), self.stage.height()
+        self.top.folder_chip.setVisible(w >= 480 and bool(self.top.folder_chip.text()))
+        self.top.btn_pip.setVisible(w >= 260)
+        self.top.title.setVisible(w >= 340)
+        for button in (self.bottom.btn_prev, self.bottom.btn_next, self.bottom.time):
+            button.setVisible(w >= 360)
+        for button in (self.bottom.btn_subs, self.bottom.btn_audio, self.bottom.btn_mute, self.bottom.cone):
+            button.setVisible(w >= 620)
+        self.bottom.resume.setVisible(w >= 900 and time.monotonic() < self._resume_until)
+        self.bottom.speed.setVisible(w >= 760 and abs(self.engine.live["rate"] - 1.0) > 1e-3)
         geo = (tl.x(), tl.y(), w, h)
         if geo == self._overlay_geo:
             return
         self._overlay_geo = geo
         self.top.setGeometry(QRect(tl.x(), tl.y(), w, TopBar.HEIGHT))
         self.bottom.setGeometry(QRect(tl.x(), tl.y() + h - BottomBar.HEIGHT, w, BottomBar.HEIGHT))
+        # Layout minimum sizes can make a tool window wider than the stage.
+        # Clip the actual native windows as well as setting their geometry.
+        self.top.setMask(QRegion(0, 0, w, TopBar.HEIGHT))
+        self.bottom.setMask(QRegion(0, 0, w, BottomBar.HEIGHT))
         self.osd.anchor = QPoint(tl.x() + 20, tl.y() + TopBar.HEIGHT + 10)
         if self.osd.isVisible():
             self.osd.move(self.osd.anchor)
@@ -1241,6 +1256,7 @@ class MainWindow(QMainWindow):
             return
         self._save_position()
         e = self.engine
+        self._resume_until = 0.0
         self._resume_ms = 0
         self.bottom.resume.hide()
         if self.thumbs.path != path:
@@ -1299,7 +1315,8 @@ class MainWindow(QMainWindow):
             self.now_playing.load(path, {})
         if self._resume_ms:
             self.bottom.resume.setText(f"Continue from {fmt_time(self._resume_ms)}")
-            self.bottom.resume.show()
+            self._resume_until = time.monotonic() + 8
+            self.bottom.resume.setVisible(self.stage.width() >= 900)
             self._poke(8)
             QTimer.singleShot(8000, self.bottom.resume.hide)
         else:
@@ -1313,6 +1330,7 @@ class MainWindow(QMainWindow):
         if self._resume_ms:
             self.engine.seek(self._resume_ms)
             self.toast(f"Continuing from {fmt_time(self._resume_ms)}")
+        self._resume_until = 0.0
         self._resume_ms = 0
         self.bottom.resume.hide()
 
@@ -1426,7 +1444,9 @@ class MainWindow(QMainWindow):
         g = seek.mapToGlobal(QPoint(int(x), 0))
         img = None
         if self.store.setting("seek_previews") and self.thumbs.path == self.engine.current:
-            img = self.thumbs.frame_at(ms)
+            img, captured_ms = self.thumbs.preview_at(ms)
+            if captured_ms is not None:
+                ms = captured_ms
         left = self.mapToGlobal(QPoint(0, 0)).x()
         line_top = g.y() + seek.height() - 10     # the visible bar sits at the bottom of the widget
         self.seek_preview.show_at(g.x(), line_top - 5, ms, img, left + 8, left + self.width() - 8)

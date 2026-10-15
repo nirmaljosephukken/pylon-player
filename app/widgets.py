@@ -39,6 +39,13 @@ class IconButton(QToolButton):
 
     def paintEvent(self, e):
         super().paintEvent(e)
+        if self.objectName() == "PlayButton" and self.underMouse():
+            p = QPainter(self)
+            p.setRenderHint(QPainter.Antialiasing)
+            p.setPen(QPen(QColor(255, 255, 255, 90), 2))
+            p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 8, 8)
+            p.end()
         if getattr(self, "_dot", False):
             from PySide6.QtGui import QPainter
             p = QPainter(self)
@@ -371,8 +378,14 @@ class Toast(OverlayWindow):
 class SeekPreview(OverlayWindow):
     """Floats above the seek bar: a preview frame (when there is one) and the time."""
 
+    clicked = Signal(int)
+
     def __init__(self, owner):
         super().__init__(owner, radius=theme.RADIUS + 2, alpha=235)
+        self.timestamp = None
+        self._hide_timer = QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.timeout.connect(self._hide_if_outside)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(4, 4, 4, 6)
         lay.setSpacing(4)
@@ -384,6 +397,27 @@ class SeekPreview(OverlayWindow):
         self.time.setStyleSheet("font-size: 13px; font-weight: 600; background: transparent;")
         lay.addWidget(self.image)
         lay.addWidget(self.time)
+
+    def defer_hide(self):
+        self._hide_timer.start(300)
+
+    def _hide_if_outside(self):
+        if not self.underMouse():
+            self.hide()
+
+    def enterEvent(self, e):
+        self._hide_timer.stop()
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self.defer_hide()
+        super().leaveEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.LeftButton and self.timestamp is not None:
+            self.clicked.emit(self.timestamp)
+            self.hide()
+        super().mouseReleaseEvent(e)
 
     def show_at(self, gx: int, bottom_y: int, ms: int, img=None, min_x=None, max_x=None):
         """Centre horizontally on gx, sitting just above bottom_y (global coordinates)."""
@@ -398,6 +432,10 @@ class SeekPreview(OverlayWindow):
             self.image.show()
         else:
             self.image.hide()
+        self._hide_timer.stop()
+        self.timestamp = ms if img is not None and not img.isNull() else None
+        self.setCursor(Qt.PointingHandCursor if self.timestamp is not None else Qt.ArrowCursor)
+        self.setToolTip("Click to seek to this preview" if self.timestamp is not None else "")
         self.time.setText(fmt_time(ms))
         self.adjustSize()
         x = int(gx - self.width() / 2)
