@@ -2,7 +2,7 @@
 
 **A calmer, redesigned interface for the VLC engine, for Windows, Linux and (experimentally) macOS.**
 
-**Download:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.3.1.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.1-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.1-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)  
+**Download:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.3.2.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.2-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.2-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)  
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
 
 **The story:** [700,000 people watched a VLC redesign. I built the player.](https://dev.to/nekku/700000-people-watched-a-vlc-redesign-i-built-the-player-1aio) · [Demo video](https://youtu.be/vCV3B_blLU0)
@@ -16,6 +16,8 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 ![Library, queue and settings sidebar](docs/panels.png)
 
 ## What's new
+
+**1.3.2:** Smoother seeking: clicking or dragging the seek bar no longer makes the picture flicker. The release notes in the update window are readable again.
 
 **1.3.1:** Pylon now tells you when a new version is out, and on Windows updates itself with one click (your library, presets and settings are kept). Playlists continue from the first item you haven't finished. Mark things as watched straight from Continue watching, or select several items in the queue and mark or remove them together. Shuffle is now an on/off switch: click again to get the original order back. Presets now restore Sharpen and apply picture settings like saturation reliably. The logo's play triangle is centred properly.
 
@@ -52,7 +54,7 @@ Pylon plays everything through **VLC**, which you install yourself (Pylon never 
 | | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ (experimental) |
 | --- | --- | --- | --- |
 | **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
-| **2. Pylon** | `Pylon-Setup-1.3.1.exe` | `Pylon-1.3.1-x86_64.AppImage` | `Pylon-1.3.1-macOS.zip` |
+| **2. Pylon** | `Pylon-Setup-1.3.2.exe` | `Pylon-1.3.2-x86_64.AppImage` | `Pylon-1.3.2-macOS.zip` |
 | **3. Run** | Run the setup. No admin rights needed. | `chmod +x Pylon-*.AppImage`, then double-click it | Unzip, move **Pylon** to Applications, see the first-launch note below |
 
 Nothing else is needed: each download carries its own Python and Qt.

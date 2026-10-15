@@ -1,5 +1,7 @@
 """Custom widgets: icon buttons, the thick seek bar, the cone volume control,
 floating overlay windows, the on-screen toast and the subtitle timeline."""
+import time
+
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (QBrush, QColor, QCursor, QFont, QFontMetrics, QLinearGradient,
                            QPainter, QPainterPath, QPen, QPixmap, QPolygonF)
@@ -79,6 +81,12 @@ class SeekBar(QWidget):
         self.chapters: list[int] = []    # chapter starts (ms)
         self._hover_x = None
         self._dragging = False
+        self._last_sent, self._last_sent_t = None, 0.0
+        self._hold_ms, self._hold_until = None, 0.0
+        self._pending = None
+        self._drag_timer = QTimer(self)
+        self._drag_timer.setSingleShot(True)
+        self._drag_timer.timeout.connect(self._flush)
         self.setMouseTracking(True)
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedHeight(18)
@@ -89,20 +97,48 @@ class SeekBar(QWidget):
         self.update()
 
     def set_position(self, ms):
-        if not self._dragging:
-            self.position = max(0, int(ms))
-            self.update()
+        if self._dragging:
+            return
+        ms = max(0, int(ms))
+        # Right after a seek, VLC still reports the old time for a moment.
+        # Hold the new position until it catches up, so the bar doesn't jump back and forth.
+        if self._hold_ms is not None:
+            if abs(ms - self._hold_ms) < 1500 or time.monotonic() > self._hold_until:
+                self._hold_ms = None
+            else:
+                return
+        self.position = ms
+        self.update()
 
     def _ms_at(self, x):
         if self.length <= 0:
             return 0
         return int(max(0.0, min(1.0, x / max(1, self.width()))) * self.length)
 
+    def _send(self, ms, force=False):
+        """Ask for a seek, but never twice to the same place and not more than a few times a second while dragging."""
+        now = time.monotonic()
+        if not force and now - self._last_sent_t < 0.18:
+            self._pending = ms
+            self._drag_timer.start(int((0.18 - (now - self._last_sent_t)) * 1000) + 1)
+            return
+        self._pending = None
+        if self._last_sent is not None and abs(ms - self._last_sent) < 50:
+            return
+        self._last_sent, self._last_sent_t = ms, now
+        self._hold_ms, self._hold_until = ms, now + 1.2
+        self.seek_requested.emit(ms)
+
+    def _flush(self):
+        if self._pending is not None:
+            self._send(self._pending, force=True)
+
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton and self.length > 0:
             self._dragging = True
+            self._last_sent = None
             self.position = self._ms_at(e.position().x())
-            self.seek_requested.emit(self.position)
+            self._send(self.position, force=True)
             self.update()
 
     def mouseMoveEvent(self, e):
@@ -112,13 +148,15 @@ class SeekBar(QWidget):
             self.hovered.emit(ms, float(self._hover_x))
         if self._dragging:
             self.position = ms
-            self.seek_requested.emit(ms)
+            self._send(ms)
         self.update()
 
     def mouseReleaseEvent(self, e):
         if self._dragging:
             self._dragging = False
-            self.seek_requested.emit(self.position)
+            self._drag_timer.stop()
+            self._pending = None
+            self._send(self.position, force=True)   # skipped if it's where we already went
 
     def leaveEvent(self, e):
         self._hover_x = None

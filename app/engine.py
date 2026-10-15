@@ -6,6 +6,7 @@ signals, which Qt delivers on the GUI thread.
 """
 import os
 import sys
+import time
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
@@ -229,6 +230,11 @@ class Engine(QObject):
                      "adjust": None}
         self._cb = []
         self._live_pending = False     # re-apply live settings once the new player plays
+        self._last_seek_t = 0.0
+        self._seek_target = None
+        self._seek_timer = QTimer(self)
+        self._seek_timer.setSingleShot(True)
+        self._seek_timer.timeout.connect(self._seek_flush)
         # The picture filter (brightness, saturation...) only sticks once VLC has
         # made its video output, so apply it again whenever a new one appears.
         self.vout_changed.connect(self._on_vout, Qt.QueuedConnection)
@@ -485,11 +491,30 @@ class Engine(QObject):
         return int(self.player.get_length() or 0) if self.ok else 0
 
     def seek(self, ms: int):
+        """Jump to ms. Requests that arrive while VLC is still finishing the last jump
+        are merged, so only the latest one is applied (back-to-back jumps make the picture flicker)."""
         if not self.ok:
             return
         ln = self.length()
         ms = max(0, min(int(ms), ln - 500 if ln else int(ms)))
-        self.player.set_time(ms)
+        now = time.monotonic()
+        wait = 0.12 - (now - self._last_seek_t)
+        if wait > 0:
+            self._seek_target = ms
+            if not self._seek_timer.isActive():
+                self._seek_timer.start(int(wait * 1000) + 1)
+            return
+        self._do_seek(ms)
+
+    def _do_seek(self, ms):
+        self._seek_target = None
+        self._last_seek_t = time.monotonic()
+        if self.ok:
+            self.player.set_time(int(ms))
+
+    def _seek_flush(self):
+        if self._seek_target is not None:
+            self._do_seek(self._seek_target)
 
     def seek_by(self, delta_ms: int):
         self.seek(self.time() + delta_ms)
