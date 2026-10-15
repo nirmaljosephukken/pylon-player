@@ -7,6 +7,7 @@ Pylon's data folder, so only new or changed files are read again.
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 from urllib.parse import unquote, urlparse
@@ -20,6 +21,26 @@ from .util import is_audio, natural_key
 
 UNKNOWN_ARTIST = "Unknown artist"
 COVER_NAMES = ("cover", "folder", "front", "album", "albumart")
+
+# Semicolons and explicit feature credits are strong separators. Commas and
+# ampersands also occur in band names, so require evidence from this library.
+_STRONG_CREDIT = re.compile(r"\s*;\s*|\s+(?:feat\.?|ft\.?|featuring)\s+", re.I)
+_SOFT_CREDIT = re.compile(r"\s*,\s*|\s+&\s+")
+
+
+def credit_artists(credit, known=()):
+    known = {name.casefold() for name in known}
+    result = []
+    seen = set()
+    for part in _STRONG_CREDIT.split(credit or UNKNOWN_ARTIST):
+        pieces = [p.strip() for p in _SOFT_CREDIT.split(part) if p.strip()]
+        repeated = len({p.casefold() for p in pieces}) < len(pieces)
+        split = len(pieces) > 1 and (repeated or any(p.casefold() in known for p in pieces))
+        for name in pieces if split else [part.strip()]:
+            if name and name.casefold() not in seen:
+                seen.add(name.casefold())
+                result.append(name)
+    return result or [UNKNOWN_ARTIST]
 
 
 def _art_dir():
@@ -234,10 +255,30 @@ class MusicLibrary(QObject):
                                                       g["year"] or "9999", natural_key(g["album"])))
 
     def artists(self):
-        """[(artist, [albums])]"""
+        """Track artists with their album appearances; album grouping stays intact."""
+        credits = [s.get("artist") or s.get("album_artist") or UNKNOWN_ARTIST
+                   for p, s in self.songs.items() if os.path.exists(p)]
+        known = {c.strip() for c in credits
+                 if not _STRONG_CREDIT.search(c) and not _SOFT_CREDIT.search(c)}
+        # Repeated names inside a credit (e.g. A, B, A) establish A as a person
+        # even if the library contains no solo recording by that artist.
+        for credit in credits:
+            pieces = [p.strip() for p in _SOFT_CREDIT.split(credit)]
+            for name in pieces:
+                if sum(p.casefold() == name.casefold() for p in pieces) > 1:
+                    known.add(name)
         out = {}
+        spelling = {}
         for a in self.albums():
-            out.setdefault(a["artist"], []).append(a)
+            appearances = {}
+            for path in a["tracks"]:
+                s = self.songs[path]
+                credit = s.get("artist") or s.get("album_artist") or UNKNOWN_ARTIST
+                for name in credit_artists(credit, known):
+                    display = spelling.setdefault(name.casefold(), name)
+                    appearances.setdefault(display, []).append(path)
+            for name, tracks in appearances.items():
+                out.setdefault(name, []).append(dict(a, tracks=tracks))
         return sorted(out.items(), key=lambda kv: (kv[0] == UNKNOWN_ARTIST, natural_key(kv[0])))
 
     def all_songs(self):

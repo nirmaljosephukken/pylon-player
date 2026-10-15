@@ -1,11 +1,12 @@
-"""Repack unchanged 1.3.2 runtimes with the repository's 1.3.3 application.
+"""Repack unchanged 1.3.2 runtimes with the repository's current application.
 Run after preparing build/tools and linux-old.tar (see BUILD.md).
 """
-import copy,hashlib,io,shutil,subprocess,tarfile,zipfile
+import copy,hashlib,io,re,shutil,subprocess,tarfile,zipfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 BUILD=ROOT/'build'
-OUT=ROOT.parent/'Pylon-1.3.3/Downloads'
+VERSION=re.search(r'APP_VERSION = "([^"]+)"', (ROOT/'app/__init__.py').read_text()).group(1)
+OUT=ROOT.parent/f'Pylon-{VERSION}/Downloads' 
 BASE=ROOT.parent/'Pylon-1.3.2/Downloads'
 
 def sources():
@@ -20,7 +21,7 @@ def macos():
  replacements.pop('Pylon.app/Contents/Resources/pylon/pylon.ico')
  replacements['Pylon.app/Contents/Info.plist']=(ROOT/'packaging/macos/Info.plist').read_bytes()
  replacements['Pylon.app/Contents/MacOS/Pylon']=(ROOT/'packaging/macos/Pylon-launcher.sh').read_bytes()
- with zipfile.ZipFile(BASE/'Pylon-1.3.2-macOS.zip') as old,zipfile.ZipFile(OUT/'Pylon-1.3.3-macOS.zip','w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as new:
+ with zipfile.ZipFile(BASE/'Pylon-1.3.2-macOS.zip') as old,zipfile.ZipFile(OUT/f'Pylon-{VERSION}-macOS.zip','w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as new:
   for info in old.infolist():
    if '__pycache__/' in info.filename or info.filename.endswith('.pyc'):continue
    data=replacements.pop(info.filename,None)
@@ -45,7 +46,7 @@ def linux():
  tool=BUILD/'tools/squashfs/squashfs-tools-ng-1.3.2-mingw64/bin/tar2sqfs.exe'
  with (BUILD/'linux-new.tar').open('rb') as src:
   subprocess.run([str(tool),'-f','-q','-c','xz','-j','4',str(BUILD/'linux-new.sqfs')],stdin=src,check=True)
- with (OUT/'Pylon-1.3.3-x86_64.AppImage').open('wb') as dest:
+ with (OUT/f'Pylon-{VERSION}-x86_64.AppImage').open('wb') as dest:
   for p in (BUILD/'linux-runtime',BUILD/'linux-new.sqfs'):
    with p.open('rb') as src:shutil.copyfileobj(src,dest)
  print('Linux package written',flush=True)

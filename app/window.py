@@ -110,6 +110,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.stage = QStackedWidget()
+        self.stage.setMinimumWidth(240)
         self.home = None  # created after library (home uses it)
         self.video = VideoSurface()
         self.now_playing = NowPlayingPage(self)
@@ -444,6 +445,7 @@ class MainWindow(QMainWindow):
         if self._pip and on:
             return
         self.library.setVisible(on)
+        self._update_panel_minimum()
         self.top.btn_library.setChecked(on)
         if on:
             self.library.refresh_library()
@@ -459,6 +461,7 @@ class MainWindow(QMainWindow):
         if self._pip and on:
             return
         self.sidebar.setVisible(on)
+        self._update_panel_minimum()
         self.bottom.btn_tune.setChecked(on)
         if on:
             self.sidebar.refresh_tracks()
@@ -466,6 +469,13 @@ class MainWindow(QMainWindow):
     def open_sidebar_tab(self, idx):
         self.toggle_sidebar(True)
         self.sidebar.tabs.setCurrentIndex(idx)
+
+    def _update_panel_minimum(self):
+        """Keep both side panels and the compact player inside the window."""
+        panel_width = (0 if self.library.isHidden() else self.library.WIDTH)
+        panel_width += (0 if self.sidebar.isHidden() else self.sidebar.WIDTH)
+        self.setMinimumWidth(max(640, panel_width + self.stage.minimumWidth()))
+        self._overlay_geo = None
 
     def browse_folder(self, folder):
         if not folder:
@@ -511,6 +521,9 @@ class MainWindow(QMainWindow):
             button.setVisible(w >= 620)
         self.bottom.resume.setVisible(w >= 900 and time.monotonic() < self._resume_until)
         self.bottom.speed.setVisible(w >= 760 and abs(self.engine.live["rate"] - 1.0) > 1e-3)
+        for bar in (self.top, self.bottom):
+            bar.layout().activate()
+            bar.setMinimumWidth(bar.layout().minimumSize().width())
         geo = (tl.x(), tl.y(), w, h)
         if geo == self._overlay_geo:
             return

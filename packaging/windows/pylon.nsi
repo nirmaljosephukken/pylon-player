@@ -5,7 +5,7 @@ Unicode true
 !include "FileFunc.nsh"
 
 !define APP "Pylon"
-!define VERSION "1.3.3"
+!define VERSION "1.3.4"
 !ifndef SRC
   !define SRC "Pylon"
 !endif
@@ -62,7 +62,7 @@ Section "Pylon (required)" SecMain
   SetOutPath "$INSTDIR"
   RMDir /r "$INSTDIR\app"
   RMDir /r "$INSTDIR\Python"
-  File /r "${SRC}\*.*"
+  File /r /x "__pycache__" /x "*.pyc" "${SRC}\*.*"
   WriteUninstaller "$INSTDIR\Uninstall Pylon.exe"
   WriteRegStr HKCU "Software\Pylon" "InstallDir" "$INSTDIR"
 

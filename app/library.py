@@ -514,8 +514,8 @@ class LibraryPanel(QWidget):
         else:
             m.addAction(icon("play", theme.TEXT, 16), "Play folder", lambda: self.win.play_folder(path))
             m.addAction(icon("queue", theme.TEXT, 16), "Add folder to queue", lambda: self.win.enqueue(list_media(path)))
-            m.addAction(icon("save", theme.TEXT, 16), "Save folder as playlist…",
-                        lambda: self.new_playlist(list_media(path)))
+            m.addAction(icon("save", theme.TEXT, 16), "Save folder to playlist…",
+                        lambda: self.save_to_playlist(list_media(path)))
             pinned = path in self.store.data["pinned"]
             m.addAction(icon("pin", theme.TEXT, 16), "Unpin" if pinned else "Pin to top", lambda: self.toggle_pin(path))
             m.addAction(icon("subtitles", theme.TEXT, 16), "Add subtitles for this folder…",
@@ -622,6 +622,14 @@ class LibraryPanel(QWidget):
         if not ok or not name.strip():
             return
         name = name.strip()
+        if name in self.store.data["playlists"]:
+            if QMessageBox.question(self, "Playlist exists",
+                                    f"Add these files to “{name}” instead of replacing it?") != QMessageBox.Yes:
+                return
+            if files is None:
+                files, _ = QFileDialog.getOpenFileNames(self, "Add files", "", media_filter())
+            self.add_to_playlist(name, files)
+            return
         if files is None:
             picked, _ = QFileDialog.getOpenFileNames(self, f"Choose files for “{name}”", "", media_filter())
             files = picked
@@ -631,9 +639,38 @@ class LibraryPanel(QWidget):
         self.win.toast(f"Playlist “{name}” created")
 
     def add_to_playlist(self, name, files):
-        self.store.data["playlists"].setdefault(name, []).extend(files)
+        target = self.store.data["playlists"].setdefault(name, [])
+        def identity(path):
+            return path if is_url(path) else os.path.normcase(os.path.abspath(path))
+        seen = {identity(path) for path in target}
+        added = 0
+        for path in files:
+            key = identity(path)
+            if key not in seen:
+                target.append(path)
+                seen.add(key)
+                added += 1
         self.store.save("playlists")
-        self.win.toast(f"Added to “{name}”")
+        self.refresh_playlists()
+        self.win.toast(f"Added {added} item{'s' if added != 1 else ''} to “{name}”")
+
+    def save_to_playlist(self, files):
+        """Save a folder/queue to a new playlist or append to an existing one."""
+        if not files:
+            self.win.toast("No playable files to add")
+            return
+        names = sorted(self.store.data["playlists"], key=str.casefold)
+        if not names:
+            self.new_playlist(files)
+            return
+        choices = ["Create a new playlist…"] + [f"Add to: {name}" for name in names]
+        choice, ok = QInputDialog.getItem(self, "Save to playlist", "Destination", choices, 0, False)
+        if not ok:
+            return
+        if choice == choices[0]:
+            self.new_playlist(files)
+        else:
+            self.add_to_playlist(names[choices.index(choice) - 1], files)
 
     def _pl_menu(self, pos):
         it = self.pl_list.itemAt(pos)
@@ -879,6 +916,9 @@ class LibraryPanel(QWidget):
         return it
 
     def _album_by_key(self, key):
+        artist = next((value for kind, value in self.music_trail if kind == "artist"), None)
+        if artist is not None:
+            return next((a for a in dict(self.music.artists()).get(artist, []) if a["key"] == key), None)
         return next((a for a in self.music.albums() if a["key"] == key), None)
 
     def refresh_music(self):
@@ -1182,7 +1222,7 @@ class LibraryPanel(QWidget):
     def _save_queue_as_playlist(self):
         if not self.win.queue:
             return
-        self.new_playlist([x["path"] for x in self.win.queue])
+        self.save_to_playlist([x["path"] for x in self.win.queue])
 
 
 SHUFFLE_OFF_TIP = "Shuffle the queue"

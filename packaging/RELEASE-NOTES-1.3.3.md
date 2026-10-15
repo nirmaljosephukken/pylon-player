@@ -6,7 +6,7 @@
 - Preferences stays open when changing themes and accent colours. Colour choices have consistent buttons and rounded swatches. The play button hover outline uses antialiased drawing (#14).
 - Right-click a library folder to save its current playable files as a playlist. This is an independent snapshot, in the folder's normal sorted order. Added playlist and stream search, and music search labels matching the current view (#15).
 - Click a seek preview to seek to its recorded time. Its timestamp now follows the cached image. Previews remain sampled, and VLC seeking is not guaranteed frame-perfect. Old preview caches regenerate once to record timestamps (#16).
-- Playback bars stay within the player area instead of covering side panels. Narrow player areas retain essential controls; widen the window or close a side panel to restore additional buttons. Keyboard shortcuts remain available (#17).
+- Playback bars stay within the player area instead of covering side panels. Narrow player areas retain essential controls; widen the window or close a side panel to restore additional buttons. Keyboard shortcuts remain available. With both side panels open, the window now has a minimum width of 900 pixels to prevent their content from being clipped; closing the panels restores the 640-pixel minimum (#17).
 
 Thanks to @UserSpringRoll for the reports and screenshots.
 
