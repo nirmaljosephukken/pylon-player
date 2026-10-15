@@ -4,332 +4,411 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pylon Media Player</title>
-<meta name="description" content="Pylon is a free, open-source media player that runs on VLC's engine, with a calmer interface and features built for watching shows. For Windows, Linux and macOS.">
-<meta property="og:title" content="Pylon: a calmer media player on VLC's engine">
-<meta property="og:description" content="Free and open source. Plays everything VLC plays. Presets per show, subtitle sync you can drag, 8 themes, one-click updates.">
+<meta name="description" content="Pylon is a free, open-source media player built on VLC's engine, with a calmer interface and features made for watching shows. For Windows, Linux and macOS.">
+<meta property="og:title" content="Pylon: the calm way to watch your shows">
+<meta property="og:description" content="Free and open source. Plays everything VLC plays. Presets per show, subtitles you drag into sync, 8 themes, one-click updates.">
 <meta property="og:image" content="https://nirmaljosephukken.github.io/pylon-player/site/og.jpg">
 <meta property="og:url" content="https://nirmaljosephukken.github.io/pylon-player/">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#101725">
 <link rel="icon" href="site/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#0e0e0f; --surface:#17171a; --surface2:#1f1f23; --border:#2a2a2f;
-  --text:#f2f2f3; --muted:#a3a3ab; --accent:#ff8a00; --accent-ink:#1a0f00;
-  --radius:12px;
+  /* page palette follows the theme picked in the hero */
+  --bg:#101725; --deep:#080c15; --a1:#ff8800; --a2:#ff8800;
+  --moon:#f6e7c9; --text:#e9edf5; --mist:#93a0b8; --line:rgba(255,255,255,.09); --panel:rgba(255,255,255,.035);
+  --ink-on-accent:#140b00;
+  --display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
+  --body:"Hanken Grotesk",ui-sans-serif,system-ui,sans-serif;
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
-a{color:var(--accent);text-decoration:none}
-a:hover{text-decoration:underline}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.6 var(--body);-webkit-font-smoothing:antialiased;transition:background-color .6s ease}
 img{max-width:100%;height:auto;display:block}
-.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--a1);outline-offset:3px;border-radius:6px}
+.wrap{width:100%;max-width:1180px;margin:0 auto;padding:0 24px}
+.grad{background:linear-gradient(90deg,var(--a1),var(--a2))}
+.gtext{background:linear-gradient(90deg,var(--a1),var(--a2));-webkit-background-clip:text;background-clip:text;color:transparent}
 
-/* nav */
-nav{position:sticky;top:0;z-index:10;background:rgba(14,14,15,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
-nav .wrap{display:flex;align-items:center;gap:20px;height:60px}
-.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;color:var(--text)}
-.brand img{width:28px;height:28px}
-nav .links{margin-left:auto;display:flex;gap:22px;font-size:14px}
-nav .links a{color:var(--muted)}
-nav .links a:hover{color:var(--text);text-decoration:none}
+/* ---------- nav ---------- */
+nav{position:absolute;inset:0 0 auto;z-index:5}
+nav .wrap{display:flex;align-items:center;height:76px;gap:28px}
+.brand{display:flex;align-items:center;gap:10px;font:700 21px var(--display);text-decoration:none;letter-spacing:-.01em}
+.brand img{width:30px;height:30px}
+nav .links{margin-left:auto;display:flex;align-items:center;gap:26px;font-size:15px;font-weight:500}
+nav .links a{text-decoration:none;color:var(--mist)}
+nav .links a:hover{color:var(--text)}
+nav .gh{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);padding:7px 14px;border-radius:99px;color:var(--text)!important}
+nav .gh svg{width:17px;height:17px}
 
-/* hero */
-.hero{padding:72px 0 40px;text-align:center}
-.pill{display:inline-block;font-size:13px;color:var(--muted);border:1px solid var(--border);border-radius:99px;padding:4px 12px;margin-bottom:22px}
-.pill b{color:var(--accent);font-weight:600}
-h1{font-size:clamp(34px,6vw,58px);line-height:1.08;letter-spacing:-.02em;margin:0 0 18px;font-weight:800}
-h1 span{color:var(--accent)}
-.lede{max-width:660px;margin:0 auto 32px;color:var(--muted);font-size:18px}
-.cta{display:flex;flex-direction:column;align-items:center;gap:12px}
-.btn{display:inline-flex;align-items:center;gap:10px;background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:17px;padding:14px 26px;border-radius:10px;border:0;cursor:pointer}
-.btn:hover{text-decoration:none;filter:brightness(1.08)}
-.btn svg{width:20px;height:20px}
-.sub{font-size:14px;color:var(--muted)}
-.others{font-size:14px;color:var(--muted)}
-.others a{margin:0 6px}
-.shot{margin:48px auto 0;border-radius:14px;overflow:hidden;border:1px solid var(--border);box-shadow:0 30px 80px rgba(255,138,0,.10),0 10px 40px rgba(0,0,0,.6);width:100%;max-width:1040px;height:auto}
+/* ---------- hero: a dusk scene, like the one in Pylon's screenshots ---------- */
+.hero{position:relative;overflow:hidden;padding:150px 0 0;isolation:isolate}
+.hero::before{ /* the moon */
+  content:"";position:absolute;z-index:-2;width:820px;height:820px;right:-140px;top:-260px;border-radius:50%;
+  background:radial-gradient(circle,color-mix(in srgb,var(--moon) 55%,transparent) 0%,color-mix(in srgb,var(--a1) 22%,transparent) 32%,transparent 66%);
+  filter:blur(8px);transition:background .6s}
+.hero::after{ /* horizon glow */
+  content:"";position:absolute;z-index:-2;left:-10%;right:-10%;bottom:120px;height:520px;
+  background:radial-gradient(60% 70% at 70% 100%,color-mix(in srgb,var(--a2) 38%,transparent),transparent 70%);transition:background .6s}
+.ridge{position:absolute;z-index:-1;left:0;right:0;bottom:0;width:100%;height:340px;color:var(--deep)}
+.hero-copy{max-width:760px}
+h1{font:800 clamp(46px,7.4vw,104px)/.95 var(--display);letter-spacing:-.035em;margin:0 0 26px;color:var(--moon);font-variation-settings:"opsz" 96}
+.lede{font-size:clamp(18px,1.7vw,21px);color:color-mix(in srgb,var(--text) 82%,transparent);max-width:600px;margin:0 0 36px}
+.cta{display:flex;flex-wrap:wrap;align-items:center;gap:14px 22px}
+.btn{display:inline-flex;align-items:center;gap:12px;padding:16px 26px 16px 22px;border-radius:14px;font:700 18px var(--body);text-decoration:none;color:var(--ink-on-accent);
+  background:linear-gradient(90deg,var(--a1),var(--a2));box-shadow:0 10px 40px -8px color-mix(in srgb,var(--a1) 70%,transparent);transition:transform .15s,box-shadow .15s}
+.btn:hover{transform:translateY(-1px);box-shadow:0 14px 48px -6px color-mix(in srgb,var(--a1) 80%,transparent)}
+.btn svg{width:22px;height:22px}
+.btn-meta{font-size:14.5px;color:var(--mist);line-height:1.45}
+.btn-meta a{color:var(--text)}
 
-/* sections */
-section{padding:72px 0;border-top:1px solid var(--border)}
-h2{font-size:clamp(26px,4vw,36px);letter-spacing:-.01em;margin:0 0 10px;line-height:1.2}
-.kicker{color:var(--accent);font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
-.intro{color:var(--muted);max-width:640px;margin:0 0 36px}
+/* the app window + theme picker */
+.stage{position:relative;margin:72px auto 0;max-width:1100px;padding-bottom:84px}
+.window{border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.12);background:#000;
+  box-shadow:0 50px 120px -30px rgba(0,0,0,.85),0 0 0 1px rgba(0,0,0,.4),0 0 90px -20px color-mix(in srgb,var(--a1) 40%,transparent);transition:box-shadow .6s}
+.window .frames{position:relative;aspect-ratio:1100/640}
+.window .frames img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .45s ease}
+.window .frames img.on{opacity:1}
+.picker{position:relative;margin:24px auto 0;width:max-content;max-width:calc(100% - 24px);display:flex;align-items:center;gap:14px;padding:10px 12px 10px 20px;
+  background:color-mix(in srgb,var(--deep) 86%,transparent);backdrop-filter:blur(14px);border:1px solid var(--line);border-radius:99px;box-shadow:0 18px 50px -12px rgba(0,0,0,.7)}
+.picker .label{font-size:14px;color:var(--mist);white-space:nowrap}
+.picker .label b{color:var(--text);font-weight:600}
+.swatches{display:flex;gap:8px}
+.sw{width:30px;height:30px;border-radius:50%;border:0;padding:0;cursor:pointer;position:relative;background:linear-gradient(135deg,var(--s1),var(--s2));
+  box-shadow:inset 0 0 0 7px var(--sb),inset 0 0 0 8px rgba(255,255,255,.15)}
+.sw[aria-pressed=true]{box-shadow:inset 0 0 0 5px var(--sb),0 0 0 2px var(--text)}
+.sw:hover{transform:scale(1.08)}
 
-/* steps */
+/* ---------- sections ---------- */
+section{padding:120px 0}
+h2{font:800 clamp(34px,4.6vw,60px)/1 var(--display);letter-spacing:-.03em;margin:0 0 18px;color:var(--moon)}
+.sub{color:var(--mist);max-width:560px;margin:0 0 56px;font-size:18px}
+
+/* features as a queue, like Pylon's own */
+.feat{background:var(--deep)}
+.queue{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:56px;align-items:center}
+.q-list{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.q-item button{all:unset;box-sizing:border-box;cursor:pointer;display:grid;grid-template-columns:22px 1fr;gap:4px 14px;width:100%;padding:20px 8px 20px 4px;border-bottom:1px solid var(--line)}
+.q-item button:focus-visible{outline:2px solid var(--a1);outline-offset:-2px}
+.q-item .tri{width:0;height:0;margin-top:9px;border-left:13px solid transparent;border-top:8px solid transparent;border-bottom:8px solid transparent;transition:border-color .2s}
+.q-item h3{margin:0;font:700 22px/1.3 var(--display);letter-spacing:-.01em;color:var(--mist);transition:color .2s}
+.q-item p{grid-column:2;margin:0;color:var(--mist);font-size:16px;display:none}
+.q-item[aria-current=true] .tri{border-left-color:var(--a1)}
+.q-item[aria-current=true] h3{color:var(--text)}
+.q-item[aria-current=true] p{display:block}
+.q-item:not([aria-current=true]) button:hover h3{color:var(--text)}
+.q-screen{position:relative;aspect-ratio:1440/860;border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.1);background:#000;box-shadow:0 40px 90px -30px rgba(0,0,0,.9)}
+.q-screen img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:top left;opacity:0;transition:opacity .35s}
+.q-screen img.on{opacity:1}
+.extras{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin-top:96px;border-top:1px solid var(--line)}
+.extras div{padding:26px 26px 0 0}
+.extras div+div{padding-left:26px;border-left:1px solid var(--line)}
+.extras h4{margin:0 0 6px;font:700 18px var(--display);color:var(--text)}
+.extras p{margin:0;color:var(--mist);font-size:15.5px}
+
+/* getting started: a real sequence */
+.os{display:inline-flex;gap:4px;padding:4px;border:1px solid var(--line);border-radius:99px;margin-bottom:48px}
+.os button{all:unset;cursor:pointer;padding:8px 18px;border-radius:99px;font-size:15px;font-weight:600;color:var(--mist)}
+.os button[aria-selected=true]{background:var(--text);color:var(--bg)}
+.os button:focus-visible{outline:2px solid var(--a1)}
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:40px;position:relative}
 .steps[hidden]{display:none}
-.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;counter-reset:s}
-.step{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:22px}
-.step h3{margin:0 0 6px;font-size:17px;display:flex;gap:10px;align-items:center}
-.step h3::before{counter-increment:s;content:counter(s);display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-size:14px;font-weight:800;flex:none}
-.step p{margin:0;color:var(--muted);font-size:15px}
-.os-tabs{display:flex;gap:6px;margin:0 0 18px;flex-wrap:wrap}
-.os-tabs button{background:var(--surface);color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:7px 14px;font:inherit;font-size:14px;cursor:pointer}
-.os-tabs button[aria-selected=true]{background:var(--surface2);color:var(--text);border-color:var(--accent)}
-code{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:1px 6px;font-size:13.5px;font-family:ui-monospace,Consolas,monospace;color:var(--text)}
+.steps::before{content:"";position:absolute;top:27px;left:28px;right:28px;height:2px;background:linear-gradient(90deg,var(--a1),var(--a2));opacity:.5}
+.step .n{position:relative;width:56px;height:56px;border-radius:50%;display:grid;place-items:center;font:800 24px var(--display);color:var(--ink-on-accent);background:linear-gradient(135deg,var(--a1),var(--a2));margin-bottom:22px;box-shadow:0 0 0 8px var(--bg)}
+.step h3{margin:0 0 8px;font:700 24px var(--display);letter-spacing:-.01em;color:var(--text)}
+.step p{margin:0;color:var(--mist)}
+.step a{color:var(--text)}
+code{font:14px ui-monospace,Consolas,monospace;background:var(--panel);border:1px solid var(--line);padding:2px 7px;border-radius:6px;color:var(--text);white-space:nowrap}
 
-/* features */
-.feat{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px;align-items:center;margin-bottom:64px}
-.feat:last-child{margin-bottom:0}
-.feat.rev .txt{order:2}
-.feat img{border-radius:12px;border:1px solid var(--border)}
-.feat h3{font-size:24px;margin:0 0 10px;letter-spacing:-.01em}
-.feat p{color:var(--muted);margin:0 0 10px}
-.feat ul{margin:0;padding-left:18px;color:var(--muted)}
-.feat li{margin:4px 0}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:48px}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
-.card h4{margin:0 0 6px;font-size:16px}
-.card p{margin:0;color:var(--muted);font-size:14.5px}
+/* download */
+.dl-sec{position:relative;overflow:hidden;background:var(--deep);isolation:isolate}
+.dl-sec::before{content:"";position:absolute;z-index:-1;left:50%;top:100%;width:1400px;height:900px;transform:translate(-50%,-55%);border-radius:50%;
+  background:radial-gradient(circle,color-mix(in srgb,var(--a1) 30%,transparent),color-mix(in srgb,var(--a2) 12%,transparent) 40%,transparent 68%)}
+.dl-sec h2{text-align:center}
+.dl-sec .sub{text-align:center;margin-left:auto;margin-right:auto}
+.platforms{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--line);border-radius:22px;overflow:hidden;background:color-mix(in srgb,var(--deep) 70%,transparent);backdrop-filter:blur(6px)}
+.plat{display:flex;flex-direction:column;gap:6px;padding:34px 32px;text-decoration:none;transition:background .2s}
+.plat+.plat{border-left:1px solid var(--line)}
+.plat:hover{background:var(--panel)}
+.plat svg{width:34px;height:34px;margin-bottom:14px;color:var(--text)}
+.plat b{font:700 24px var(--display);color:var(--text)}
+.plat span{color:var(--mist);font-size:15px}
+.plat .go{margin-top:18px;font-weight:700;font-size:15px;color:var(--text);display:inline-flex;align-items:center;gap:8px}
+.plat .go svg{width:18px;height:18px;margin:0}
+.plat.me{background:color-mix(in srgb,var(--a1) 10%,transparent)}
+.plat.me .go{color:var(--a1)}
+.fine{text-align:center;color:var(--mist);font-size:15px;margin:28px 0 0}
+.fine a{color:var(--text)}
 
-/* themes */
-.themes{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
-.themes figure{margin:0}
-.themes img{border-radius:10px;border:1px solid var(--border);aspect-ratio:1100/640;object-fit:cover}
-.themes figcaption{font-size:14px;color:var(--muted);margin-top:8px;text-align:center}
+/* credit + faq */
+.about{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:72px;align-items:start}
+.credit{font:500 clamp(22px,2.3vw,30px)/1.35 var(--display);letter-spacing:-.01em;color:var(--moon);margin:0 0 22px}
+.credit a{text-decoration-color:var(--a1);text-underline-offset:4px}
+.by{color:var(--mist);margin:0}
+.by a{color:var(--text)}
+details{border-bottom:1px solid var(--line)}
+details:first-of-type{border-top:1px solid var(--line)}
+summary{cursor:pointer;list-style:none;padding:20px 36px 20px 0;font:700 19px var(--display);color:var(--text);position:relative}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"";position:absolute;right:6px;top:50%;width:10px;height:10px;border-right:2px solid var(--mist);border-bottom:2px solid var(--mist);transform:translateY(-70%) rotate(45deg);transition:transform .2s}
+details[open] summary::after{transform:translateY(-30%) rotate(225deg)}
+details p{margin:0 0 22px;color:var(--mist)}
+details a{color:var(--text)}
 
-/* credit */
-.credit{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px;display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:center}
-.credit .mark{width:56px;height:56px;border-radius:14px;background:var(--surface2);display:grid;place-items:center;font-size:26px}
-.credit p{margin:0;color:var(--muted)}
-.credit p+p{margin-top:8px}
+footer{border-top:1px solid var(--line);padding:30px 0 44px;color:var(--mist);font-size:14.5px}
+footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 30px}
+footer a{color:var(--text)}
 
-/* faq */
-details{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;margin-bottom:10px}
-summary{cursor:pointer;font-weight:600}
-details p{color:var(--muted);margin:10px 0 0}
-
-/* release */
-.rel{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px}
-.dl{flex:1 1 240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;color:var(--text);display:block}
-.dl:hover{border-color:var(--accent);text-decoration:none}
-.dl b{display:block;font-size:16px}
-.dl span{color:var(--muted);font-size:14px}
-.dl.me{border-color:var(--accent)}
-
-footer{border-top:1px solid var(--border);padding:32px 0 48px;color:var(--muted);font-size:14px}
-footer .wrap{display:flex;flex-wrap:wrap;gap:12px 28px;justify-content:space-between}
-
-@media (max-width:820px){
+@media (max-width:900px){
   nav .links a.hide-s{display:none}
-  .steps,.grid{grid-template-columns:minmax(0,1fr)}
-  .feat{grid-template-columns:minmax(0,1fr);gap:20px}
-  .feat.rev .txt{order:0}
-  .themes{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .credit{grid-template-columns:1fr}
-  .hero{padding-top:48px}
-  section{padding:56px 0}
+  .hero{padding-top:118px}
+  .queue,.about{grid-template-columns:minmax(0,1fr);gap:36px}
+  .q-screen{order:-1}
+  .extras{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .extras div:nth-child(3){padding-left:0;border-left:0}
+  .steps{grid-template-columns:minmax(0,1fr);gap:30px}
+  .steps::before{top:28px;bottom:28px;left:27px;right:auto;width:2px;height:auto;background:linear-gradient(var(--a1),var(--a2))}
+  .step{display:grid;grid-template-columns:56px minmax(0,1fr);column-gap:20px}
+  .step .n{grid-row:span 2;margin:0}
+  .platforms{grid-template-columns:minmax(0,1fr)}
+  .plat+.plat{border-left:0;border-top:1px solid var(--line)}
+  section{padding:84px 0}
 }
+@media (max-width:620px){
+  .picker{flex-direction:column;gap:10px;border-radius:20px;padding:14px}
+  .swatches{gap:6px;justify-content:center}
+  .sw{width:28px;height:28px}
+  .extras{grid-template-columns:minmax(0,1fr)}
+  .extras div,.extras div+div{padding:22px 0 0;border-left:0}
+  .ridge{height:200px}
+  .stage{margin-top:52px;padding-bottom:56px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 </style>
 </head>
 <body>
 
 <nav><div class="wrap">
-  <a class="brand" href="#"><img src="site/icon.png" alt="">Pylon</a>
+  <a class="brand" href="#top"><img src="site/icon.png" alt="">Pylon</a>
   <div class="links">
     <a class="hide-s" href="#features">Features</a>
-    <a class="hide-s" href="#themes">Themes</a>
+    <a class="hide-s" href="#start">Get started</a>
     <a href="#download">Download</a>
-    <a href="https://github.com/nirmaljosephukken/pylon-player">GitHub</a>
+    <a class="gh" href="https://github.com/nirmaljosephukken/pylon-player"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
   </div>
 </div></nav>
 
-<header class="hero"><div class="wrap">
-  <div class="pill"><b id="ver">Pylon</b> <span id="verdate">is free and open source</span></div>
-  <h1>A calmer media player,<br><span>built for watching shows.</span></h1>
-  <p class="lede">Pylon runs on VLC's engine, so it plays everything VLC plays. On top sits a quieter interface and the small things that make a season nicer to watch: presets per show, subtitles you can drag into sync, and a queue that remembers where you were.</p>
-  <div class="cta">
-    <a class="btn" id="main-dl" href="https://github.com/nirmaljosephukken/pylon-player/releases/latest">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M6 11l6 6 6-6M5 20h14"/></svg>
-      <span id="main-label">Download Pylon</span>
-    </a>
-    <div class="sub" id="main-sub">Free. Needs VLC installed (see below).</div>
-    <div class="others" id="others">Also for
-      <a href="#download">Windows</a>·<a href="#download">Linux</a>·<a href="#download">macOS</a>
+<header class="hero" id="top">
+  <div class="wrap">
+    <div class="hero-copy">
+      <h1>The calm way to watch your shows.</h1>
+      <p class="lede">Pylon is a free media player built on VLC's engine. It plays everything VLC plays, then adds the small things that make a whole season easier to watch.</p>
+      <div class="cta">
+        <a class="btn" id="main-dl" href="https://github.com/nirmaljosephukken/pylon-player/releases/latest">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M6 11l6 6 6-6M5 20h14"/></svg>
+          <span id="main-label">Download Pylon</span>
+        </a>
+        <div class="btn-meta"><span id="main-sub">Free and open source.</span><br>You'll also need <a href="#start">VLC installed</a>.</div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="window">
+        <div class="frames" id="frames">
+          <img class="on" data-t="midnight" src="site/themes/midnight.webp" alt="Pylon playing an episode with the library, queue and settings open" width="1100" height="640">
+        </div>
+      </div>
+      <div class="picker">
+        <span class="label">Try a theme: <b id="tname">Midnight blue</b></span>
+        <div class="swatches" id="swatches" role="group" aria-label="Themes"></div>
+      </div>
     </div>
   </div>
-  <img class="shot" src="player.png" alt="Pylon playing an episode, with the seek bar and controls at the bottom" width="1440" height="860">
-</div></header>
+  <svg class="ridge" viewBox="0 0 1440 340" preserveAspectRatio="none" aria-hidden="true"><path fill="currentColor" d="M0 210 L330 120 L560 188 L760 150 L1010 196 L1220 132 L1440 176 L1440 340 L0 340Z"/></svg>
+</header>
 
-<section id="get-started"><div class="wrap">
-  <div class="kicker">Getting started</div>
-  <h2>Three steps, about two minutes</h2>
-  <p class="intro">Pylon uses the VLC engine that's already on your computer instead of shipping its own copy. That keeps the download small and means you get VLC's format support and hardware decoding.</p>
-  <div class="os-tabs" role="tablist">
+<section class="feat" id="features"><div class="wrap">
+  <h2>Made for the next episode</h2>
+  <p class="sub">Everything you'd expect from a player, plus a few ideas of its own. Pick one to see it.</p>
+  <div class="queue">
+    <ol class="q-list" id="qlist">
+      <li class="q-item" aria-current="true" data-img="0"><button><span class="tri"></span><h3>Subtitles you can line up</h3><p>Out of sync? Pause when someone starts talking and drag the subtitle timeline until their line sits under the playhead. Add subtitles to a whole season at once.</p></button></li>
+      <li class="q-item" data-img="1"><button><span class="tri"></span><h3>See before you jump</h3><p>Hover the seek bar for a preview picture of that moment. One click and you're there, with no flicker.</p></button></li>
+      <li class="q-item" data-img="2"><button><span class="tri"></span><h3>Pick up where you left off</h3><p>Continue watching sits on the home page, and playlists start at the first episode you haven't seen.</p></button></li>
+      <li class="q-item" data-img="3"><button><span class="tri"></span><h3>Your music, too</h3><p>A music library that reads your folders and sorts artists, albums and songs with their cover art.</p></button></li>
+    </ol>
+    <div class="q-screen" id="qscreen">
+      <img class="on" src="panels.png" alt="Settings panel with the draggable subtitle timeline" width="1440" height="860">
+      <img src="seek-preview.png" alt="Preview picture while hovering the seek bar" width="1440" height="860" loading="lazy">
+      <img src="continue.png" alt="Home page with Continue watching" width="798" height="464" loading="lazy">
+      <img src="music.png" alt="Music library with artists, albums and cover art" width="1440" height="860" loading="lazy">
+    </div>
+  </div>
+  <div class="extras">
+    <div><h4>Presets per show</h4><p>Subtitle timing, picture and speed, saved once and applied to every episode.</p></div>
+    <div><h4>Mark as watched</h4><p>Tick off episodes yourself, or several at once from the queue.</p></div>
+    <div><h4>One-click updates</h4><p>Pylon checks once a day and updates in place. Your settings stay.</p></div>
+    <div><h4>Plays everything</h4><p>MKV, MP4, AVI, streams and more, because VLC's engine does the playing.</p></div>
+  </div>
+</div></section>
+
+<section id="start"><div class="wrap">
+  <h2>Up and running in two minutes</h2>
+  <p class="sub">Pylon uses the VLC that's already on your computer instead of shipping its own copy. You get VLC's format support and hardware decoding, and a much smaller download.</p>
+  <div class="os" role="tablist" aria-label="Your system">
     <button role="tab" data-os="win" aria-selected="true">Windows</button>
-    <button role="tab" data-os="linux" aria-selected="false">Linux</button>
     <button role="tab" data-os="mac" aria-selected="false">macOS</button>
+    <button role="tab" data-os="linux" aria-selected="false">Linux</button>
   </div>
   <div class="steps" data-for="win">
-    <div class="step"><h3>Install VLC</h3><p>Get the 64-bit version from <a href="https://www.videolan.org/vlc/">videolan.org</a>. Skip this if you already have it.</p></div>
-    <div class="step"><h3>Install Pylon</h3><p>Run the setup file. It installs just for you, no admin needed. If SmartScreen appears, click <b>More info</b> then <b>Run anyway</b>.</p></div>
-    <div class="step"><h3>Open a show</h3><p>Drop a file or a whole season folder on the window. Pylon keeps itself up to date from then on.</p></div>
-  </div>
-  <div class="steps" data-for="linux" hidden>
-    <div class="step"><h3>Install VLC</h3><p>From your package manager, for example <code>sudo apt install vlc</code> or <code>sudo dnf install vlc</code>.</p></div>
-    <div class="step"><h3>Run the AppImage</h3><p>Make it executable with <code>chmod +x Pylon-*.AppImage</code>, then double-click it or run it from a terminal.</p></div>
-    <div class="step"><h3>Open a show</h3><p>Drop a file or a whole season folder on the window and press play.</p></div>
+    <div class="step"><div class="n">1</div><h3>Install VLC</h3><p>Get the 64-bit version from <a href="https://www.videolan.org/vlc/">videolan.org</a>. Already have it? Skip ahead.</p></div>
+    <div class="step"><div class="n">2</div><h3>Install Pylon</h3><p>Run the setup file. It installs just for you, no admin needed. If SmartScreen appears, choose More info, then Run anyway.</p></div>
+    <div class="step"><div class="n">3</div><h3>Drop in a show</h3><p>Drag a file or a whole season folder onto the window. Pylon keeps itself up to date from here.</p></div>
   </div>
   <div class="steps" data-for="mac" hidden>
-    <div class="step"><h3>Install VLC</h3><p>Download it from <a href="https://www.videolan.org/vlc/">videolan.org</a> and drag it into Applications.</p></div>
-    <div class="step"><h3>Open Pylon</h3><p>Unzip and move Pylon to Applications. The first time, right-click it and choose <b>Open</b>, because the build isn't signed by Apple yet.</p></div>
-    <div class="step"><h3>Open a show</h3><p>Drop a file or folder on the window. The Mac build is experimental, so reports are very welcome.</p></div>
+    <div class="step"><div class="n">1</div><h3>Install VLC</h3><p>Download it from <a href="https://www.videolan.org/vlc/">videolan.org</a> and drag it into Applications.</p></div>
+    <div class="step"><div class="n">2</div><h3>Open Pylon</h3><p>Unzip it and move it to Applications. The first time, right-click it and choose Open, because the build isn't signed by Apple yet.</p></div>
+    <div class="step"><div class="n">3</div><h3>Drop in a show</h3><p>Drag a file or folder onto the window. The Mac build is experimental, so reports are very welcome.</p></div>
+  </div>
+  <div class="steps" data-for="linux" hidden>
+    <div class="step"><div class="n">1</div><h3>Install VLC</h3><p>From your package manager, for example <code>sudo apt install vlc</code>.</p></div>
+    <div class="step"><div class="n">2</div><h3>Run the AppImage</h3><p>Make it executable with <code>chmod +x Pylon-*.AppImage</code>, then double-click it.</p></div>
+    <div class="step"><div class="n">3</div><h3>Drop in a show</h3><p>Drag a file or a whole season folder onto the window and press play.</p></div>
   </div>
 </div></section>
 
-<section id="features"><div class="wrap">
-  <div class="kicker">Features</div>
-  <h2>Small things that add up</h2>
-  <p class="intro">Everything you'd expect from a player, plus a few ideas of its own.</p>
-
-  <div class="feat">
-    <div class="txt">
-      <h3>Subtitles you can actually fix</h3>
-      <p>Out of sync? Pause when someone starts talking and drag the subtitle timeline until their line sits under the playhead. No guessing at milliseconds.</p>
-      <ul>
-        <li>Add subtitles to a whole season at once</li>
-        <li>Font, size, colour, outline and position</li>
-        <li>Find subtitles online in one click</li>
-      </ul>
-    </div>
-    <img src="panels.png" alt="The settings panel with the draggable subtitle timeline" loading="lazy" width="1440" height="860">
+<section class="dl-sec" id="download"><div class="wrap">
+  <h2 id="dl-title">Download Pylon</h2>
+  <p class="sub">Free, no account, no ads. Always the latest version.</p>
+  <div class="platforms">
+    <a class="plat" id="dl-win" href="https://github.com/nirmaljosephukken/pylon-player/releases/latest">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5 10.5 4.4v7.1H3zm8.5-1.2L21 3v8.5h-9.5zM3 12.5h7.5v7.1L3 18.5zm8.5 0H21V21l-9.5-1.3z"/></svg>
+      <b>Windows</b><span>Windows 10 and 11, 64-bit</span><span id="dl-win-s">Installer</span>
+      <span class="go">Download <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v12M7 12l5 5 5-5"/></svg></span>
+    </a>
+    <a class="plat" id="dl-mac" href="https://github.com/nirmaljosephukken/pylon-player/releases/latest">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.5 2-3.6 2.1-3.7-1.2-1.7-3-1.9-3.6-2-1.5-.2-3 .9-3.7.9-.8 0-2-.9-3.2-.8-1.7 0-3.2 1-4 2.4-1.7 3-.4 7.4 1.2 9.8.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8s1.9.8 3.2.8 2.1-1.2 2.9-2.4c.9-1.4 1.3-2.7 1.3-2.8 0 0-2.3-.9-2.3-3.8zM14 5.2c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.9 1 .1 2.1-.6 2.8-1.4z"/></svg>
+      <b>macOS</b><span>macOS 14 or newer, experimental</span><span id="dl-mac-s">Apple Silicon and Intel</span>
+      <span class="go">Download <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v12M7 12l5 5 5-5"/></svg></span>
+    </a>
+    <a class="plat" id="dl-linux" href="https://github.com/nirmaljosephukken/pylon-player/releases/latest">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2c-2.2 0-3.6 1.9-3.6 4.6 0 1.6.4 2.5-.4 4-1 1.7-2.8 3.6-2.8 6.1 0 .7.2 1.3.5 1.8-.6.3-1.4.6-1.4 1.4 0 1 1.4 1.1 2.7 1.6 1.2.5 2 .9 2.8.5.4-.2.6-.6.7-1 .5.1 1 .1 1.5.1s1 0 1.5-.1c.1.4.3.8.7 1 .8.4 1.6 0 2.8-.5 1.3-.5 2.7-.6 2.7-1.6 0-.8-.8-1.1-1.4-1.4.3-.5.5-1.1.5-1.8 0-2.5-1.8-4.4-2.8-6.1-.8-1.5-.4-2.4-.4-4C15.6 3.9 14.2 2 12 2zm-1.3 3.6c.4 0 .7.5.7 1.1s-.3 1-.7 1-.7-.4-.7-1 .3-1.1.7-1.1zm2.6 0c.4 0 .7.5.7 1.1s-.3 1-.7 1-.7-.4-.7-1 .3-1.1.7-1.1zM12 8.4c.9 0 2 .6 2 1s-1.1 1.1-2 1.1-2-.7-2-1.1 1.1-1 2-1z"/></svg>
+      <b>Linux</b><span>x86-64, most distributions</span><span id="dl-linux-s">AppImage</span>
+      <span class="go">Download <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v12M7 12l5 5 5-5"/></svg></span>
+    </a>
   </div>
-
-  <div class="feat rev">
-    <div class="txt">
-      <h3>See where you're jumping</h3>
-      <p>Hover the seek bar for a preview picture of that moment. Click once and you're there, with no flicker.</p>
-      <ul>
-        <li>Controls fade away when you stop moving the mouse</li>
-        <li>Bookmarks shown right on the bar</li>
-        <li>Picture-in-picture mini player</li>
-      </ul>
-    </div>
-    <img src="seek-preview.png" alt="Preview picture shown while hovering the seek bar" loading="lazy" width="1440" height="860">
-  </div>
-
-  <div class="feat">
-    <div class="txt">
-      <h3>Your music, too</h3>
-      <p>A music library that reads your folders and shows artists, albums and songs with their cover art.</p>
-    </div>
-    <img src="music.png" alt="Music library with artists, albums and cover art" loading="lazy" width="1440" height="860">
-  </div>
-
-  <div class="grid">
-    <div class="card"><h4>Presets per show</h4><p>Save subtitle timing, picture and speed for a show. Every episode opens just right.</p></div>
-    <div class="card"><h4>Continue watching</h4><p>Pick up where you left off. Playlists resume at the first episode you haven't seen.</p></div>
-    <div class="card"><h4>Mark as watched</h4><p>Tick off episodes yourself, or let Pylon do it as you finish them.</p></div>
-    <div class="card"><h4>A smarter queue</h4><p>Drag to reorder, shuffle, save as a playlist, or play straight from a folder.</p></div>
-    <div class="card"><h4>One-click updates</h4><p>Pylon checks once a day and installs new versions in place. Your settings stay.</p></div>
-    <div class="card"><h4>Plays everything</h4><p>MKV, MP4, AVI, network streams and more, because VLC's engine does the playing.</p></div>
-  </div>
+  <p class="fine">Release notes, checksums and older versions are on the <a href="https://github.com/nirmaljosephukken/pylon-player/releases">releases page</a>.</p>
 </div></section>
 
-<section id="themes"><div class="wrap">
-  <div class="kicker">Themes</div>
-  <h2>Eight looks, four of them neon</h2>
-  <p class="intro">Switch any time from Preferences. You can also pick your own accent colour.</p>
-  <div class="themes">
-    <figure><img src="site/themes/dark.webp" alt="Dark theme"><figcaption>Dark</figcaption></figure>
-    <figure><img src="site/themes/black.webp" alt="Pitch black theme"><figcaption>Pitch black</figcaption></figure>
-    <figure><img src="site/themes/warm.webp" alt="Warm grey theme"><figcaption>Warm grey</figcaption></figure>
-    <figure><img src="site/themes/midnight.webp" alt="Midnight blue theme"><figcaption>Midnight blue</figcaption></figure>
-    <figure><img src="site/themes/neon.webp" alt="Neon theme"><figcaption>Neon</figcaption></figure>
-    <figure><img src="site/themes/synthwave.webp" alt="Synthwave theme"><figcaption>Synthwave</figcaption></figure>
-    <figure><img src="site/themes/aurora.webp" alt="Aurora theme"><figcaption>Aurora</figcaption></figure>
-    <figure><img src="site/themes/sunset.webp" alt="Sunset theme"><figcaption>Sunset</figcaption></figure>
+<section id="about"><div class="wrap about">
+  <div>
+    <p class="credit">Pylon started from <a href="https://www.youtube.com/@juxtopposed">Juxtopposed</a>'s VLC redesign concept and grew into its own app, with its own features and a few different choices along the way.</p>
+    <p class="by">Made by <a href="https://github.com/nirmaljosephukken">Nirmal Joseph Ukken</a>. Read <a href="https://dev.to/nekku/700000-people-watched-a-vlc-redesign-i-built-the-player-1aio">how it was built</a>, or <a href="https://github.com/nirmaljosephukken/pylon-player/issues/new">tell me what to improve</a>.</p>
   </div>
-</div></section>
-
-<section id="download"><div class="wrap">
-  <div class="kicker">Download</div>
-  <h2 id="dl-title">Get Pylon</h2>
-  <p class="intro" id="dl-intro">Always the latest release. Remember to install VLC first.</p>
-  <div class="rel">
-    <a class="dl" id="dl-win" data-os="win" href="https://github.com/nirmaljosephukken/pylon-player/releases/latest"><b>Windows 10/11</b><span id="dl-win-s">64-bit installer</span></a>
-    <a class="dl" id="dl-linux" data-os="linux" href="https://github.com/nirmaljosephukken/pylon-player/releases/latest"><b>Linux</b><span id="dl-linux-s">x86-64 AppImage</span></a>
-    <a class="dl" id="dl-mac" data-os="mac" href="https://github.com/nirmaljosephukken/pylon-player/releases/latest"><b>macOS 14+ (experimental)</b><span id="dl-mac-s">zip</span></a>
+  <div>
+    <details><summary>Why do I need VLC installed?</summary><p>Pylon is a new interface on top of VLC's playback engine. Using the copy on your computer keeps Pylon small, and you get VLC's format support, hardware decoding and its security updates.</p></details>
+    <details><summary>Is it really free? Any tracking?</summary><p>Free and open source under the MIT licence. No account and no analytics. The only thing Pylon contacts by itself is GitHub, once a day, to check for updates, and you can turn that off in Preferences.</p></details>
+    <details><summary>Is this an official VLC app?</summary><p>No. Pylon is an independent project and isn't affiliated with or endorsed by VideoLAN.</p></details>
+    <details><summary>Something broke, or I have an idea</summary><p>Please <a href="https://github.com/nirmaljosephukken/pylon-player/issues/new">open an issue on GitHub</a>. Pylon is in beta, and most fixes ship within a day or two.</p></details>
   </div>
-  <p class="sub" style="margin-top:16px">Checksums, older versions and release notes are on the <a href="https://github.com/nirmaljosephukken/pylon-player/releases">releases page</a>.</p>
-</div></section>
-
-<section id="about"><div class="wrap">
-  <div class="credit">
-    <div class="mark">✦</div>
-    <div>
-      <p><b style="color:var(--text)">Inspired by Juxtopposed's VLC redesign.</b> Pylon started from <a href="https://www.youtube.com/@juxtopposed">Juxtopposed</a>'s redesign concept and grew into its own app, with its own features and a few different choices along the way. The original design is shared under CC BY 4.0.</p>
-      <p>Made by <a href="https://github.com/nirmaljosephukken">Nirmal Joseph Ukken</a>. Read <a href="https://dev.to/nekku/700000-people-watched-a-vlc-redesign-i-built-the-player-1aio">how it was built</a>.</p>
-    </div>
-  </div>
-</div></section>
-
-<section id="faq"><div class="wrap">
-  <div class="kicker">Questions</div>
-  <h2 style="margin-bottom:24px">Good to know</h2>
-  <details><summary>Why do I need VLC installed?</summary><p>Pylon is a new interface on top of VLC's playback engine. Using the copy on your computer keeps Pylon small and gives you VLC's format support, hardware decoding and its own security updates.</p></details>
-  <details><summary>Is it free? Is there tracking?</summary><p>Free and open source under the MIT licence. No accounts and no analytics. The only thing Pylon connects to by itself is GitHub, once a day, to check for updates, and you can turn that off in Preferences.</p></details>
-  <details><summary>Is this an official VLC app?</summary><p>No. Pylon is an independent project and isn't affiliated with or endorsed by VideoLAN.</p></details>
-  <details><summary>Something broke, or I have an idea</summary><p>Please <a href="https://github.com/nirmaljosephukken/pylon-player/issues/new">open an issue on GitHub</a>. Pylon is still a beta, and most fixes ship within a day or two.</p></details>
 </div></section>
 
 <footer><div class="wrap">
-  <span>Pylon · MIT licence · <a href="https://github.com/nirmaljosephukken/pylon-player">Source on GitHub</a></span>
+  <span>Pylon is open source under the MIT licence. <a href="https://github.com/nirmaljosephukken/pylon-player">Source on GitHub</a></span>
   <span>Not affiliated with VideoLAN. VLC is a trademark of VideoLAN.</span>
 </div></footer>
 
 <script>
 (function(){
-  var REPO = "nirmaljosephukken/pylon-player";
-  var ua = navigator.userAgent || "", pf = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
-  var os = /Win/i.test(pf + ua) ? "win" : /Mac|iPhone|iPad/i.test(pf + ua) ? "mac" : /Linux|X11|CrOS/i.test(pf + ua) && !/Android/i.test(ua) ? "linux" : null;
-  var NAMES = {win:"Windows", linux:"Linux", mac:"macOS"};
+  var root = document.documentElement;
 
-  // OS tabs in "Getting started"
+  /* ---- themes: the hero picker recolours the page and the app window ---- */
+  var THEMES = [
+    {id:"midnight",  name:"Midnight blue", bg:"#101725", deep:"#080c15", a1:"#ff8800", a2:"#ff8800"},
+    {id:"dark",      name:"Dark",          bg:"#171717", deep:"#0e0e0e", a1:"#ff8800", a2:"#ff8800"},
+    {id:"black",     name:"Pitch black",   bg:"#0a0a0a", deep:"#000000", a1:"#ff8800", a2:"#ff8800"},
+    {id:"warm",      name:"Warm grey",     bg:"#1c1916", deep:"#12100e", a1:"#ff8800", a2:"#ff8800"},
+    {id:"neon",      name:"Neon",          bg:"#0b0b14", deep:"#05050a", a1:"#21d6fa", a2:"#e341db"},
+    {id:"synthwave", name:"Synthwave",     bg:"#140c32", deep:"#0b0720", a1:"#ec36b2", a2:"#6572ff"},
+    {id:"aurora",    name:"Aurora",        bg:"#08161a", deep:"#040c10", a1:"#36f3b4", a2:"#8482fb"},
+    {id:"sunset",    name:"Sunset",        bg:"#1b0c1d", deep:"#100610", a1:"#ff8238", a2:"#b749e2"}
+  ];
+  var frames = document.getElementById("frames"), sws = document.getElementById("swatches");
+  var imgs = {midnight: frames.querySelector("img")};
+  function apply(t, save){
+    root.style.setProperty("--bg", t.bg); root.style.setProperty("--deep", t.deep);
+    root.style.setProperty("--a1", t.a1); root.style.setProperty("--a2", t.a2);
+    document.querySelector('meta[name="theme-color"]').content = t.bg;
+    document.getElementById("tname").textContent = t.name;
+    if (!imgs[t.id]) {
+      var im = new Image(); im.src = "site/themes/" + t.id + ".webp"; im.alt = "Pylon in the " + t.name + " theme";
+      im.width = 1100; im.height = 640; frames.appendChild(im); imgs[t.id] = im;
+    }
+    var show = function(){ for (var k in imgs) imgs[k].classList.toggle("on", k === t.id); };
+    imgs[t.id].complete ? show() : imgs[t.id].addEventListener("load", show, {once:true});
+    sws.querySelectorAll(".sw").forEach(function(b){ b.setAttribute("aria-pressed", b.dataset.t === t.id); });
+    if (save) { try { localStorage.setItem("pylon-site-theme", t.id); } catch(e){} }
+  }
+  THEMES.forEach(function(t){
+    var b = document.createElement("button");
+    b.className = "sw"; b.dataset.t = t.id; b.title = t.name; b.setAttribute("aria-label", t.name + " theme");
+    b.style.setProperty("--s1", t.a1); b.style.setProperty("--s2", t.a2); b.style.setProperty("--sb", t.bg);
+    b.onclick = function(){ apply(t, true); };
+    sws.appendChild(b);
+  });
+  var saved = null; try { saved = localStorage.getItem("pylon-site-theme"); } catch(e){}
+  apply(THEMES.filter(function(t){ return t.id === saved; })[0] || THEMES[0], false);
+
+  /* ---- feature queue ---- */
+  var items = document.querySelectorAll(".q-item"), shots = document.querySelectorAll("#qscreen img");
+  items.forEach(function(li){
+    li.querySelector("button").onclick = function(){
+      items.forEach(function(x){ x.setAttribute("aria-current", x === li); });
+      shots.forEach(function(s, i){ s.classList.toggle("on", i === +li.dataset.img); });
+    };
+  });
+
+  /* ---- detect the visitor's system ---- */
+  var ua = navigator.userAgent || "", pf = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+  var os = /Win/i.test(pf + ua) ? "win" : /Mac/i.test(pf + ua) && !/iPhone|iPad/i.test(ua) ? "mac" : /Linux|X11|CrOS/i.test(pf + ua) && !/Android/i.test(ua) ? "linux" : null;
+  var NAMES = {win:"Windows", linux:"Linux", mac:"macOS"};
   function showOS(o){
-    document.querySelectorAll(".os-tabs button").forEach(function(b){ b.setAttribute("aria-selected", b.dataset.os === o); });
+    document.querySelectorAll(".os button").forEach(function(b){ b.setAttribute("aria-selected", b.dataset.os === o); });
     document.querySelectorAll(".steps").forEach(function(s){ s.hidden = s.dataset.for !== o; });
   }
-  document.querySelectorAll(".os-tabs button").forEach(function(b){ b.onclick = function(){ showOS(b.dataset.os); }; });
-  if (os) showOS(os);
-  if (os) { var me = document.getElementById("dl-" + os); if (me) me.classList.add("me"); }
+  document.querySelectorAll(".os button").forEach(function(b){ b.onclick = function(){ showOS(b.dataset.os); }; });
+  if (os) { showOS(os); document.getElementById("dl-" + os).classList.add("me");
+            document.getElementById("main-label").textContent = "Download for " + NAMES[os]; }
 
+  /* ---- latest release from GitHub: links, version and sizes ---- */
   function mb(n){ return (n / 1048576).toFixed(n > 104857600 ? 0 : 1) + " MB"; }
   function setDl(key, asset, desc){
     if (!asset) return;
     document.getElementById("dl-" + key).href = asset.browser_download_url;
-    document.getElementById("dl-" + key + "-s").textContent = desc + " · " + mb(asset.size);
+    document.getElementById("dl-" + key + "-s").textContent = desc + ", " + mb(asset.size);
   }
-
-  fetch("https://api.github.com/repos/" + REPO + "/releases/latest", {headers:{Accept:"application/vnd.github+json"}})
+  fetch("https://api.github.com/repos/nirmaljosephukken/pylon-player/releases/latest", {headers:{Accept:"application/vnd.github+json"}})
     .then(function(r){ if (!r.ok) throw r.status; return r.json(); })
     .then(function(rel){
-      var v = (rel.tag_name || "").replace(/^v/, "");
-      var a = rel.assets || [];
+      var v = (rel.tag_name || "").replace(/^v/, ""), a = rel.assets || [];
       var find = function(re){ return a.filter(function(x){ return re.test(x.name); })[0]; };
-      var win = find(/setup.*\.exe$/i), lin = find(/\.appimage$/i), mac = find(/mac.*\.zip$/i);
-      setDl("win", win, "64-bit installer");
-      setDl("linux", lin, "x86-64 AppImage");
-      setDl("mac", mac, "Apple Silicon and Intel");
-      var d = rel.published_at ? new Date(rel.published_at).toLocaleDateString(undefined, {day:"numeric", month:"short", year:"numeric"}) : "";
-      document.getElementById("ver").textContent = "Pylon " + v;
-      document.getElementById("verdate").textContent = (rel.prerelease ? "beta" : "latest") + (d ? " · " + d : "");
-      document.getElementById("dl-title").textContent = "Get Pylon " + v;
-      var pick = {win:win, linux:lin, mac:mac}[os];
+      var f = {win: find(/setup.*\.exe$/i), linux: find(/\.appimage$/i), mac: find(/mac.*\.zip$/i)};
+      setDl("win", f.win, "Installer"); setDl("linux", f.linux, "AppImage"); setDl("mac", f.mac, "Apple Silicon and Intel");
+      document.getElementById("dl-title").textContent = "Download Pylon " + v;
+      var pick = f[os];
       if (pick) {
         document.getElementById("main-dl").href = pick.browser_download_url;
-        document.getElementById("main-label").textContent = "Download for " + NAMES[os];
-        document.getElementById("main-sub").textContent = "Version " + v + " · " + mb(pick.size) + " · Needs VLC installed (see below).";
+        document.getElementById("main-sub").textContent = "Version " + v + ", " + mb(pick.size) + ". Free and open source.";
+      } else {
+        document.getElementById("main-sub").textContent = "Version " + v + ". Free and open source.";
       }
     })
-    .catch(function(){
-      // GitHub unreachable or rate-limited: buttons keep pointing at the latest release page.
-      if (os) document.getElementById("main-label").textContent = "Download for " + NAMES[os];
-    });
+    .catch(function(){ /* GitHub unreachable: the buttons still open the latest release page */ });
 })();
 </script>
 </body>
