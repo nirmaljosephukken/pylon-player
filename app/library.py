@@ -16,14 +16,14 @@ import time
 
 from PySide6.QtCore import QMimeData, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QAction, QColor, QDrag, QFont, QIcon, QKeySequence, QPixmap, QShortcut
-from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
                                QPushButton, QSplitter, QStackedWidget, QStyle, QStyledItemDelegate,
                                QVBoxLayout, QWidget)
 
 from . import theme
 from .icons import icon
-from .util import (display_name, fmt_time, is_audio, is_media, is_url, list_media, natural_key,
+from .util import (display_name, fmt_time, is_audio, is_media, is_url, list_media, natural_key, pretty_title,
                    to_path)
 from .widgets import IconButton
 
@@ -515,7 +515,7 @@ class LibraryPanel(QWidget):
             m.addAction(icon("play", theme.TEXT, 16), "Play folder", lambda: self.win.play_folder(path))
             m.addAction(icon("queue", theme.TEXT, 16), "Add folder to queue", lambda: self.win.enqueue(list_media(path)))
             m.addAction(icon("save", theme.TEXT, 16), "Save folder to playlist…",
-                        lambda: self.save_to_playlist(list_media(path)))
+                        lambda: self.save_to_playlist(list_media(path), os.path.basename(os.path.normpath(path))))
             pinned = path in self.store.data["pinned"]
             m.addAction(icon("pin", theme.TEXT, 16), "Unpin" if pinned else "Pin to top", lambda: self.toggle_pin(path))
             m.addAction(icon("subtitles", theme.TEXT, 16), "Add subtitles for this folder…",
@@ -583,6 +583,36 @@ class LibraryPanel(QWidget):
             self.refresh_recent()
             self.win.home.refresh()
 
+    def _sort_controls(self, layout, section, refresh):
+        row = QHBoxLayout()
+        count = QLabel("")
+        count.setObjectName("Muted")
+        row.addWidget(count, 1)
+        choice = QComboBox()
+        choice.setToolTip("Sort this view")
+        for label, value in (("Default order", "default"), ("Name A–Z", "name"), ("Name Z–A", "reverse")):
+            choice.addItem(label, value)
+        if section == "playlists":
+            choice.addItem("Most items", "count")
+        choice.setCurrentIndex(max(0, choice.findData(self.store.setting(section + "_sort") or "default")))
+        def changed(_):
+            self.store.set_setting(section + "_sort", choice.currentData())
+            refresh()
+        choice.currentIndexChanged.connect(changed)
+        row.addWidget(choice)
+        layout.addLayout(row)
+        setattr(self, section + "_count", count)
+        setattr(self, section + "_sort", choice)
+
+    def _ordered(self, items, section, name, count=None):
+        mode = self.store.setting(section + "_sort") or "default"
+        items = list(items)
+        if mode == "count" and count:
+            return sorted(items, key=lambda x: (-count(x), natural_key(name(x))))
+        if mode in ("name", "reverse"):
+            return sorted(items, key=lambda x: natural_key(name(x)), reverse=mode == "reverse")
+        return items
+
     # ---------------------------------------------------------------- playlists
     def _build_playlists(self):
         w = QWidget()
@@ -596,6 +626,7 @@ class LibraryPanel(QWidget):
         self.pl_search.setPlaceholderText("Search playlists")
         self.pl_search.textChanged.connect(lambda _: self.refresh_playlists())
         lay.addWidget(self.pl_search)
+        self._sort_controls(lay, "playlists", self.refresh_playlists)
         self.pl_list = QListWidget()
         self.pl_list.setIconSize(QSize(18, 18))
         self.pl_list.itemDoubleClicked.connect(lambda it: self.win.play_playlist(it.data(ROLE_PATH)))
@@ -606,19 +637,20 @@ class LibraryPanel(QWidget):
 
     def refresh_playlists(self):
         self.pl_list.clear()
-        for name, items in sorted(self.store.data["playlists"].items()):
+        for name, items in self._ordered(sorted(self.store.data["playlists"].items()), "playlists", lambda x: x[0], lambda x: len(x[1])):
             if self.pl_search.text().strip().casefold() not in name.casefold():
                 continue
             it = QListWidgetItem(icon("playlist", theme.accent(), 18), f"{name}   ({len(items)})")
             it.setData(ROLE_PATH, name)
             self.pl_list.addItem(it)
+        self.playlists_count.setText(f"{self.pl_list.count()} playlists")
         if not self.store.data["playlists"]:
             it = QListWidgetItem("No playlists yet")
             it.setFlags(Qt.NoItemFlags)
             self.pl_list.addItem(it)
 
-    def new_playlist(self, files=None):
-        name, ok = QInputDialog.getText(self, "New playlist", "Name")
+    def new_playlist(self, files=None, suggested_name=""):
+        name, ok = QInputDialog.getText(self, "New playlist", "Name", text=suggested_name)
         if not ok or not name.strip():
             return
         name = name.strip()
@@ -654,21 +686,21 @@ class LibraryPanel(QWidget):
         self.refresh_playlists()
         self.win.toast(f"Added {added} item{'s' if added != 1 else ''} to “{name}”")
 
-    def save_to_playlist(self, files):
+    def save_to_playlist(self, files, suggested_name=""):
         """Save a folder/queue to a new playlist or append to an existing one."""
         if not files:
             self.win.toast("No playable files to add")
             return
         names = sorted(self.store.data["playlists"], key=str.casefold)
         if not names:
-            self.new_playlist(files)
+            self.new_playlist(files, suggested_name)
             return
         choices = ["Create a new playlist…"] + [f"Add to: {name}" for name in names]
         choice, ok = QInputDialog.getItem(self, "Save to playlist", "Destination", choices, 0, False)
         if not ok:
             return
         if choice == choices[0]:
-            self.new_playlist(files)
+            self.new_playlist(files, suggested_name)
         else:
             self.add_to_playlist(names[choices.index(choice) - 1], files)
 
@@ -727,6 +759,7 @@ class LibraryPanel(QWidget):
         self.st_search.setPlaceholderText("Search streams")
         self.st_search.textChanged.connect(lambda _: self.refresh_streams())
         lay.addWidget(self.st_search)
+        self._sort_controls(lay, "streams", self.refresh_streams)
         self.st_list = QListWidget()
         self.st_list.setIconSize(QSize(18, 18))
         self.st_list.itemDoubleClicked.connect(lambda it: self.win.open_stream(it.data(ROLE_PATH), it.text()))
@@ -737,13 +770,14 @@ class LibraryPanel(QWidget):
 
     def refresh_streams(self):
         self.st_list.clear()
-        for s in self.store.data["streams"]:
+        for s in self._ordered(self.store.data["streams"], "streams", lambda x: x["name"]):
             if self.st_search.text().strip().casefold() not in (s["name"] + " " + s["url"]).casefold():
                 continue
             it = QListWidgetItem(icon("stream", theme.accent(), 18), s["name"])
             it.setData(ROLE_PATH, s["url"])
             it.setToolTip(s["url"])
             self.st_list.addItem(it)
+        self.streams_count.setText(f"{self.st_list.count()} streams")
         if not self.store.data["streams"]:
             it = QListWidgetItem("Saved streams and channel lists appear here")
             it.setFlags(Qt.NoItemFlags)
@@ -801,6 +835,7 @@ class LibraryPanel(QWidget):
         tools.addWidget(rescan)
         lay.addLayout(tools)
 
+        self._sort_controls(lay, "music", self.refresh_music)
         self.music_crumb = QLabel("")
         self.music_crumb.setObjectName("Muted")
         self.music_crumb.setStyleSheet(f"color: {theme.MUTED}; font-size: 12px;")
@@ -922,6 +957,16 @@ class LibraryPanel(QWidget):
         return next((a for a in self.music.albums() if a["key"] == key), None)
 
     def refresh_music(self):
+        try:
+            self._refresh_music_contents()
+        finally:
+            kinds = {"artist", "album", "file"}
+            n = sum(self.music_list.item(i).data(ROLE_KIND) in kinds for i in range(self.music_list.count()))
+            scope = "songs" if self.music_trail and self.music_trail[-1][0] == "album" else (
+                "albums" if self.music_trail else self.music_mode)
+            self.music_count.setText(f"{n} {scope}")
+
+    def _refresh_music_contents(self):
         lst = self.music_list
         lst.clear()
         m = self.music
@@ -978,7 +1023,7 @@ class LibraryPanel(QWidget):
                                     f"{len(a['tracks'])} song{'s' if len(a['tracks']) != 1 else ''}  ·  {fmt_time(total)}")
             self.album_head.show()
             lst.setIconSize(QSize(18, 18))
-            for p in a["tracks"]:
+            for p in self._ordered(a["tracks"], "music", lambda p: m.title_of(p, songs.get(p, {}))):
                 if q and q not in song_text(p).lower():
                     continue
                 add_song(p, with_artist=False)
@@ -991,7 +1036,7 @@ class LibraryPanel(QWidget):
             lst.setIconSize(QSize(44, 44))
             n = sum(len(a["tracks"]) for a in albums)
             self._music_item(f"Play all\n{n} songs", "play_artist", name, icon("play", theme.accent(), 44))
-            for a in albums:
+            for a in self._ordered(albums, "music", lambda a: a["album"]):
                 if q and q not in a["album"].lower():
                     continue
                 self._music_item(f"{a['album']}\n{a['year'] + '  ·  ' if a['year'] else ''}{len(a['tracks'])} songs",
@@ -1001,7 +1046,7 @@ class LibraryPanel(QWidget):
         self.music_crumb.setText("")
         if self.music_mode == "artists":
             lst.setIconSize(QSize(44, 44))
-            for name, albums in m.artists():
+            for name, albums in self._ordered(m.artists(), "music", lambda x: x[0]):
                 if q and q not in name.lower():
                     continue
                 n = sum(len(a["tracks"]) for a in albums)
@@ -1010,14 +1055,14 @@ class LibraryPanel(QWidget):
                                  "artist", name, self._cover(art, 44))
         elif self.music_mode == "albums":
             lst.setIconSize(QSize(44, 44))
-            for a in m.albums():
+            for a in self._ordered(m.albums(), "music", lambda a: a["album"]):
                 if q and q not in f"{a['album']} {a['artist']}".lower():
                     continue
                 self._music_item(f"{a['album']}\n{a['artist']}{'  ·  ' + a['year'] if a['year'] else ''}",
                                  "album", a["key"], self._cover(a["art"], 44))
         else:
             lst.setIconSize(QSize(36, 36))
-            for p in m.all_songs():
+            for p in self._ordered(m.all_songs(), "music", lambda p: m.title_of(p, songs.get(p, {}))):
                 if q and q not in song_text(p).lower():
                     continue
                 add_song(p)
@@ -1095,7 +1140,10 @@ class LibraryPanel(QWidget):
             p = item["path"]
             playing = i == self.win.qindex
             watched = not is_url(p) and self.store.position(p).get("watched")
-            it = QListWidgetItem(item.get("title") or display_name(p))
+            title = item.get("title") or display_name(p)
+            if self.store.setting("simple_queue_names") and not is_url(p) and not is_audio(p):
+                title = pretty_title(p)
+            it = QListWidgetItem(title)
             it.setIcon(icon("play" if playing else ("stream" if is_url(p) else ("check" if watched else "drag")),
                             theme.accent() if playing else theme.FAINT, 16))
             if watched and not playing:

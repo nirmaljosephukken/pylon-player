@@ -5,11 +5,11 @@ import os
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea,
-                               QSizePolicy, QVBoxLayout, QWidget)
+                               QSizePolicy, QVBoxLayout, QWidget, QMenu)
 
 from . import theme
 from .icons import icon, pixmap
-from .util import display_name, fmt_time, is_audio, is_url, pretty_title, to_path
+from .util import display_name, fmt_time, is_audio, is_url, pretty_title, to_path, list_media
 from .widgets import Card, IconButton
 
 
@@ -103,7 +103,7 @@ class HomePage(QScrollArea):
         lay.addWidget(drop)
 
         cont = self.store.continue_watching()
-        if cont:
+        if cont and self.store.setting("home_continue"):
             lay.addWidget(self._section("Continue watching"))
             row = FlowRow()
             for e in cont:
@@ -112,6 +112,7 @@ class HomePage(QScrollArea):
                 c = Card(title, f"{code + '  ·  ' if code else ''}{fmt_time(e['pos'])} of {fmt_time(e['len'])}"
                          f"{'' if code else '  ·  ' + _parent(p)}",
                          "music" if is_audio(p) else "play", progress=e["pos"] / max(1, e["len"]))
+                self._bind_card_menu(c, "media", p)
                 c.setToolTip(p)
                 c.clicked.connect(lambda p=p, t=e["pos"]: self.win.play_from_folder(p, start_ms=t))
                 c.add_corner_button("check_all", "Mark as watched", lambda p=p: self._mark_watched(p))
@@ -119,13 +120,14 @@ class HomePage(QScrollArea):
             lay.addWidget(hscroll(row))
 
         recent = [r for r in self.store.data["recent"] if r["path"] not in {c["path"] for c in cont}][:12]
-        if recent:
+        if recent and self.store.setting("home_recent"):
             lay.addWidget(self._section("Recently played"))
             row = FlowRow()
             for r in recent:
                 p = r["path"]
                 c = Card(pretty_title(p), "Stream" if is_url(p) else _parent(p),
                          "stream" if is_url(p) else ("music" if is_audio(p) else "video"))
+                self._bind_card_menu(c, "media", p)
                 c.setToolTip(p)
                 c.clicked.connect(lambda p=p: self.win.play_from_folder(p))
                 row.add(c)
@@ -138,6 +140,7 @@ class HomePage(QScrollArea):
             row = FlowRow()
             for f in folders:
                 c = Card(os.path.basename(f.rstrip("\\/")) or f, f, "folder")
+                self._bind_card_menu(c, "folder", f)
                 c.clicked.connect(lambda f=f: self.win.browse_folder(f))
                 row.add(c)
             lay.addWidget(hscroll(row))
@@ -155,6 +158,7 @@ class HomePage(QScrollArea):
                 if done:
                     sub += f"  ·  {done} watched"
                 c = Card(name, sub, "playlist", progress=done / len(items) if items and done else None)
+                self._bind_card_menu(c, "playlist", name)
                 c.clicked.connect(lambda n=name: self.win.play_playlist(n))
                 row.add(c)
             lay.addWidget(hscroll(row))
@@ -165,6 +169,7 @@ class HomePage(QScrollArea):
             row = FlowRow()
             for s in streams[:12]:
                 c = Card(s["name"], s["url"], "stream")
+                self._bind_card_menu(c, "stream", s["url"])
                 c.clicked.connect(lambda s=s: self.win.open_stream(s["url"], s["name"]))
                 row.add(c)
             lay.addWidget(hscroll(row))
@@ -178,6 +183,50 @@ class HomePage(QScrollArea):
         if old:
             old.deleteLater()
         self.setWidget(inner)
+
+    def _remove_history_item(self, path):
+        self.store.data["recent"] = [r for r in self.store.data["recent"] if r["path"] != path]
+        self.store.data["positions"].pop(path, None)
+        self.store.save("recent")
+        self.win.library.refresh_recent()
+
+    def _card_actions(self, kind, value):
+        lib, win = self.win.library, self.win
+        if kind == "media":
+            watched = self.store.position(value).get("watched", False)
+            return [("Play", lambda: win.play_from_folder(value)),
+                    ("Add to queue", lambda: win.enqueue([value])),
+                    ("Mark as unwatched" if watched else "Mark as watched",
+                     lambda: self.store.set_watched(value, not watched)),
+                    ("Remove from history (including resume position)", lambda: self._remove_history_item(value))]
+        if kind == "folder":
+            return [("Open folder", lambda: win.browse_folder(value)),
+                    ("Play folder", lambda: win.play_folder(value)),
+                    ("Add folder to queue", lambda: win.enqueue(list_media(value))),
+                    ("Save folder to playlist…", lambda: lib.save_to_playlist(list_media(value), os.path.basename(os.path.normpath(value))))]
+        if kind == "playlist":
+            return [("Play", lambda: win.play_playlist(value)),
+                    ("Add to queue", lambda: win.enqueue(self.store.data["playlists"].get(value, []))),
+                    ("Rename…", lambda: lib._pl_rename(value)),
+                    ("Export as .m3u…", lambda: lib._pl_export(value))]
+        return [("Play", lambda: win.open_stream(value)),
+                ("Add to queue", lambda: win.enqueue([value])),
+                ("Remove saved stream", lambda: lib._st_remove(value))]
+
+    def _bind_card_menu(self, card, kind, value):
+        card.setContextMenuPolicy(Qt.CustomContextMenu)
+        card.customContextMenuRequested.connect(lambda pos: self._card_menu(card, kind, value, pos))
+
+    def _card_menu(self, card, kind, value, pos):
+        menu = QMenu(self)
+        for label, callback in self._card_actions(kind, value):
+            def invoke(_=False, fn=callback):
+                def run():
+                    fn()
+                    self.refresh()
+                QTimer.singleShot(0, run)
+            menu.addAction(label, invoke)
+        menu.exec(card.mapToGlobal(pos))
 
     def _section(self, text):
         lab = QLabel(text)

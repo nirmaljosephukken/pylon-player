@@ -53,6 +53,9 @@ DEFAULT_SETTINGS = {
     "hide_delay_ms": 1600,
     "volume": 80,
     "remember_history": True,
+    "home_continue": True,
+    "home_recent": True,
+    "simple_queue_names": False,
     "sub_lang": "",             # preferred subtitle language, e.g. "eng"
     "audio_lang": "",
     "hw_decoding": True,

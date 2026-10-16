@@ -387,7 +387,7 @@ class PreferencesDialog(QDialog):
         b.setCheckable(True)
         b.setChecked(selected)
         b.setMinimumHeight(32)
-        swatch = QPixmap(20, 20)
+        swatch = QPixmap(24, 20)
         swatch.fill(Qt.transparent)
         p = QPainter(swatch)
         p.setRenderHint(QPainter.Antialiasing)
@@ -397,6 +397,7 @@ class PreferencesDialog(QDialog):
             p.drawEllipse(2 + i * 8, 4, 12, 12)
         p.end()
         b.setIcon(QIcon(swatch))
+        b.setIconSize(QSize(24, 20))
         b.setStyleSheet("QPushButton { text-align: left; padding: 5px 8px; }"
                        f"QPushButton:checked {{ border: 1px solid {theme.accent()}; }}")
         b.clicked.connect(callback)
@@ -429,8 +430,8 @@ class PreferencesDialog(QDialog):
             b = self._colour_button(name, [col], col.lower() == cur.lower(),
                                     lambda _=False, c=col: self._set_accent(c))
             grid.addWidget(b, i // 4, i % 4)
-        custom = QPushButton("Custom…")
-        custom.clicked.connect(self._custom_accent)
+        custom = self._colour_button("Custom…", [cur] if cur.lower() not in {c.lower() for _, c in ACCENTS} else [],
+                                     False, lambda _=False: self._custom_accent())
         grid.addWidget(custom, 2, 0)
         f.addLayout(grid)
         f.addSpacing(10)
@@ -454,11 +455,11 @@ class PreferencesDialog(QDialog):
         for i, (k, t) in enumerate(plain):
             grid.addWidget(chip(k, t), i // 4, i % 4)
         tint = self.store.setting("theme_tint")
-        custom = self._colour_button("Custom tint (on)…" if cur == "custom" and tint else "Custom tint…",
-                                     [tint or theme.BG], cur == "custom", self._custom_theme)
+        custom = self._colour_button("Tint…",
+                                     [tint] if tint else [], cur == "custom", self._custom_theme)
         custom.setToolTip("Pick any colour; Pylon uses dark shades of it for the background.")
         row = (len(plain) + 3) // 4
-        grid.addWidget(custom, row, 0, 1, 4)
+        grid.addWidget(custom, row, 0)
         f.addLayout(grid)
         f.addSpacing(6)
         f.addWidget(info_label("Neon", "Black or deep-tinted backgrounds with glowing gradient highlights. "
@@ -513,11 +514,24 @@ class PreferencesDialog(QDialog):
         cb3.setChecked(bool(self.store.setting("pin_controls")))
         cb3.toggled.connect(lambda v: self.store.set_setting("pin_controls", v))
         f.addWidget(cb3)
+        simple = QCheckBox("Show simplified names in the queue")
+        simple.setChecked(bool(self.store.setting("simple_queue_names")))
+        simple.setToolTip("Changes displayed titles only. Hover an item to see its original path.")
+        simple.toggled.connect(self._set_simple_queue)
+        f.addWidget(simple)
         cb2 = QCheckBox("Show a preview picture when I hover over the seek bar")
         cb2.setToolTip("Pylon makes small previews of each video in the background and keeps them for next time.")
         cb2.setChecked(bool(self.store.setting("seek_previews")))
         cb2.toggled.connect(self._set_previews)
         f.addWidget(cb2)
+
+    def _set_simple_queue(self, on):
+        self.store.set_setting("simple_queue_names", on)
+        self.win.library.refresh_queue()
+
+    def _set_home_section(self, key, on):
+        self.store.set_setting(key, on)
+        self.win.home.refresh()
 
     def _set_previews(self, on):
         self.store.set_setting("seek_previews", on)
@@ -570,6 +584,14 @@ class PreferencesDialog(QDialog):
         f.addWidget(lab)
 
     def _privacy(self, f):
+        for key, label in (("home_continue", "Show Continue watching on the home screen"),
+                           ("home_recent", "Show Recently played on the home screen")):
+            cb_home = QCheckBox(label)
+            cb_home.setChecked(bool(self.store.setting(key)))
+            cb_home.toggled.connect(lambda on, k=key: self._set_home_section(k, on))
+            f.addWidget(cb_home)
+        f.addWidget(muted_note("These switches hide home sections only. They do not delete history, "
+                               "stop recording it, or hide entries in the library's Recent tab."))
         cb = QCheckBox("Remember recent files and where I stopped")
         cb.setChecked(bool(self.store.setting("remember_history")))
         cb.toggled.connect(lambda v: self.store.set_setting("remember_history", v))
@@ -595,6 +617,10 @@ class PreferencesDialog(QDialog):
         lab.setWordWrap(True)
         lab.setTextInteractionFlags(Qt.TextSelectableByMouse)
         f.addWidget(lab)
+        folder = QPushButton("Open data folder")
+        folder.setIcon(icon("folder", theme.TEXT, 16))
+        folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(self.store.path))))
+        f.addWidget(folder)
 
     def _clear(self):
         self.store.clear_history()
