@@ -34,13 +34,15 @@ PAGE_HOME, PAGE_VIDEO, PAGE_AUDIO = 0, 1, 2
 class VideoSurface(QFrame):
     """Native window that VLC draws into. Mouse input is turned off in VLC so
     clicks and the wheel reach this widget."""
-    clicked = Signal()
-    double_clicked = Signal()
+    action = Signal(str)
     context = Signal(QPoint)
     wheel = Signal(int)
 
-    def __init__(self):
+    def __init__(self, store):
         super().__init__()
+        self.store = store
+        self._double_release = False
+        self._pending_action = "none"
         self.setAttribute(Qt.WA_NativeWindow, True)
         self.setAttribute(Qt.WA_DontCreateNativeAncestors, True)
         self.setStyleSheet("background: #000;")
@@ -48,16 +50,50 @@ class VideoSurface(QFrame):
         self._click = QTimer(self)
         self._click.setSingleShot(True)
         self._click.setInterval(QApplication.doubleClickInterval() if QApplication.instance() else 250)
-        self._click.timeout.connect(self.clicked)
+        self._click.timeout.connect(lambda: self._emit_action(self._pending_action))
+
+    def _emit_action(self, action):
+        if (QApplication.activeModalWidget() is None and QApplication.activePopupWidget() is None
+                and action in ("play_pause", "fullscreen", "mute", "next", "prev", "seek_back", "seek_fwd")):
+            self.action.emit(action)
+
+    def cancel_click(self):
+        self._click.stop()
+        self._double_release = False
+
+    def hideEvent(self, e):
+        self.cancel_click()
+        super().hideEvent(e)
 
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.LeftButton:
-            self._click.start()
+            if self._double_release:
+                self._double_release = False
+                return
+            action = self.store.setting("mouse_single")
+            if self.store.setting("mouse_double") == "none":
+                self._emit_action(action)
+            else:
+                # Preserve the system's double-click interval; shortening it can
+                # execute a single-click action before a valid double-click.
+                self._pending_action = action
+                self._click.start(QApplication.doubleClickInterval())
+        else:
+            key = {Qt.MiddleButton: "mouse_middle", Qt.BackButton: "mouse_back",
+                   Qt.ForwardButton: "mouse_forward"}.get(e.button())
+            if key:
+                self._emit_action(self.store.setting(key))
 
     def mouseDoubleClickEvent(self, e):
         if e.button() == Qt.LeftButton:
             self._click.stop()
-            self.double_clicked.emit()
+            if self.store.setting("mouse_double") == "none":
+                # Qt still reports a double-click event when no action is bound.
+                self._emit_action(self.store.setting("mouse_single"))
+            else:
+                self._emit_action(self.store.setting("mouse_double"))
+            # Fullscreen can hide/recreate the native surface while dispatching.
+            self._double_release = True
 
     def contextMenuEvent(self, e):
         self.context.emit(e.globalPos())
@@ -112,7 +148,7 @@ class MainWindow(QMainWindow):
         self.stage = QStackedWidget()
         self.stage.setMinimumWidth(240)
         self.home = None  # created after library (home uses it)
-        self.video = VideoSurface()
+        self.video = VideoSurface(store)
         self.now_playing = NowPlayingPage(self)
 
         # overlays (separate translucent windows over the video)
@@ -142,8 +178,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.sidebar)
 
         # ---------------- wiring
-        self.video.clicked.connect(lambda: self.do("play_pause", key=False))
-        self.video.double_clicked.connect(self.toggle_fullscreen)
+        self.video.action.connect(lambda action: self.do(action, key=False))
         self.video.context.connect(self.show_context_menu)
         self.video.wheel.connect(lambda d: self.do("vol_up" if d > 0 else "vol_down", key=False))
 
@@ -558,6 +593,7 @@ class MainWindow(QMainWindow):
         page = self.stage.currentIndex()
         self._apply_pin()
         if page == PAGE_HOME or self.isMinimized() or not self.isVisible():
+            self.video.unsetCursor()
             self._set_bars(False)
             if self.osd.isVisible() and (self.isMinimized() or not self.isVisible()):
                 self.osd.hide()
@@ -588,12 +624,17 @@ class MainWindow(QMainWindow):
             elif inside and active and (now - self._last_move < delay or near_bar):
                 show = True
         self._set_bars(show)
+        self._update_video_cursor(page, inside, show)
+
+    def _update_video_cursor(self, page, inside, show):
         # hide the pointer over the video in fullscreen when bars are gone
-        if self.isFullScreen() and inside and not show:
-            if QApplication.overrideCursor() is None:
-                QApplication.setOverrideCursor(Qt.BlankCursor)
-        elif QApplication.overrideCursor() is not None:
-            QApplication.restoreOverrideCursor()
+        if (self.isFullScreen() and page == PAGE_VIDEO and inside and not show
+                and QApplication.activeWindow() is self
+                and QApplication.activeModalWidget() is None
+                and QApplication.activePopupWidget() is None):
+            self.video.setCursor(Qt.BlankCursor)
+        else:
+            self.video.unsetCursor()
 
     def moveEvent(self, e):
         super().moveEvent(e)
@@ -1597,6 +1638,5 @@ class MainWindow(QMainWindow):
         self.store.save_now()
         for w in (self.top, self.bottom, self.osd):
             w.close()
-        if QApplication.overrideCursor() is not None:
-            QApplication.restoreOverrideCursor()
+        self.video.unsetCursor()
         super().closeEvent(e)

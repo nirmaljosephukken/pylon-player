@@ -1,7 +1,7 @@
 """Repack unchanged 1.3.2 runtimes with the repository's current application.
 Run after preparing build/tools and linux-old.tar (see BUILD.md).
 """
-import copy,hashlib,io,re,shutil,subprocess,tarfile,zipfile
+import copy,hashlib,io,re,shutil,struct,subprocess,tarfile,zipfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 BUILD=ROOT/'build'
@@ -45,11 +45,22 @@ def linux():
   assert not replacements,sorted(replacements)
  tool=BUILD/'tools/squashfs/squashfs-tools-ng-1.3.2-mingw64/bin/tar2sqfs.exe'
  with (BUILD/'linux-new.tar').open('rb') as src:
-  subprocess.run([str(tool),'-f','-q','-c','xz','-j','4',str(BUILD/'linux-new.sqfs')],stdin=src,check=True)
+  subprocess.run([str(tool),'-f','-q','-c','zstd','-j','4',str(BUILD/'linux-new.sqfs')],stdin=src,check=True)
+ validate_squashfs(BUILD/'linux-new.sqfs')
  with (OUT/f'Pylon-{VERSION}-x86_64.AppImage').open('wb') as dest:
   for p in (BUILD/'linux-runtime',BUILD/'linux-new.sqfs'):
    with p.open('rb') as src:shutil.copyfileobj(src,dest)
  print('Linux package written',flush=True)
+
+def validate_squashfs(path):
+ # The bundled AppImage runtime supports zlib and zstd, but NOT xz.
+ # Check the actual superblock before assembling a distributable.
+ with path.open('rb') as src:header=src.read(96)
+ if len(header)!=96 or header[:4]!=b'hsqs':
+  raise ValueError('Invalid SquashFS header')
+ compressor=struct.unpack_from('<H',header,20)[0]
+ if compressor not in (1,6):
+  raise ValueError(f'Compressor {compressor} is unsupported by the bundled AppImage runtime; use gzip or zstd')
 
 def windows_stage():
  stage=BUILD/'windows/Pylon';stage.mkdir(parents=True,exist_ok=True)

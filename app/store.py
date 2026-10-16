@@ -45,6 +45,11 @@ DEFAULT_SHORTCUTS = {
 }
 
 DEFAULT_SETTINGS = {
+    "mouse_single": "play_pause",
+    "mouse_double": "fullscreen",
+    "mouse_middle": "none",
+    "mouse_back": "none",
+    "mouse_forward": "none",
     "accent": "#FF8800",
     "sub_match": "episode",
     "binge": True,              # play the next file in the folder when one ends

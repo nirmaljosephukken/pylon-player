@@ -577,11 +577,27 @@ class PreferencesDialog(QDialog):
         b.setIcon(icon("keyboard", theme.TEXT, 16))
         b.clicked.connect(lambda: (self.accept(), self.win.show_shortcuts()))
         f.addWidget(b)
-        lab = QLabel("Mouse: click the video to play or pause, double-click for fullscreen, scroll for volume, "
-                     "right-click for the menu.")
-        lab.setObjectName("Muted")
-        lab.setWordWrap(True)
-        f.addWidget(lab)
+        form = QFormLayout()
+        actions = (("Disabled", "none"), ("Play / pause", "play_pause"),
+                   ("Fullscreen", "fullscreen"), ("Mute", "mute"),
+                   ("Next in queue", "next"), ("Previous in queue", "prev"),
+                   ("Jump back 10s", "seek_back"), ("Jump forward 10s", "seek_fwd"))
+        for key, label in (("mouse_single", "Left click"), ("mouse_double", "Left double-click"),
+                           ("mouse_middle", "Middle click"), ("mouse_back", "Back button"),
+                           ("mouse_forward", "Forward button")):
+            combo = QComboBox()
+            combo.setObjectName(key)
+            for text, value in actions:
+                combo.addItem(text, value)
+            combo.setCurrentIndex(max(0, combo.findData(self.store.setting(key))))
+            combo.currentIndexChanged.connect(
+                lambda _, c=combo, k=key: self.store.set_setting(k, c.currentData()))
+            form.addRow(label, combo)
+        f.addLayout(form)
+        f.addWidget(muted_note("These bindings apply over the video. Disable Left double-click for immediate "
+                               "single clicks; otherwise Pylon waits for your system's double-click interval. "
+                               "Scroll changes volume; right-click opens the menu. Extra buttons must be "
+                               "reported by the mouse driver as standard mouse buttons."))
 
     def _privacy(self, f):
         for key, label in (("home_continue", "Show Continue watching on the home screen"),

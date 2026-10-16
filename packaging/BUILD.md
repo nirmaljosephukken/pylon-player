@@ -71,6 +71,9 @@ squashfs-tools-ng 1.3.2 (the upstream Windows binary package). Keep these under
   subprocess redirection. Run `python packaging/repack_release.py linux`.
   The script patches a tar archive and runs `tar2sqfs`, preserving file modes
   and symlink targets rather than extracting Linux files onto NTFS.
+  Use **zstd** compression. The bundled runtime supports zlib/zstd, not xz;
+  xz repacks fail before Pylon starts. The script checks the SquashFS compressor
+  before writing an AppImage. Run `python tests/check_appimage_compression.py`.
 - Windows: build `Pylon.exe` using `launcher/build.md`, then run
   `python packaging/repack_release.py windows`. This stages Python and licences
   from the installed `Pylon-1.1/Pylon` copy, plus current repository files.
