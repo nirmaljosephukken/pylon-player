@@ -3,7 +3,7 @@
 [Download Pylon](https://nirmaljosephukken.github.io/pylon-player/)
 
 ### Privacy and home screen
-- Separate switches in Preferences > Privacy hide Continue watching and Recently played on the home screen (#20). Defaults remain visible. Hiding does not erase history or resume positions, stop history recording, or hide the library's Recent tab.
+- Separate switches in Preferences > Privacy hide Continue watching, Recently played and Playlists on the home screen (#20). Defaults remain visible. Hiding does not erase history or resume positions, stop history recording, or hide the library's Recent tab. Hidden home playlists remain available in the library Playlists tab.
 - Home cards now have right-click actions appropriate to files, folders, playlists and streams (#24). No action deletes media files. Removing an item from history explicitly includes its resume position.
 - An Open data folder button is available in Privacy (#21).
 

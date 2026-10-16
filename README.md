@@ -19,7 +19,7 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 
 ## What's new
 
-**1.3.5:** Hide home-history sections independently, use optional simplified queue names, sort music/playlists/streams with visible result counts, and open the data folder from Privacy. Folder playlist names are suggested automatically, home cards have context menus, and neon colour swatches no longer crop. Includes the Mac VLC loader correction from the revised 1.3.4 Mac package.
+**1.3.5:** Hide Continue watching, Recently played and home playlists independently, use optional simplified queue names, sort music/playlists/streams with visible result counts, and open the data folder from Privacy. Folder playlist names are suggested automatically, home cards have context menus, and neon colour swatches no longer crop. Includes the Mac VLC loader correction from the revised 1.3.4 Mac package.
 
 **1.3.4:** Save folders and the queue to existing playlists without adding duplicate files. Collaboration artists appear separately when the library provides enough evidence, while album grouping stays intact.
 

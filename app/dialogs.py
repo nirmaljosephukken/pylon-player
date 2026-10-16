@@ -585,7 +585,8 @@ class PreferencesDialog(QDialog):
 
     def _privacy(self, f):
         for key, label in (("home_continue", "Show Continue watching on the home screen"),
-                           ("home_recent", "Show Recently played on the home screen")):
+                           ("home_recent", "Show Recently played on the home screen"),
+                           ("home_playlists", "Show playlists on the home screen")):
             cb_home = QCheckBox(label)
             cb_home.setChecked(bool(self.store.setting(key)))
             cb_home.toggled.connect(lambda on, k=key: self._set_home_section(k, on))

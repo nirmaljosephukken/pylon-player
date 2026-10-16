@@ -55,6 +55,7 @@ DEFAULT_SETTINGS = {
     "remember_history": True,
     "home_continue": True,
     "home_recent": True,
+    "home_playlists": True,
     "simple_queue_names": False,
     "sub_lang": "",             # preferred subtitle language, e.g. "eng"
     "audio_lang": "",

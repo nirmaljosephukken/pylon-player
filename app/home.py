@@ -148,7 +148,7 @@ class HomePage(QScrollArea):
             lay.addWidget(self._muted("Add a folder (movies, shows, music) to see it here and in the library sidebar."))
 
         pls = self.store.data["playlists"]
-        if pls:
+        if pls and self.store.setting("home_playlists"):
             lay.addWidget(self._section("Playlists"))
             row = FlowRow()
             positions = self.store.data["positions"]

@@ -35,6 +35,20 @@ class HomeLibrary(unittest.TestCase):
    self.assertEqual(self.store.data['recent'],original['recent'])
   self.store.save_now();loaded=Store(self.store.path);self.assertTrue(loaded.setting('home_continue'));loaded._save_timer.stop()
   dlg.deleteLater()
+ def test_playlist_visibility_preserves_library(self):
+  self.store.data['playlists']={'Private list':[self.path]}
+  original=copy.deepcopy(self.store.data['playlists'])
+  dlg=PreferencesDialog(self.win)
+  self.assertTrue(self.store.setting('home_playlists'))
+  for visible in (False,True,False):
+   dlg._set_home_section('home_playlists',visible)
+   labels=[w.text() for w in self.win.home.widget().findChildren(QLabel)]
+   self.assertEqual('Playlists' in labels,visible)
+   self.assertEqual(self.store.data['playlists'],original)
+   self.lib.refresh_playlists();self.assertEqual(self.lib.pl_list.count(),1)
+  self.store.save_now();loaded=Store(self.store.path)
+  self.assertFalse(loaded.setting('home_playlists'));self.assertEqual(loaded.data['playlists'],original)
+  loaded._save_timer.stop();dlg.deleteLater()
  def test_queue_and_suggestion(self):
   self.win.queue=[{'path':self.path,'title':'Original filename'}];self.lib.refresh_queue()
   self.assertEqual(self.lib.queue.item(0).text(),'Original filename')
