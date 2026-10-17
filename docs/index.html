@@ -144,6 +144,9 @@ code{font:14px ui-monospace,Consolas,monospace;background:var(--panel);border:1p
 .plat.me .go{color:var(--a1)}
 .fine{text-align:center;color:var(--mist);font-size:15px;margin:28px 0 0}
 .fine a{color:var(--text)}
+.download-stats{text-align:center;margin:-24px 0 32px}
+.download-count{display:inline-block;max-width:100%;margin:0;padding:10px 20px;border:1px solid var(--line);border-radius:99px;background:var(--panel);color:var(--text);font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.download-count-note{margin:8px 0 0;color:var(--mist);font-size:13px}
 
 /* credit + faq */
 .about{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:72px;align-items:start}
@@ -285,6 +288,10 @@ footer a{color:var(--text)}
 <section class="dl-sec" id="download"><div class="wrap">
   <h2 id="dl-title">Download Pylon</h2>
   <p class="sub">Free, no account, no ads. Always the latest version.</p>
+  <div class="download-stats">
+    <p class="download-count" id="download-stats" role="status" aria-live="polite">Checking total downloads…</p>
+    <p class="download-count-note">Across all versions · refreshed every 5 minutes</p>
+  </div>
   <div class="platforms">
     <a class="plat" id="dl-win" href="https://github.com/nirmaljosephukken/pylon-player/releases/latest">
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5 10.5 4.4v7.1H3zm8.5-1.2L21 3v8.5h-9.5zM3 12.5h7.5v7.1L3 18.5zm8.5 0H21V21l-9.5-1.3z"/></svg>
@@ -411,5 +418,6 @@ footer a{color:var(--text)}
     .catch(function(){ /* GitHub unreachable: the buttons still open the latest release page */ });
 })();
 </script>
+<script src="site/download-count.js" defer></script>
 </body>
 </html>
