@@ -45,6 +45,12 @@ DEFAULT_SHORTCUTS = {
 }
 
 DEFAULT_SETTINGS = {
+    "custom_palette": [],
+    "library_startup_tab": "library",
+    "settings_startup_tab": "subtitles",
+    "library_last_tab": "library",
+    "settings_last_tab": "subtitles",
+    "library_sort": "name",
     "mouse_single": "play_pause",
     "mouse_double": "fullscreen",
     "mouse_middle": "none",

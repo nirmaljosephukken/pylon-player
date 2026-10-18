@@ -6,12 +6,13 @@ import os
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QFont
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QColorDialog, QComboBox, QFontComboBox,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFontComboBox,
                                QGridLayout, QHBoxLayout, QInputDialog, QLabel, QListWidget,
                                QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QScrollArea,
                                QSizePolicy, QSlider, QSpinBox, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
 from . import theme
+from .colour_dialog import choose_colour
 from .engine import DEFAULT_SUB_STYLE
 from .icons import icon
 from .util import (display_name, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
@@ -202,6 +203,12 @@ class SettingsSidebar(QWidget):
         self._build_video()
         self._build_playback()
         self._build_bookmarks()
+        tab_names = ("subtitles", "audio", "video", "playback", "bookmarks")
+        selected = self.store.setting("settings_startup_tab")
+        if selected == "last":
+            selected = self.store.setting("settings_last_tab")
+        self.tabs.setCurrentIndex(tab_names.index(selected) if selected in tab_names else 0)
+        self.tabs.currentChanged.connect(lambda i: self.store.set_setting("settings_last_tab", tab_names[i]))
         for cb in self.findChildren(QComboBox):     # long track names must not widen the panel
             cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
             cb.setMinimumContentsLength(8)
@@ -323,7 +330,7 @@ class SettingsSidebar(QWidget):
         self.sub_timeline.set_state(self.engine.time(), ms)
 
     def _pick_color(self):
-        c = QColorDialog.getColor(QColor(self._sub_color), self, "Subtitle color")
+        c = choose_colour(self.store, self._sub_color, self, "Subtitle color")
         if c.isValid():
             self._sub_color = c.name()
             self._paint_color_btn()

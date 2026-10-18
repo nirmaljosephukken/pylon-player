@@ -5,13 +5,14 @@ import sys
 
 from PySide6.QtCore import QSize, Qt, QUrl, QTimer
 from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QIcon, QPixmap, QPainter
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QColorDialog, QComboBox, QDialog,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog,
                                QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout,
                                QHeaderView, QKeySequenceEdit, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QSpinBox,
-                               QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+                               QScrollArea, QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from . import theme
+from .colour_dialog import choose_colour
 from .icons import icon, pixmap
 from .store import DEFAULT_SHORTCUTS
 from .util import MATCH_LEVELS, SUB_EXTS, auto_match_folder, display_name, is_url, list_media
@@ -378,9 +379,17 @@ class PreferencesDialog(QDialog):
             form.addWidget(h)
             builder(form)
             form.addStretch(1)
-            self.pages.addWidget(page)
+            self.pages.addWidget(self._scroll_page(page))
         nav.currentRowChanged.connect(self.pages.setCurrentIndex)
         nav.setCurrentRow(0)
+
+    def _scroll_page(self, page):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(page)
+        return scroll
 
     def _colour_button(self, name, colours, selected, callback):
         b = QPushButton(name)
@@ -415,7 +424,7 @@ class PreferencesDialog(QDialog):
         self._general(form)
         form.addStretch(1)
         self.pages.removeWidget(old)
-        self.pages.insertWidget(0, page)
+        self.pages.insertWidget(0, self._scroll_page(page))
         self.pages.setCurrentIndex(0)
         old.deleteLater()
 
@@ -480,7 +489,7 @@ class PreferencesDialog(QDialog):
 
     def _custom_theme(self, checked=False):
         start = self.store.setting("theme_tint") or "#3D5A80"
-        c = QColorDialog.getColor(QColor(start), self, "Background tint")
+        c = choose_colour(self.store, start, self, "Background tint")
         if c.isValid():
             self._set_theme("custom", c.name())
 
@@ -491,7 +500,7 @@ class PreferencesDialog(QDialog):
         self.win.toast("Accent color changed")
 
     def _custom_accent(self):
-        c = QColorDialog.getColor(QColor(self.store.setting("accent")), self, "Accent color")
+        c = choose_colour(self.store, self.store.setting("accent"), self, "Accent color")
         if c.isValid():
             self._set_accent(c.name())
 
@@ -524,6 +533,23 @@ class PreferencesDialog(QDialog):
         cb2.setChecked(bool(self.store.setting("seek_previews")))
         cb2.toggled.connect(self._set_previews)
         f.addWidget(cb2)
+        tabs = QFormLayout()
+        for key, label, options in (
+                ("library_startup_tab", "Library tab at startup", (("Library", "library"), ("Music", "music"),
+                 ("Recent", "recent"), ("Playlists", "playlists"), ("Streams", "streams"))),
+                ("settings_startup_tab", "Settings tab at startup", (("Subtitles", "subtitles"), ("Audio", "audio"),
+                 ("Video", "video"), ("Playback", "playback"), ("Bookmarks", "bookmarks")))):
+            choice = QComboBox()
+            choice.setObjectName(key)
+            for text, value in options:
+                choice.addItem(text, value)
+            choice.addItem("Last used", "last")
+            choice.setCurrentIndex(max(0, choice.findData(self.store.setting(key))))
+            choice.setToolTip("Applies next time Pylon starts. Reopening a sidebar keeps its current tab.")
+            choice.currentIndexChanged.connect(
+                lambda _, c=choice, k=key: self.store.set_setting(k, c.currentData()))
+            tabs.addRow(label, choice)
+        f.addLayout(tabs)
 
     def _set_simple_queue(self, on):
         self.store.set_setting("simple_queue_names", on)
@@ -633,6 +659,9 @@ class PreferencesDialog(QDialog):
         lab.setObjectName("Muted")
         lab.setWordWrap(True)
         lab.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        lab.setTextFormat(Qt.PlainText)
+        lab.setMinimumWidth(0)
+        lab.setToolTip(self.store.path)
         f.addWidget(lab)
         folder = QPushButton("Open data folder")
         folder.setIcon(icon("folder", theme.TEXT, 16))

@@ -5,9 +5,13 @@
 import os
 import sys
 
+from app import startup
+startup.install()
+startup.mark("Importing Qt")
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
+startup.mark("Qt imported")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -81,6 +85,7 @@ def main():
         os.environ["QT_QPA_PLATFORM"] = "xcb"
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = PylonApp(sys.argv)
+    startup.mark("Qt application created")
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("Pylon")
     app.setStyle("Fusion")
@@ -120,9 +125,12 @@ def main():
         sock.disconnectFromServer()
         return
 
+    startup.mark("Importing player and VLC")
     from app.window import MainWindow
+    startup.mark("Creating main window")
     win = MainWindow(store)
     win.show()
+    startup.mark("Main window shown")
     app.file_opened.connect(lambda p: win.open_paths([p]))   # macOS: Finder "Open with"
     app._ready = True
     for p in app.pending:
@@ -166,6 +174,7 @@ def main():
             pass
     app.aboutToQuit.connect(shutdown)
     code = app.exec()
+    startup.mark(f"Event loop exited: {code}")
     store.save_now()
     sys.exit(code)
 

@@ -133,7 +133,7 @@ class HomePage(QScrollArea):
                 row.add(c)
             lay.addWidget(hscroll(row))
 
-        folders = self.store.data["pinned"] + [f for f in self.store.data["library_folders"]
+        folders = self.store.data["pinned"] + [f for f in self.win.library.ordered_library_folders()
                                                if f not in self.store.data["pinned"]]
         lay.addWidget(self._section("Your library"))
         if folders:

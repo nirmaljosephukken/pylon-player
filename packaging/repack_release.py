@@ -27,6 +27,11 @@ def macos():
    data=replacements.pop(info.filename,None)
    if data is None:data=old.read(info)
    new.writestr(info,data)
+  for name in list(replacements):
+   if name.startswith('Pylon.app/Contents/Resources/pylon/app/') and name.endswith('.py'):
+    info=zipfile.ZipInfo(name);info.create_system=3;info.external_attr=0o100644<<16
+    info.compress_type=zipfile.ZIP_DEFLATED
+    new.writestr(info,replacements.pop(name))
   assert not replacements, sorted(replacements)
  print('macOS package written',flush=True)
 
@@ -35,15 +40,36 @@ def linux():
  # Linux payload has no Windows diagnostics/ICO in the baseline; add only existing files.
  replacements.pop('usr/share/pylon/diag.bat');replacements.pop('usr/share/pylon/pylon.ico');replacements.pop('usr/share/pylon/pylon.png')
  replacements['usr/share/metainfo/io.github.nirmaljosephukken.pylon.appdata.xml']=(ROOT/'packaging/linux/io.github.nirmaljosephukken.pylon.appdata.xml').read_bytes()
+ replacements['AppRun']=(ROOT/'packaging/linux/AppRun').read_bytes().replace(b'\r\n',b'\n')
+ # #28: a bundled libxkbcommon-x11 paired with a newer system libxkbcommon crashes Qt.
+ # Ship it only as a fallback, together with the libxkbcommon it was built against.
+ moves={'usr/lib/libxkbcommon-x11.so.0':'usr/lib/fallback/libxkbcommon-x11.so.0'}
+ fallback=ROOT/'packaging/linux/fallback'
+ additions={'usr/lib/fallback/libxkbcommon.so.0':(fallback/'libxkbcommon.so.0').read_bytes(),
+            'usr/share/pylon/licenses/libxkbcommon0-copyright.txt':(fallback/'libxkbcommon0-copyright.txt').read_bytes()}
  with tarfile.open(BUILD/'linux-old.tar') as old,tarfile.open(BUILD/'linux-new.tar','w',format=tarfile.PAX_FORMAT) as new:
   for info in old:
    if '__pycache__/' in info.name or info.name.endswith('.pyc'):continue
+   if info.name=='usr/lib/fallback' or info.name.startswith('usr/lib/fallback/'):continue
+   if info.name in moves:
+    if info.name=='usr/lib/libxkbcommon-x11.so.0':
+     d=tarfile.TarInfo('usr/lib/fallback');d.type=tarfile.DIRTYPE;d.mode=0o755;d.mtime=info.mtime;new.addfile(d)
+    moved=copy.copy(info);moved.name=moves.pop(info.name)
+    new.addfile(moved,old.extractfile(info));continue
    data=replacements.pop(info.name,None)
    if data is not None:
     info=copy.copy(info);info.size=len(data);new.addfile(info,io.BytesIO(data))
    else:new.addfile(info,old.extractfile(info) if info.isfile() else None)
+  for name in list(replacements):
+   if name.startswith('usr/share/pylon/app/') and name.endswith('.py'):
+    data=replacements.pop(name);info=tarfile.TarInfo(name);info.mode=0o644;info.size=len(data)
+    new.addfile(info,io.BytesIO(data))
+  for name,data in additions.items():
+   info=tarfile.TarInfo(name);info.mode=0o644;info.size=len(data);new.addfile(info,io.BytesIO(data))
   assert not replacements,sorted(replacements)
+  assert not moves,sorted(moves)
  tool=BUILD/'tools/squashfs/squashfs-tools-ng-1.3.2-mingw64/bin/tar2sqfs.exe'
+ if not tool.exists():tool=Path(shutil.which('tar2sqfs') or tool)
  with (BUILD/'linux-new.tar').open('rb') as src:
   subprocess.run([str(tool),'-f','-q','-c','zstd','-j','4',str(BUILD/'linux-new.sqfs')],stdin=src,check=True)
  validate_squashfs(BUILD/'linux-new.sqfs')

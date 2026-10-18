@@ -169,7 +169,7 @@ class LibraryPanel(QWidget):
         self.folder = None        # current folder in the browser (None = library root)
         self.history: list = []
         self.forward: list = []
-        self.sort_mode = "name"
+        self.sort_mode = self.store.setting("library_sort") or "name"
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -255,11 +255,15 @@ class LibraryPanel(QWidget):
         split.addWidget(qw)
         split.setSizes([460, 260])
 
-        self.show_section("library")
+        selected = self.store.setting("library_startup_tab")
+        if selected == "last":
+            selected = self.store.setting("library_last_tab")
+        self.show_section(selected if selected in self.nav_buttons else "library")
         self.store.changed.connect(self._store_changed)
 
     # ================================================================ sections
     def show_section(self, key):
+        self.store.set_setting("library_last_tab", key)
         idx = {"library": 0, "recent": 1, "playlists": 2, "streams": 3, "music": 4}[key]
         self.stack.setCurrentIndex(idx)
         for k, b in self.nav_buttons.items():
@@ -318,7 +322,7 @@ class LibraryPanel(QWidget):
             a.triggered.connect(lambda _=False, k=key: self._set_sort(k))
             sm.addAction(a)
             self.sort_actions[key] = a
-        self.sort_actions["name"].setChecked(True)
+        self.sort_actions.get(self.sort_mode, self.sort_actions["name"]).setChecked(True)
         self.btn_sort.setMenu(sm)
         self.btn_add = IconButton("plus", "Add", size=16)
         self.btn_add.setPopupMode(IconButton.InstantPopup)
@@ -341,9 +345,12 @@ class LibraryPanel(QWidget):
 
     def _set_sort(self, key):
         self.sort_mode = key
+        self.store.set_setting("library_sort", key)
         for k, a in self.sort_actions.items():
             a.setChecked(k == key)
         self.refresh_library()
+        if self.win.home is not None:
+            self.win.home.refresh()
 
     def open_folder(self, folder, record=True):
         if folder:
@@ -389,7 +396,7 @@ class LibraryPanel(QWidget):
 
         if self.folder is None:
             pinned = self.store.data["pinned"]
-            folders = self.store.data["library_folders"]
+            folders = self.ordered_library_folders()
             if pinned:
                 self._header(self.lib_list, "Pinned")
                 for p in pinned:
@@ -457,6 +464,14 @@ class LibraryPanel(QWidget):
             it.setFlags(Qt.NoItemFlags)
             self.lib_list.addItem(it)
 
+    def ordered_library_folders(self):
+        folders = list(self.store.data["library_folders"])
+        if self.sort_mode == "name":
+            folders.sort(key=lambda p: natural_key(os.path.basename(p)))
+        elif self.sort_mode == "date":
+            folders.sort(key=lambda p: (-_mtime(p), natural_key(os.path.basename(p))))
+        return folders
+
     def _header(self, lst, text):
         it = QListWidgetItem(text.upper())
         it.setFlags(Qt.NoItemFlags)
@@ -521,6 +536,9 @@ class LibraryPanel(QWidget):
             m.addAction(icon("subtitles", theme.TEXT, 16), "Add subtitles for this folder…",
                         lambda: self.win.open_subtitle_dialog(scope="folder", folder=path))
             m.addAction("Show in Explorer", lambda: reveal(path))
+            if not self.is_library_folder(path):
+                m.addAction(icon("folder_add", theme.TEXT, 16), "Add to library",
+                            lambda: self.add_library_path(path))
             if path in self.store.data["library_folders"]:
                 m.addSeparator()
                 m.addAction(icon("trash", theme.TEXT, 16), "Remove from library", lambda: self.remove_library_folder(path))
@@ -529,13 +547,22 @@ class LibraryPanel(QWidget):
     def add_library_folder(self):
         d = QFileDialog.getExistingDirectory(self, "Add a folder to the library")
         if d:
-            d = os.path.normpath(d)
-            if d not in self.store.data["library_folders"]:
-                self.store.data["library_folders"].append(d)
-                self.store.save("library")
-                self._music_stale = True
+            self.add_library_path(d)
             self.open_folder(None)
-            self.win.home.refresh()
+
+    def is_library_folder(self, path):
+        key = os.path.normcase(os.path.realpath(path))
+        return any(os.path.normcase(os.path.realpath(p)) == key for p in self.store.data["library_folders"])
+
+    def add_library_path(self, path):
+        path = os.path.normpath(os.path.abspath(path))
+        if not os.path.isdir(path) or self.is_library_folder(path):
+            return False
+        self.store.data["library_folders"].append(path)
+        self._music_stale = True
+        self.store.save("library")
+        self.win.home.refresh()
+        return True
 
     def remove_library_folder(self, path):
         self.store.data["library_folders"] = [f for f in self.store.data["library_folders"] if f != path]
@@ -592,8 +619,10 @@ class LibraryPanel(QWidget):
         choice.setToolTip("Sort this view")
         for label, value in (("Default order", "default"), ("Name A–Z", "name"), ("Name Z–A", "reverse")):
             choice.addItem(label, value)
-        if section == "playlists":
+        if section in ("playlists", "music"):
             choice.addItem("Most items", "count")
+        if section == "music":
+            choice.addItem("Date modified (newest)", "date")
         choice.setCurrentIndex(max(0, choice.findData(self.store.setting(section + "_sort") or "default")))
         def changed(_):
             self.store.set_setting(section + "_sort", choice.currentData())
@@ -604,11 +633,13 @@ class LibraryPanel(QWidget):
         setattr(self, section + "_count", count)
         setattr(self, section + "_sort", choice)
 
-    def _ordered(self, items, section, name, count=None):
+    def _ordered(self, items, section, name, count=None, modified=None):
         mode = self.store.setting(section + "_sort") or "default"
         items = list(items)
         if mode == "count" and count:
             return sorted(items, key=lambda x: (-count(x), natural_key(name(x))))
+        if mode == "date" and modified:
+            return sorted(items, key=lambda x: (-modified(x), natural_key(name(x))))
         if mode in ("name", "reverse"):
             return sorted(items, key=lambda x: natural_key(name(x)), reverse=mode == "reverse")
         return items
@@ -973,6 +1004,9 @@ class LibraryPanel(QWidget):
         scope = "songs" if self.music_trail and self.music_trail[-1][0] == "album" else (
             "albums" if self.music_trail else self.music_mode)
         self.music_search.setPlaceholderText("Search " + scope)
+        count_option = self.music_sort.model().item(self.music_sort.findData("count"))
+        count_option.setEnabled(scope != "songs")
+        self.music_sort.setToolTip("Most items sorts artists/albums by song count. Date modified uses the newest song file in each group.")
         q = self.music_search.text().strip().lower()
         current = self.win.engine.current
         self.music_back.setEnabled(bool(self.music_trail))
@@ -1023,7 +1057,8 @@ class LibraryPanel(QWidget):
                                     f"{len(a['tracks'])} song{'s' if len(a['tracks']) != 1 else ''}  ·  {fmt_time(total)}")
             self.album_head.show()
             lst.setIconSize(QSize(18, 18))
-            for p in self._ordered(a["tracks"], "music", lambda p: m.title_of(p, songs.get(p, {}))):
+            for p in self._ordered(a["tracks"], "music", lambda p: m.title_of(p, songs.get(p, {})),
+                                   modified=lambda p: songs.get(p, {}).get("mtime", 0)):
                 if q and q not in song_text(p).lower():
                     continue
                 add_song(p, with_artist=False)
@@ -1036,7 +1071,8 @@ class LibraryPanel(QWidget):
             lst.setIconSize(QSize(44, 44))
             n = sum(len(a["tracks"]) for a in albums)
             self._music_item(f"Play all\n{n} songs", "play_artist", name, icon("play", theme.accent(), 44))
-            for a in self._ordered(albums, "music", lambda a: a["album"]):
+            for a in self._ordered(albums, "music", lambda a: a["album"], lambda a: len(a["tracks"]),
+                                   lambda a: max((songs.get(p, {}).get("mtime", 0) for p in a["tracks"]), default=0)):
                 if q and q not in a["album"].lower():
                     continue
                 self._music_item(f"{a['album']}\n{a['year'] + '  ·  ' if a['year'] else ''}{len(a['tracks'])} songs",
@@ -1046,7 +1082,9 @@ class LibraryPanel(QWidget):
         self.music_crumb.setText("")
         if self.music_mode == "artists":
             lst.setIconSize(QSize(44, 44))
-            for name, albums in self._ordered(m.artists(), "music", lambda x: x[0]):
+            for name, albums in self._ordered(m.artists(), "music", lambda x: x[0],
+                    lambda x: sum(len(a["tracks"]) for a in x[1]),
+                    lambda x: max((songs.get(p, {}).get("mtime", 0) for a in x[1] for p in a["tracks"]), default=0)):
                 if q and q not in name.lower():
                     continue
                 n = sum(len(a["tracks"]) for a in albums)
@@ -1055,14 +1093,16 @@ class LibraryPanel(QWidget):
                                  "artist", name, self._cover(art, 44))
         elif self.music_mode == "albums":
             lst.setIconSize(QSize(44, 44))
-            for a in self._ordered(m.albums(), "music", lambda a: a["album"]):
+            for a in self._ordered(m.albums(), "music", lambda a: a["album"], lambda a: len(a["tracks"]),
+                                   lambda a: max((songs.get(p, {}).get("mtime", 0) for p in a["tracks"]), default=0)):
                 if q and q not in f"{a['album']} {a['artist']}".lower():
                     continue
                 self._music_item(f"{a['album']}\n{a['artist']}{'  ·  ' + a['year'] if a['year'] else ''}",
                                  "album", a["key"], self._cover(a["art"], 44))
         else:
             lst.setIconSize(QSize(36, 36))
-            for p in self._ordered(m.all_songs(), "music", lambda p: m.title_of(p, songs.get(p, {}))):
+            for p in self._ordered(m.all_songs(), "music", lambda p: m.title_of(p, songs.get(p, {})),
+                                   modified=lambda p: songs.get(p, {}).get("mtime", 0)):
                 if q and q not in song_text(p).lower():
                     continue
                 add_song(p)

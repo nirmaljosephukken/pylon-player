@@ -1,7 +1,14 @@
 #!/bin/sh
 # Pylon AppImage entry point
 HERE="$(dirname "$(readlink -f "$0")")"
-export LD_LIBRARY_PATH="$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+LIBS="$HERE/usr/lib"
+# libxkbcommon-x11 must come from the same release as the system's libxkbcommon,
+# or Qt crashes while connecting to the display (#28). Use the system's copy, and
+# fall back to our matched pair only when the system has none.
+if ! { /sbin/ldconfig -p 2>/dev/null || ldconfig -p 2>/dev/null; } | grep -q 'libxkbcommon-x11\.so\.0'; then
+  LIBS="$LIBS:$HERE/usr/lib/fallback"
+fi
+export LD_LIBRARY_PATH="$LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # VLC draws video into an X11 window; on Wayland desktops run through XWayland
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}"
 unset PYTHONHOME PYTHONPATH
