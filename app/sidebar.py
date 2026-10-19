@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFontComboBox
 
 from . import theme
 from .colour_dialog import choose_colour
-from .engine import DEFAULT_SUB_STYLE
+from .engine import CUSTOM_EQ, DEFAULT_SUB_STYLE, EQ_RANGE
 from .icons import icon
 from .util import (display_name, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
                    match_subtitle, parse_subtitles)
@@ -109,7 +109,8 @@ class ChipGroup(QWidget):
     """A row/grid of checkable chips acting as a single choice."""
     picked = Signal(object)
 
-    def __init__(self, options: list[tuple[str, object]], cols=3, icon_name: str | None = None):
+    def __init__(self, options: list[tuple[str, object]], cols=3, icon_name: str | None = None,
+                 tips: dict | None = None):
         super().__init__()
         grid = QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
@@ -121,7 +122,7 @@ class ChipGroup(QWidget):
             b = QPushButton(label)
             b.setCheckable(True)
             b.setFocusPolicy(Qt.NoFocus)
-            b.setToolTip(label)
+            b.setToolTip((tips or {}).get(val, label))
             b.setMinimumWidth(0)
             b.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
             b.setCursor(Qt.PointingHandCursor)
@@ -142,6 +143,106 @@ class ChipGroup(QWidget):
             self.group.setExclusive(False)
             b.setChecked(False)
             self.group.setExclusive(True)
+
+
+EQ_TIPS = {   # one line per VLC preset, from the shape of its curve (#38)
+    "Flat": "every band level, just a little louder.",
+    "Classical": "natural lows and mids, softer highs.",
+    "Club": "warm, full mids without extra bass.",
+    "Dance": "big bass with the upper mids pulled back.",
+    "Full bass": "heavy low end, much softer highs.",
+    "Full bass and treble": "boosted lows and highs, dipped mids.",
+    "Full treble": "bright and crisp, with the bass cut.",
+    "Headphones": "extra punch and sparkle for headphones.",
+    "Large Hall": "strong bass and low mids, like a big room.",
+    "Live": "forward mids for a concert feel.",
+    "Party": "only the deepest bass and the top end boosted.",
+    "Pop": "vocals forward, slightly softer highs.",
+    "Reggae": "a lift around 1 to 2 kHz, lower mids dipped.",
+    "Rock": "punchy bass and bright highs, scooped mids.",
+    "Ska": "bright highs, light bass.",
+    "Soft": "gentle bass and airy highs.",
+    "Soft rock": "warm lows, softened upper mids.",
+    "Techno": "deep bass and bright highs, dipped mids.",
+}
+
+
+def _freq_label(hz: float) -> str:
+    return f"{hz / 1000:g}k" if hz >= 1000 else f"{hz:g}".split(".")[0]
+
+
+class EqualizerPanel(QWidget):
+    """Preamp plus VLC's 10 equalizer bands, in half-dB steps (#38)."""
+    changed = Signal(dict)
+
+    def __init__(self, freqs: list[float]):
+        super().__init__()
+        self.freqs = freqs or [31.25, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+        steps = int(EQ_RANGE * 2)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 6, 0, 0)
+        lay.setSpacing(6)
+        head = QHBoxLayout()
+        head.addWidget(muted("Preamp"))
+        head.addStretch(1)
+        reset = QPushButton("Flat")
+        reset.setToolTip("Set every band and the preamp back to 0 dB")
+        reset.setCursor(Qt.PointingHandCursor)
+        reset.clicked.connect(lambda: (self.set_curve({"preamp": 0.0, "bands": [0.0] * 10}), self._emit()))
+        head.addWidget(reset)
+        lay.addLayout(head)
+        self.preamp = ValueSlider(-steps, steps, 1, 0, lambda v: f"{v / 2:+g} dB")
+        self.preamp.changed.connect(lambda _v: self._emit())
+        lay.addWidget(self.preamp)
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 4, 0, 0)
+        grid.setHorizontalSpacing(2)
+        grid.setVerticalSpacing(2)
+        self.bands = []
+        self.values = []
+        for i, hz in enumerate(self.freqs[:10]):
+            val = QLabel("0")
+            val.setAlignment(Qt.AlignCenter)
+            val.setStyleSheet(f"color: {theme.MUTED}; font-size: 10px;")
+            sl = QSlider(Qt.Vertical)
+            sl.setRange(-steps, steps)
+            sl.setPageStep(4)
+            sl.setFixedHeight(120)
+            sl.setFocusPolicy(Qt.NoFocus)
+            sl.setToolTip(f"{_freq_label(hz)}Hz")
+            sl.valueChanged.connect(lambda v, lab=val: (lab.setText(f"{v / 2:+g}" if v else "0"), self._emit()))
+            name = QLabel(_freq_label(hz))
+            name.setAlignment(Qt.AlignCenter)
+            name.setStyleSheet(f"color: {theme.FAINT}; font-size: 10px;")
+            grid.addWidget(val, 0, i)
+            grid.addWidget(sl, 1, i, Qt.AlignHCenter)
+            grid.addWidget(name, 2, i)
+            self.bands.append(sl)
+            self.values.append(val)
+        lay.addLayout(grid)
+        lay.addWidget(muted("Drag a band up or down, from -20 to +20 dB. "
+                            "Saved presets for a show remember this curve too."))
+        self._quiet = False
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(60)       # apply while dragging, without flooding VLC
+        self._timer.timeout.connect(lambda: self.changed.emit(self.curve()))
+
+    def curve(self) -> dict:
+        return {"preamp": self.preamp.value() / 2, "bands": [b.value() / 2 for b in self.bands]}
+
+    def set_curve(self, curve: dict | None):
+        curve = curve or {"preamp": 0.0, "bands": [0.0] * 10}
+        self._quiet = True
+        self.preamp.set_value(round(curve["preamp"] * 2))
+        for b, lab, v in zip(self.bands, self.values, curve["bands"]):
+            b.setValue(round(v * 2))
+            lab.setText(f"{round(v * 2) / 2:+g}" if round(v * 2) else "0")
+        self._quiet = False
+
+    def _emit(self):
+        if not self._quiet:
+            self._timer.start()
 
 
 class SettingsSidebar(QWidget):
@@ -398,11 +499,23 @@ class SettingsSidebar(QWidget):
         lay.addWidget(section("Sound"))
         names = self.engine.eq_presets()
         short = {"Full bass and treble": "Bass and treble", "Full bass": "Bass boost", "Full treble": "Treble boost"}
-        opts = [("Off", -1)] + [(short.get(n, n), i) for i, n in enumerate(names)]
-        self.eq = ChipGroup(opts, cols=2)
+        opts = [("Off", -1)] + [(short.get(n, n), i) for i, n in enumerate(names)] + [("Custom", CUSTOM_EQ)]
+        tips = {i: f"{n}: {EQ_TIPS[n]}" for i, n in enumerate(names) if n in EQ_TIPS}
+        tips[-1] = "Off: the sound as it is in the file."
+        tips[CUSTOM_EQ] = "Custom: shape the sound yourself with 10 bands."
+        self.eq = ChipGroup(opts, cols=2, tips=tips)
         self.eq.picked.connect(self._set_eq)
         self.eq.select(-1)
         lay.addWidget(self.eq)
+        self.eq_custom = EqualizerPanel(self.engine.eq_bands())
+        self.eq_custom.changed.connect(self._custom_eq_changed)
+        self.eq_custom.hide()
+        lay.addWidget(self.eq_custom)
+        self._eq_save_timer = QTimer(self)
+        self._eq_save_timer.setSingleShot(True)
+        self._eq_save_timer.setInterval(600)
+        self._eq_save_timer.timeout.connect(
+            lambda: self.store.set_setting("eq_custom", self.engine.live.get("eq_custom")))
         lay.addWidget(section("Every episode"))
         lay.addWidget(muted("Audio language to pick automatically, e.g. jpn, eng, Hindi."))
         self.audio_lang = QComboBox()
@@ -414,9 +527,25 @@ class SettingsSidebar(QWidget):
         lay.addStretch(1)
 
     def _set_eq(self, idx):
+        if idx == CUSTOM_EQ:
+            e = self.engine
+            if e.live["eq"] != CUSTOM_EQ:
+                # your saved curve, or else start from the preset you were on
+                curve = e.clean_curve(self.store.setting("eq_custom")) or e.eq_preset_curve(e.live["eq"])
+                e.live["eq_custom"] = curve
+            self.engine.set_eq(CUSTOM_EQ)
+            self.eq_custom.set_curve(self.engine.live["eq_custom"])
+            self.eq_custom.show()
+            self.win.toast("Equalizer: Custom")
+            return
+        self.eq_custom.hide()
         self.engine.set_eq(idx)
         name = "Off" if idx < 0 else self.engine.eq_presets()[idx]
         self.win.toast(f"Equalizer: {name}")
+
+    def _custom_eq_changed(self, curve):
+        self.engine.set_custom_eq(curve)
+        self._eq_save_timer.start()
 
     # ================================================================ video
     def _build_video(self):
@@ -464,7 +593,8 @@ class SettingsSidebar(QWidget):
             lay.addWidget(s)
 
         lay.addWidget(section("Sharpen"))
-        self.sharpen = ValueSlider(0, 20, 1, 0, lambda v: "Off" if v == 0 else f"{v / 10:.1f}", reset=0)
+        # 0 to 1.5 in steps of 0.05 (#36): VLC's sharpen strength changes a lot per step
+        self.sharpen = ValueSlider(0, 30, 1, 0, lambda v: "Off" if v == 0 else f"{v / 20:.2f}", reset=0)
         self._sharpen_timer = QTimer(self)
         self._sharpen_timer.setSingleShot(True)
         self._sharpen_timer.setInterval(700)
@@ -521,12 +651,12 @@ class SettingsSidebar(QWidget):
                                 "hue": float(vals["hue"])})
 
     def _apply_sharpen(self):
-        v = self.sharpen.value() / 10
+        v = self.sharpen.value() / 20
         if abs(v - self.engine.sharpen) < 0.01:
             return
         self.engine.sharpen = v
         self.engine.rebuild()
-        self.win.toast("Sharpen: off" if v == 0 else f"Sharpen: {v:.1f}")
+        self.win.toast("Sharpen: off" if v == 0 else f"Sharpen: {v:.2f}")
 
     def _set_transform(self, v):
         self.engine.transform = v
@@ -781,6 +911,7 @@ class SettingsSidebar(QWidget):
             "audio_delay": e.live["audio_delay"],
             "rate": e.live["rate"],
             "eq": e.live["eq"],
+            "eq_custom": e.live["eq_custom"] if e.live["eq"] == CUSTOM_EQ else None,
             "aspect": e.live["aspect"],
             "crop": e.live["crop"],
             "zoom": e.live["zoom"],
@@ -840,6 +971,9 @@ class SettingsSidebar(QWidget):
         self.audio_delay.set_value(L["audio_delay"])
         self.set_speed_ui(L["rate"])
         self.eq.select(L["eq"])
+        self.eq_custom.setVisible(L["eq"] == CUSTOM_EQ)
+        if L["eq"] == CUSTOM_EQ:
+            self.eq_custom.set_curve(self.engine.clean_curve(L.get("eq_custom")) or self.engine.eq_preset_curve(-1))
         self.aspect.select(L["aspect"])
         self.crop.select(L["crop"])
         self.zoom.select(L["zoom"])
@@ -854,4 +988,4 @@ class SettingsSidebar(QWidget):
             s.set_value(vals[k])
         self.load_sub_style(self.engine.sub_style)
         self.transform.select(self.engine.transform)
-        self.sharpen.set_value(round(self.engine.sharpen * 10))
+        self.sharpen.set_value(round(self.engine.sharpen * 20))

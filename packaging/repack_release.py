@@ -47,13 +47,17 @@ def linux():
  fallback=ROOT/'packaging/linux/fallback'
  additions={'usr/lib/fallback/libxkbcommon.so.0':(fallback/'libxkbcommon.so.0').read_bytes(),
             'usr/share/pylon/licenses/libxkbcommon0-copyright.txt':(fallback/'libxkbcommon0-copyright.txt').read_bytes()}
+ fallback_dir=False
  with tarfile.open(BUILD/'linux-old.tar') as old,tarfile.open(BUILD/'linux-new.tar','w',format=tarfile.PAX_FORMAT) as new:
   for info in old:
    if '__pycache__/' in info.name or info.name.endswith('.pyc'):continue
-   if info.name=='usr/lib/fallback' or info.name.startswith('usr/lib/fallback/'):continue
+   if info.name in additions:continue      # re-added below from packaging/linux/fallback
+   if info.name=='usr/lib/fallback':
+    if not fallback_dir:new.addfile(info);fallback_dir=True
+    continue
    if info.name in moves:
-    if info.name=='usr/lib/libxkbcommon-x11.so.0':
-     d=tarfile.TarInfo('usr/lib/fallback');d.type=tarfile.DIRTYPE;d.mode=0o755;d.mtime=info.mtime;new.addfile(d)
+    if not fallback_dir:
+     d=tarfile.TarInfo('usr/lib/fallback');d.type=tarfile.DIRTYPE;d.mode=0o755;d.mtime=info.mtime;new.addfile(d);fallback_dir=True
     moved=copy.copy(info);moved.name=moves.pop(info.name)
     new.addfile(moved,old.extractfile(info));continue
    data=replacements.pop(info.name,None)
@@ -64,10 +68,11 @@ def linux():
    if name.startswith('usr/share/pylon/app/') and name.endswith('.py'):
     data=replacements.pop(name);info=tarfile.TarInfo(name);info.mode=0o644;info.size=len(data)
     new.addfile(info,io.BytesIO(data))
+  if not fallback_dir:
+   d=tarfile.TarInfo('usr/lib/fallback');d.type=tarfile.DIRTYPE;d.mode=0o755;new.addfile(d)
   for name,data in additions.items():
    info=tarfile.TarInfo(name);info.mode=0o644;info.size=len(data);new.addfile(info,io.BytesIO(data))
   assert not replacements,sorted(replacements)
-  assert not moves,sorted(moves)
  tool=BUILD/'tools/squashfs/squashfs-tools-ng-1.3.2-mingw64/bin/tar2sqfs.exe'
  if not tool.exists():tool=Path(shutil.which('tar2sqfs') or tool)
  with (BUILD/'linux-new.tar').open('rb') as src:

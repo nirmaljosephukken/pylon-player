@@ -180,6 +180,9 @@ def stylesheet() -> str:
     QSlider::groove:horizontal {{ height: 6px; background: {SURFACE_HI}; border-radius: 2px; }}
     QSlider::sub-page:horizontal {{ background: {ag}; border-radius: 2px; }}
     QSlider::handle:horizontal {{ background: {TEXT}; width: 12px; margin: -5px 0; border-radius: 2px; }}
+    QSlider::groove:vertical {{ width: 6px; background: {SURFACE_HI}; border-radius: 2px; }}
+    QSlider::add-page:vertical {{ background: {ag}; border-radius: 2px; }}
+    QSlider::handle:vertical {{ background: {TEXT}; height: 12px; margin: 0 -5px; border-radius: 2px; }}
 
     QCheckBox {{ spacing: 8px; }}
     QCheckBox::indicator {{ width: 16px; height: 16px; border: 1px solid {FAINT}; border-radius: 3px; background: {SURFACE}; }}

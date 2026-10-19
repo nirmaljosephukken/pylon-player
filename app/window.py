@@ -5,7 +5,7 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QActionGroup, QCursor, QGuiApplication, QKeySequence, QShortcut, QRegion
 from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QMainWindow, QMenu,
                                QMessageBox, QStackedWidget, QWidget)
@@ -15,7 +15,7 @@ from .controls import BottomBar, TopBar
 from .dialogs import (PreferencesDialog, ShortcutsDialog, StreamDialog, SubtitleDialog,
                       WelcomeDialog)
 from . import engine as engine_mod
-from .engine import Engine
+from .engine import MAX_SHARPEN, Engine
 from .home import HomePage, NowPlayingPage
 from .icons import icon
 from .library import LibraryPanel, media_filter
@@ -37,12 +37,17 @@ class VideoSurface(QFrame):
     action = Signal(str)
     context = Signal(QPoint)
     wheel = Signal(int)
+    zoom_wheel = Signal(int, QPointF)    # Ctrl+scroll: delta, position (#39)
+    pan = Signal(QPointF)               # drag while zoomed: movement in pixels
 
     def __init__(self, store):
         super().__init__()
         self.store = store
         self._double_release = False
         self._pending_action = "none"
+        self.zoomed = False                 # set by the window; dragging pans only when zoomed
+        self._drag_from = None
+        self._panned = False
         self.setAttribute(Qt.WA_NativeWindow, True)
         self.setAttribute(Qt.WA_DontCreateNativeAncestors, True)
         self.setStyleSheet("background: #000;")
@@ -65,7 +70,31 @@ class VideoSurface(QFrame):
         self.cancel_click()
         super().hideEvent(e)
 
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton and self.zoomed:
+            self._drag_from = e.position()
+            self._panned = False
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if self._drag_from is not None and e.buttons() & Qt.LeftButton:
+            d = e.position() - self._drag_from
+            if self._panned or abs(d.x()) + abs(d.y()) > 4:
+                if not self._panned:
+                    self._panned = True
+                    self.cancel_click()
+                    self.setCursor(Qt.ClosedHandCursor)
+                self._drag_from = e.position()
+                self.pan.emit(d)
+        super().mouseMoveEvent(e)
+
     def mouseReleaseEvent(self, e):
+        if e.button() == Qt.LeftButton and self._drag_from is not None:
+            self._drag_from = None
+            if self._panned:                 # a drag is not a click
+                self._panned = False
+                self.setCursor(Qt.OpenHandCursor if self.zoomed else Qt.ArrowCursor)
+                return
         if e.button() == Qt.LeftButton:
             if self._double_release:
                 self._double_release = False
@@ -99,7 +128,15 @@ class VideoSurface(QFrame):
         self.context.emit(e.globalPos())
 
     def wheelEvent(self, e):
+        if e.modifiers() & Qt.ControlModifier:
+            self.zoom_wheel.emit(e.angleDelta().y(), e.position())
+            return
         self.wheel.emit(e.angleDelta().y())
+
+    def set_zoomed(self, on: bool):
+        self.zoomed = on
+        if not self._panned:
+            self.setCursor(Qt.OpenHandCursor if on else Qt.ArrowCursor)
 
 
 class MainWindow(QMainWindow):
@@ -181,6 +218,13 @@ class MainWindow(QMainWindow):
         self.video.action.connect(lambda action: self.do(action, key=False))
         self.video.context.connect(self.show_context_menu)
         self.video.wheel.connect(lambda d: self.do("vol_up" if d > 0 else "vol_down", key=False))
+        self.video.zoom_wheel.connect(self._zoom_wheel)
+        self.video.pan.connect(self._pan_video)
+        # a new file starts unzoomed; the sidebar's crop and zoom choices end interactive zoom
+        self.engine.media_changed.connect(
+            lambda _t: QTimer.singleShot(0, lambda: self.video.set_zoomed(bool(self.engine.izoom))))
+        self.sidebar.zoom.picked.connect(lambda _v: self.video.set_zoomed(False))
+        self.sidebar.crop.picked.connect(lambda _v: self.video.set_zoomed(False))
 
         t, b = self.top, self.bottom
         t.library_clicked.connect(lambda: self.toggle_library())
@@ -501,6 +545,59 @@ class MainWindow(QMainWindow):
         if on:
             self.sidebar.refresh_tracks()
 
+    # ---------------------------------------------------------------- interactive zoom (#39)
+    def _picture_rect(self):
+        """Where the (cropped) picture sits inside the video surface, letterboxed."""
+        e = self.engine
+        vw, vh = e.video_size()
+        sw, sh = self.video.width(), self.video.height()
+        if e.izoom:
+            vw, vh = e.izoom["w"], e.izoom["h"]
+        if not vw or not vh or not sw or not sh:
+            return None
+        k = min(sw / vw, sh / vh)
+        w, h = vw * k, vh * k
+        return QRectF((sw - w) / 2, (sh - h) / 2, w, h)
+
+    def zoom_video(self, factor, pos=None):
+        e = self.engine
+        if not e.current or not e.video_size()[0]:
+            return
+        r = self._picture_rect()
+        fx = fy = 0.5
+        if pos is not None and r is not None:
+            fx, fy = (pos.x() - r.x()) / r.width(), (pos.y() - r.y()) / r.height()
+        z = e.zoom_at(factor, fx, fy)
+        self.video.set_zoomed(z > 1.0)
+        self.sidebar.zoom.select(None if z > 1.0 else e.live["zoom"])
+        self.toast(f"Zoom: {round(z * 100)}%" if z > 1.0 else "Zoom: off")
+
+    def reset_zoom(self):
+        if self.engine.izoom:
+            self.engine.reset_zoom()
+            self.toast("Zoom: off")
+        self.video.set_zoomed(False)
+        self.sidebar.zoom.select(self.engine.live["zoom"])
+
+    def _zoom_wheel(self, delta, pos):
+        if delta:
+            self.zoom_video(1.25 ** (delta / 120), pos)
+
+    def _pan_video(self, d):
+        r = self._picture_rect()
+        if r is not None and r.width() and r.height():
+            self.engine.pan_by(d.x() / r.width(), d.y() / r.height())
+
+    def toggle_panels(self):
+        """Library and settings together (#34): hide both if either is open, else show both."""
+        on = self.library.isHidden() and self.sidebar.isHidden()
+        if self._pip and on:
+            return
+        self.toggle_library(on)
+        if not on:
+            self.bottom.btn_queue.setChecked(False)
+        self.toggle_sidebar(on)
+
     def open_sidebar_tab(self, idx):
         self.toggle_sidebar(True)
         self.sidebar.tabs.setCurrentIndex(idx)
@@ -802,6 +899,15 @@ class MainWindow(QMainWindow):
             return
         elif action == "queue":
             self.toggle_queue()
+            return
+        elif action == "panels":
+            self.toggle_panels()
+            return
+        elif action in ("zoom_in", "zoom_out", "zoom_reset"):
+            if action == "zoom_reset":
+                self.reset_zoom()
+            else:
+                self.zoom_video(1.25 if action == "zoom_in" else 0.8)
             return
         elif action == "open_file":
             self.open_file_dialog()
@@ -1393,6 +1499,8 @@ class MainWindow(QMainWindow):
         for k in ("sub_delay", "audio_delay", "rate", "eq", "aspect", "crop", "zoom", "adjust", "deinterlace"):
             if k in p:
                 e.live[k] = p[k]
+        if "eq_custom" in p:
+            e.live["eq_custom"] = e.clean_curve(p["eq_custom"])
         style = p.get("sub_style")
         needs_new_player = bool(style) and style != e.sub_style
         if needs_new_player:
@@ -1400,7 +1508,7 @@ class MainWindow(QMainWindow):
         # sharpen is a VLC filter, so a change needs a fresh player too
         if "sharpen" in p:
             try:
-                sharpen = max(0.0, min(2.0, float(p.get("sharpen") or 0)))
+                sharpen = max(0.0, min(MAX_SHARPEN, float(p.get("sharpen") or 0)))
             except (TypeError, ValueError):
                 sharpen = 0.0
             if abs(sharpen - e.sharpen) > 0.01:

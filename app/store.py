@@ -36,6 +36,10 @@ DEFAULT_SHORTCUTS = {
     "library": ("Show library", "Ctrl+L"),
     "sidebar": ("Show settings sidebar", "Ctrl+T"),
     "queue": ("Show queue", "Ctrl+Q"),
+    "panels": ("Show or hide both side panels", "Ctrl+Shift+L"),
+    "zoom_in": ("Zoom in", "Ctrl+="),
+    "zoom_out": ("Zoom out", "Ctrl+-"),
+    "zoom_reset": ("Reset zoom", "Ctrl+0"),
     "open_file": ("Open file", "Ctrl+O"),
     "open_folder": ("Open folder", "Ctrl+F"),
     "open_stream": ("Open network stream", "Ctrl+N"),
@@ -46,6 +50,7 @@ DEFAULT_SHORTCUTS = {
 
 DEFAULT_SETTINGS = {
     "custom_palette": [],
+    "eq_custom": None,            # the user's own 10-band equalizer curve (#38)
     "library_startup_tab": "library",
     "settings_startup_tab": "subtitles",
     "library_last_tab": "library",

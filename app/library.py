@@ -158,6 +158,7 @@ class QueueList(QListWidget):
 
 class LibraryPanel(QWidget):
     WIDTH = 320
+    SECTIONS = ("library", "recent", "playlists", "streams", "music")   # order of the stacked pages
 
     def __init__(self, win):
         super().__init__()
@@ -183,7 +184,7 @@ class LibraryPanel(QWidget):
         for key, ic, tip in (("library", "library", "Library"), ("music", "music", "Music"), ("recent", "clock", "Recent"),
                              ("playlists", "playlist", "Playlists"), ("streams", "stream", "Network streams")):
             b = IconButton(ic, tip, size=18, checkable=True)
-            b.clicked.connect(lambda _=False, k=key: self.show_section(k))
+            b.clicked.connect(lambda _=False, k=key: self._nav_clicked(k))
             self.nav_buttons[key] = b
             head.addWidget(b)
         head.addStretch(1)
@@ -262,9 +263,19 @@ class LibraryPanel(QWidget):
         self.store.changed.connect(self._store_changed)
 
     # ================================================================ sections
+    def _nav_clicked(self, key):
+        """Clicking the tab you're already on goes back to its start (#35)."""
+        here = self.stack.currentIndex() == self.SECTIONS.index(key)
+        if here and key == "library" and self.folder is not None:
+            self.open_folder(None)      # recorded, so Back still returns to the folder
+            return
+        if here and key == "music" and self.music_trail:
+            self.music_trail = []
+        self.show_section(key)
+
     def show_section(self, key):
         self.store.set_setting("library_last_tab", key)
-        idx = {"library": 0, "recent": 1, "playlists": 2, "streams": 3, "music": 4}[key]
+        idx = self.SECTIONS.index(key)
         self.stack.setCurrentIndex(idx)
         for k, b in self.nav_buttons.items():
             b.setChecked(k == key)
@@ -617,13 +628,18 @@ class LibraryPanel(QWidget):
         row.addWidget(count, 1)
         choice = QComboBox()
         choice.setToolTip("Sort this view")
-        for label, value in (("Default order", "default"), ("Name A–Z", "name"), ("Name Z–A", "reverse")):
+        if section in ("playlists", "streams"):
+            # these are kept in the order they were made, so offer that order (#37)
+            first = (("Newest first", "newest"), ("Oldest first", "oldest"))
+        else:
+            first = (("Default order", "default"),)
+        for label, value in first + (("Name A–Z", "name"), ("Name Z–A", "reverse")):
             choice.addItem(label, value)
         if section in ("playlists", "music"):
             choice.addItem("Most items", "count")
         if section == "music":
             choice.addItem("Date modified (newest)", "date")
-        choice.setCurrentIndex(max(0, choice.findData(self.store.setting(section + "_sort") or "default")))
+        choice.setCurrentIndex(max(0, choice.findData(self._sort_mode(section))))
         def changed(_):
             self.store.set_setting(section + "_sort", choice.currentData())
             refresh()
@@ -633,9 +649,17 @@ class LibraryPanel(QWidget):
         setattr(self, section + "_count", count)
         setattr(self, section + "_sort", choice)
 
-    def _ordered(self, items, section, name, count=None, modified=None):
+    def _sort_mode(self, section):
         mode = self.store.setting(section + "_sort") or "default"
+        if section in ("playlists", "streams") and mode == "default":
+            mode = "newest"
+        return mode
+
+    def _ordered(self, items, section, name, count=None, modified=None):
+        mode = self._sort_mode(section)
         items = list(items)
+        if mode == "newest":
+            return items[::-1]
         if mode == "count" and count:
             return sorted(items, key=lambda x: (-count(x), natural_key(name(x))))
         if mode == "date" and modified:
@@ -668,7 +692,7 @@ class LibraryPanel(QWidget):
 
     def refresh_playlists(self):
         self.pl_list.clear()
-        for name, items in self._ordered(sorted(self.store.data["playlists"].items()), "playlists", lambda x: x[0], lambda x: len(x[1])):
+        for name, items in self._ordered(self.store.data["playlists"].items(), "playlists", lambda x: x[0], lambda x: len(x[1])):
             if self.pl_search.text().strip().casefold() not in name.casefold():
                 continue
             it = QListWidgetItem(icon("playlist", theme.accent(), 18), f"{name}   ({len(items)})")
@@ -758,10 +782,17 @@ class LibraryPanel(QWidget):
 
     def _pl_rename(self, name):
         new, ok = QInputDialog.getText(self, "Rename playlist", "Name", text=name)
-        if ok and new.strip() and new != name:
-            self.store.data["playlists"][new.strip()] = self.store.data["playlists"].pop(name)
-            self.store.save("playlists")
-            self.refresh_playlists()
+        new = new.strip()
+        if not ok or not new or new == name:
+            return
+        pls = self.store.data["playlists"]
+        if new in pls:
+            QMessageBox.warning(self, "Rename playlist", f"There's already a playlist called “{new}”.")
+            return
+        # rebuild in the same order, so a renamed playlist keeps its place by age (#37)
+        self.store.data["playlists"] = {(new if k == name else k): v for k, v in pls.items()}
+        self.store.save("playlists")
+        self.refresh_playlists()
 
     def _pl_delete(self, name):
         if QMessageBox.question(self, "Delete playlist", f"Delete “{name}”? Your files stay where they are.") == QMessageBox.Yes:

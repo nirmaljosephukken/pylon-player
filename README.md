@@ -4,7 +4,7 @@
 
 ### [⬇ Download page: nirmaljosephukken.github.io/pylon-player](https://nirmaljosephukken.github.io/pylon-player/)
 
-**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.3.6.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.6-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.6-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
+**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.3.8.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.8-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.8-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
 
 **The story:** [700,000 people watched a VLC redesign. I built the player.](https://dev.to/nekku/700000-people-watched-a-vlc-redesign-i-built-the-player-1aio) · [Demo video](https://youtu.be/vCV3B_blLU0)
@@ -18,6 +18,10 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 ![Library, queue and settings sidebar](docs/panels.png)
 
 ## What's new
+
+**1.3.8:** A custom 10-band equalizer with a preamp (saved, and remembered by per-show presets), plus a short description for every built-in preset. Zoom into the video with Ctrl+scroll or Ctrl+= / Ctrl+-, drag to look around, Ctrl+0 to reset. Ctrl+Shift+L shows or hides both side panels. Clicking the Library or Music tab you're already on takes you back to its start. Playlists and streams list the newest first. Changing sharpening while paused now keeps the same frame, and the sharpening slider moves in finer steps.
+
+**1.3.7:** Fixes the Linux AppImage crashing at startup on newer distributions such as Fedora 44. Saved custom colours now stay after a restart, each sidebar can open on a tab you choose, folders can be added to the library from their right-click menu, and more sorting options (date modified, most items).
 
 **1.3.6:** Configure video mouse buttons in Preferences > Controls, disable left double-click for immediate single clicks, keep the cursor visible in dialogs, and fix Linux AppImage compression compatibility.
 
@@ -64,7 +68,7 @@ Pylon plays everything through **VLC**, which you install yourself (Pylon never 
 | | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ (experimental) |
 | --- | --- | --- | --- |
 | **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
-| **2. Pylon** | `Pylon-Setup-1.3.6.exe` | `Pylon-1.3.6-x86_64.AppImage` | `Pylon-1.3.6-macOS.zip` |
+| **2. Pylon** | `Pylon-Setup-1.3.8.exe` | `Pylon-1.3.8-x86_64.AppImage` | `Pylon-1.3.8-macOS.zip` |
 | **3. Run** | Run the setup. No admin rights needed. | `chmod +x Pylon-*.AppImage`, then double-click it | Unzip, move **Pylon** to Applications, see the first-launch note below |
 
 Nothing else is needed: each download carries its own Python and Qt.
@@ -145,6 +149,9 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | V / B | Next subtitle / audio track |
 | Ctrl+B | Bookmark |
 | Ctrl+L / Ctrl+T / Ctrl+Q | Library, settings sidebar, queue |
+| Ctrl+Shift+L | Show or hide both side panels |
+| Ctrl+scroll, Ctrl+= / Ctrl+- | Zoom into the video (drag to look around) |
+| Ctrl+0 | Reset zoom |
 | Ctrl+O / Ctrl+F / Ctrl+N | Open file, folder, stream |
 | E | Next frame |
 | Shift+S | Snapshot (saved to `Pictures\Pylon`) |
