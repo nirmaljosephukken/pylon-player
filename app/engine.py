@@ -251,6 +251,7 @@ class Engine(QObject):
         self._cb = []
         self._live_pending = False     # re-apply live settings once the new player plays
         self._held_ms = None           # position shown while a media is opened paused
+        self._settle = None            # reopening paused: where to return once it plays (#36)
         self.izoom = None              # interactive zoom (#39): {"z", "x", "y", "w", "h"} in video pixels
         self._last_seek_t = 0.0
         self._seek_target = None
@@ -380,12 +381,15 @@ class Engine(QObject):
         if start_ms > 0:
             media.add_option(f":start-time={start_ms / 1000:.3f}")
         self._held_ms = None
+        self._settle = None
         self.izoom = None              # each new file starts unzoomed
         if paused:
-            # Show the frame at start_ms and hold it, instead of playing a few
-            # frames and pausing afterwards (#36)
-            media.add_option(":start-paused")
+            # Come back to exactly the frame that was showing, without playing on (#36).
+            # VLC on Windows draws nothing for a media opened with :start-paused, so
+            # start it silently, pause as soon as it plays, then jump back to start_ms.
             self._held_ms = int(start_ms)
+            self._settle = {"ms": int(start_ms), "vol": self.player.audio_get_volume()}
+            self.player.audio_set_volume(0)
         self.player.set_media(media)
         self.extra_subs = []
         for s in subs or []:
@@ -463,6 +467,13 @@ class Engine(QObject):
         self._apply_crop()
 
     def _on_state_internal(self, state):
+        if state == "playing" and self._settle:
+            settle, self._settle = self._settle, None
+            self.player.set_pause(1)
+            def back():
+                self.player.set_time(settle["ms"])     # redraws the paused picture there
+                QTimer.singleShot(150, lambda: self.player.audio_set_volume(max(0, settle["vol"])))
+            QTimer.singleShot(50, back)
         # a media reopened paused (#36) never reaches "playing", so apply there too
         if state in ("playing", "paused") and self._live_pending:
             self._live_pending = False
