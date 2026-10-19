@@ -16,7 +16,7 @@ import time
 
 from PySide6.QtCore import QMimeData, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QAction, QColor, QDrag, QFont, QIcon, QKeySequence, QPixmap, QShortcut
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
                                QPushButton, QSplitter, QStackedWidget, QStyle, QStyledItemDelegate,
                                QVBoxLayout, QWidget)
@@ -850,10 +850,34 @@ class LibraryPanel(QWidget):
         if not it or not it.data(ROLE_PATH):
             return
         url = it.data(ROLE_PATH)
+        name = it.text()
         m = QMenu(self)
-        m.addAction("Play", lambda: self.win.open_stream(url, it.text()))
+        m.addAction("Play", lambda: self.win.open_stream(url, name))
+        m.addAction("Rename…", lambda: self._st_rename(url, name))
+        m.addAction("Copy link", lambda: self._copy_link(url))
+        m.addSeparator()
         m.addAction("Remove", lambda: self._st_remove(url))
         m.exec(self.st_list.mapToGlobal(pos))
+
+    def _st_rename(self, url, name):
+        """Rename a saved stream (#44). The link stays the same."""
+        new, ok = QInputDialog.getText(self, "Rename stream", "Name", text=name)
+        new = new.strip()
+        if not ok or not new or new == name:
+            return
+        for s in self.store.data["streams"]:
+            if s["url"] == url:
+                s["name"] = new
+        for q in self.win.queue:                 # the queue shows the new name too
+            if q.get("path") == url:
+                q["title"] = new
+        self.store.save("streams")
+        self.refresh_streams()
+        self.refresh_queue()
+
+    def _copy_link(self, url):
+        QApplication.clipboard().setText(url)
+        self.win.toast("Link copied")
 
     def _st_remove(self, url):
         self.store.data["streams"] = [s for s in self.store.data["streams"] if s["url"] != url]
@@ -1269,6 +1293,8 @@ class LibraryPanel(QWidget):
             p = it.data(ROLE_PATH)
             if n == 1 and not is_url(p):
                 m.addAction("Show in Explorer", lambda: reveal(p))
+            if n == 1 and is_url(p):
+                m.addAction("Copy link", lambda: self._copy_link(p))
             m.addSeparator()
         if self.queue.count() > 1:
             m.addAction("Select all\tCtrl+A", self.queue.selectAll)

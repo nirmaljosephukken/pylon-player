@@ -39,6 +39,7 @@ class VideoSurface(QFrame):
     wheel = Signal(int)
     zoom_wheel = Signal(int, QPointF)    # Ctrl+scroll: delta, position (#39)
     pan = Signal(QPointF)               # drag while zoomed: movement in pixels
+    resized = Signal()
 
     def __init__(self, store):
         super().__init__()
@@ -171,6 +172,10 @@ class VideoSurface(QFrame):
             return
         self.wheel.emit(e.angleDelta().y())
 
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.resized.emit()
+
     def set_zoomed(self, on: bool):
         self.zoomed = on
         if not self._panned:
@@ -260,6 +265,14 @@ class MainWindow(QMainWindow):
         self.video.context.connect(self.show_context_menu)
         self.video.wheel.connect(lambda d: self.do("vol_up" if d > 0 else "vol_down", key=False))
         self.video.zoom_wheel.connect(self._zoom_wheel)
+        # VLC 3's Super Resolution mode doesn't redraw at a new size after the video
+        # area is resized: the picture stays the old size, or goes black (#42).
+        # Restart the video output once the resize has settled.
+        self._vsr_timer = QTimer(self)
+        self._vsr_timer.setSingleShot(True)
+        self._vsr_timer.setInterval(150)
+        self._vsr_timer.timeout.connect(self._vsr_refresh)
+        self.video.resized.connect(self._vsr_resized)
         self.video.pan.connect(self._pan_video)
         # a new file starts unzoomed; the sidebar's crop and zoom choices end interactive zoom
         self.engine.media_changed.connect(
@@ -1077,6 +1090,19 @@ class MainWindow(QMainWindow):
             self.top.btn_pip.setChecked(False)
         self._overlay_geo = None
 
+    def _vsr_active(self) -> bool:
+        e = self.engine
+        return (sys.platform == "win32" and bool(self.store.setting("rtx_upscale")) and e.ok
+                and bool(e.current) and self.stage.currentIndex() == PAGE_VIDEO and e.has_video())
+
+    def _vsr_resized(self):
+        if self._vsr_active():
+            self._vsr_timer.start()
+
+    def _vsr_refresh(self):
+        if self._vsr_active() and not self.isMinimized():
+            self.engine.refresh_upscaler()
+
     def _set_frameless(self, on: bool):
         if bool(self.windowFlags() & Qt.FramelessWindowHint) == on:
             return
@@ -1282,7 +1308,7 @@ class MainWindow(QMainWindow):
             m.addAction(icon("snapshot", theme.TEXT, 16), "Take a snapshot", lambda: self.do("snapshot", key=False))
             m.addSeparator()
         m.addAction(icon("sidebar_left", theme.TEXT, 16), "Library and queue\tCtrl+L", lambda: self.toggle_library())
-        m.addAction(icon("sidebar_right", theme.TEXT, 16), "Settings sidebar\tCtrl+T", lambda: self.toggle_sidebar())
+        m.addAction(icon("sidebar_right", theme.TEXT, 16), "Settings panel\tCtrl+T", lambda: self.toggle_sidebar())
         m.addAction(icon("eye_off", theme.TEXT, 16),
                     ("Show the interface" if self.hide_ui else "Hide the interface") + "\tH", lambda: self.do("hide_ui", key=False))
         m.addAction(icon("exit_fullscreen" if self.isFullScreen() else "fullscreen", theme.TEXT, 16),
@@ -1851,6 +1877,10 @@ class MainWindow(QMainWindow):
             else:
                 self.play_from_folder(p)
             return
+        if not any(is_url(p) for p in paths):
+            # Windows hands dropped or "Open with" files over in selection order,
+            # so episodes could land out of order (#43). Sort them like a folder.
+            paths.sort(key=lambda p: natural_key(os.path.basename(p)))
         files = []
         for p in paths:
             files.extend(list_media(p) if os.path.isdir(p) else [p])

@@ -284,3 +284,32 @@ def parse_m3u(text: str) -> list[tuple[str, str]] | None:
             out.append((name or display_name(line), line))
             name = None
     return out or None
+
+
+# Subtitle sites "Find online" can open (#46). Each search address was checked in
+# October 2026. Subscene shut down in 2024; the YIFY subtitle sites are unofficial copies.
+SUBTITLE_SITES = [
+    ("opensubtitles.com", "OpenSubtitles.com",
+     "https://www.opensubtitles.com/en/search-all/q-{q}/hearing_impaired-include/machine_translated-/trusted_sources-"),
+    ("opensubtitles.org", "OpenSubtitles.org", "https://www.opensubtitles.org/en/search2/moviename-{q}/sublanguageid-all"),
+    ("subdl", "SubDL", "https://subdl.com/search/{q}"),
+    ("subsource", "SubSource", "https://subsource.net/search?q={q}"),
+    ("addic7ed", "Addic7ed (TV shows)", "https://www.addic7ed.com/search.php?search={q}&Submit=Search"),
+]
+
+
+def subtitle_query(path: str) -> str:
+    """What to search subtitle sites for: the show for an episode, the title for a film."""
+    if not path:
+        return ""
+    title = pretty_title(path).split("  ·  ")[0]
+    # keep the show name only: drop an episode marker (S01E02, 1x02, E01) and what follows
+    title = re.sub(r"\s*\b([Ss]\d{1,2}[ ._-]*[Ee]\d{1,3}|\d{1,2}[xX]\d{1,3}|[Ee][Pp]?\d{1,3})\b.*$", "", title)
+    title = re.sub(r"\s*\((19|20)\d\d\)$", "", title).strip()
+    return title or display_name(path)
+
+
+def subtitle_search_url(site: str, query: str) -> str:
+    from urllib.parse import quote
+    pattern = next((u for k, _n, u in SUBTITLE_SITES if k == site), SUBTITLE_SITES[0][2])
+    return pattern.replace("{q}", quote(query.strip(), safe=""))

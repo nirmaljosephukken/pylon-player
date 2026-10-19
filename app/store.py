@@ -33,8 +33,8 @@ DEFAULT_SHORTCUTS = {
     "cycle_sub": ("Next subtitle track", "V"),
     "cycle_audio": ("Next audio track", "B"),
     "bookmark": ("Add bookmark", "Ctrl+B"),
-    "library": ("Show library", "Ctrl+L"),
-    "sidebar": ("Show settings sidebar", "Ctrl+T"),
+    "library": ("Show or hide library panel", "Ctrl+L"),
+    "sidebar": ("Show or hide settings panel", "Ctrl+T"),
     "queue": ("Show queue", "Ctrl+Q"),
     "panels": ("Show or hide both side panels", "Ctrl+Shift+L"),
     "zoom_in": ("Zoom in", "Ctrl+="),
@@ -76,7 +76,8 @@ DEFAULT_SETTINGS = {
     "sub_lang": "",             # preferred subtitle language, e.g. "eng"
     "audio_lang": "",
     "hw_decoding": True,
-    "rtx_upscale": False,    # Windows: VLC's Super Resolution upscaling (#42)
+    "rtx_upscale": False,              # Windows: VLC's Super Resolution upscaling (#42)
+    "sub_site": "opensubtitles.com",   # last subtitle site used by Find online (#46)
     "onboarded": False,
     "vlc_dir": "",
     "desktop_entry": "",

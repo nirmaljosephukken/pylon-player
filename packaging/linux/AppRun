@@ -11,5 +11,7 @@ fi
 export LD_LIBRARY_PATH="$LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # VLC draws video into an X11 window; on Wayland desktops run through XWayland
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}"
-unset PYTHONHOME PYTHONPATH
+# Pylon ships its own Qt and Qt add-ons. A system Qt add-on folder would mix in
+# add-ons built for a different Qt, which can crash on startup (#28).
+unset PYTHONHOME PYTHONPATH QT_PLUGIN_PATH
 exec "$HERE/usr/python/bin/python3" -s "$HERE/usr/share/pylon/main.py" "$@"

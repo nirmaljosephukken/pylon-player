@@ -4,7 +4,7 @@ of in a dialog that covers the video. A preset row at the top saves the
 current tweaks for a show and re-applies them on every episode."""
 import os
 
-from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFontComboBox,
                                QGridLayout, QHBoxLayout, QInputDialog, QLabel, QListWidget,
@@ -15,9 +15,9 @@ from . import theme
 from .colour_dialog import choose_colour
 from .engine import CUSTOM_EQ, DEFAULT_SUB_STYLE, EQ_RANGE
 from .icons import icon
-from .util import (display_name, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
+from .util import (display_name, subtitle_query, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
                    match_subtitle, parse_subtitles)
-from .widgets import IconButton, SubtitleTimeline, hline
+from .widgets import IconButton, SubtitleTimeline, hline, subtitle_search_menu
 
 
 def section(text):
@@ -193,6 +193,8 @@ class EqualizerPanel(QWidget):
         lay.addLayout(head)
         self.preamp = ValueSlider(-steps, steps, 1, 0, lambda v: f"{v / 2:+g} dB")
         self.preamp.changed.connect(lambda _v: self._emit())
+        self.preamp.slider.setToolTip("Preamp. Double-click to reset to 0 dB")
+        self.preamp.slider.installEventFilter(self)
         lay.addWidget(self.preamp)
         grid = QGridLayout()
         grid.setContentsMargins(0, 4, 0, 0)
@@ -209,7 +211,8 @@ class EqualizerPanel(QWidget):
             sl.setPageStep(4)
             sl.setFixedHeight(120)
             sl.setFocusPolicy(Qt.NoFocus)
-            sl.setToolTip(f"{_freq_label(hz)}Hz")
+            sl.setToolTip(f"{_freq_label(hz)}Hz. Double-click to reset to 0 dB")
+            sl.installEventFilter(self)
             sl.valueChanged.connect(lambda v, lab=val: (lab.setText(f"{v / 2:+g}" if v else "0"), self._emit()))
             name = QLabel(_freq_label(hz))
             name.setAlignment(Qt.AlignCenter)
@@ -220,13 +223,20 @@ class EqualizerPanel(QWidget):
             self.bands.append(sl)
             self.values.append(val)
         lay.addLayout(grid)
-        lay.addWidget(muted("Drag a band up or down, from -20 to +20 dB. "
-                            "Saved presets for a show remember this curve too."))
+        lay.addWidget(muted("Drag a band up or down, from -20 to +20 dB. Double-click a slider "
+                            "to reset it. Saved presets for a show remember this curve too."))
         self._quiet = False
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(60)       # apply while dragging, without flooding VLC
         self._timer.timeout.connect(lambda: self.changed.emit(self.curve()))
+
+    def eventFilter(self, obj, e):
+        # Double-click a band or the preamp to put just that slider back to 0 dB (#45).
+        if e.type() == QEvent.MouseButtonDblClick and (obj in self.bands or obj is self.preamp.slider):
+            obj.setValue(0)
+            return True
+        return super().eventFilter(obj, e)
 
     def curve(self) -> dict:
         return {"preamp": self.preamp.value() / 2, "bands": [b.value() / 2 for b in self.bands]}
@@ -334,8 +344,8 @@ class SettingsSidebar(QWidget):
         add.clicked.connect(lambda: self.win.open_subtitle_dialog())
         online = QPushButton("Find online")
         online.setIcon(icon("globe", theme.TEXT, 14))
-        online.setToolTip("Search OpenSubtitles for this title in your browser")
-        online.clicked.connect(self._search_online)
+        online.setToolTip("Search a subtitle site for this title in your browser")
+        online.setMenu(subtitle_search_menu(online, self.store, lambda: subtitle_query(self.engine.current or "")))
         row.addWidget(add)
         row.addWidget(online)
         lay.addLayout(row)
@@ -412,11 +422,6 @@ class SettingsSidebar(QWidget):
         self.sub_lang.currentTextChanged.connect(lambda t: self.store.set_setting("sub_lang", t.strip()))
         lay.addWidget(self.sub_lang)
         lay.addStretch(1)
-
-    def _search_online(self):
-        name = display_name(self.engine.current or "") or ""
-        q = QUrl.toPercentEncoding(name).data().decode()
-        QDesktopServices.openUrl(QUrl(f"https://www.opensubtitles.org/en/search2/moviename-{q}/sublanguageid-all"))
 
     def _set_sub_delay(self, ms):
         self.engine.set_sub_delay(ms)

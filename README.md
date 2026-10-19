@@ -4,7 +4,7 @@
 
 ### [⬇ Download page: nirmaljosephukken.github.io/pylon-player](https://nirmaljosephukken.github.io/pylon-player/)
 
-**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.3.9.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.9-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.9-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
+**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.3.10.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.10-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.10-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
 
 **The story:** [700,000 people watched a VLC redesign. I built the player.](https://dev.to/nekku/700000-people-watched-a-vlc-redesign-i-built-the-player-1aio) · [Demo video](https://youtu.be/vCV3B_blLU0)
@@ -18,6 +18,8 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 ![Library, queue and settings sidebar](docs/panels.png)
 
 ## What's new
+
+**1.3.10:** Files dropped onto Pylon or opened with "Open with" now play in name order, so episodes stay in sequence. Saved streams can be renamed and their links copied, from the library and the queue. Double-click an equalizer slider to reset it. Find online offers several subtitle sites and searches by show or film name. With RTX Video Super Resolution on, the picture now redraws correctly after panels open or close and in full screen. The Linux AppImage no longer picks up the system's Qt add-ons, and its startup log records more detail for crash reports.
 
 **1.3.9:** Zooming into the video now always fills the window with the right part of the picture. Picture in picture is borderless: drag the video to move it and drag an edge to resize it. On Windows, Preferences can turn on RTX Video Super Resolution for sharper upscaling on NVIDIA RTX and Intel graphics. On Mac, the top bar now sits flush with the top of the screen in full screen.
 
@@ -70,7 +72,7 @@ Pylon plays everything through **VLC**, which you install yourself (Pylon never 
 | | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ (experimental) |
 | --- | --- | --- | --- |
 | **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
-| **2. Pylon** | `Pylon-Setup-1.3.9.exe` | `Pylon-1.3.9-x86_64.AppImage` | `Pylon-1.3.9-macOS.zip` |
+| **2. Pylon** | `Pylon-Setup-1.3.10.exe` | `Pylon-1.3.10-x86_64.AppImage` | `Pylon-1.3.10-macOS.zip` |
 | **3. Run** | Run the setup. No admin rights needed. | `chmod +x Pylon-*.AppImage`, then double-click it | Unzip, move **Pylon** to Applications, see the first-launch note below |
 
 Nothing else is needed: each download carries its own Python and Qt.

@@ -30,7 +30,12 @@ def install():
         _log.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
         _log.write(f"Python {sys.version.split()[0]} / {sys.platform} / {platform.machine()}\n")
         _log.write(f"Interpreter: {sys.executable}\n")
-        _log.write(f"Desktop: {os.environ.get('XDG_SESSION_TYPE', '')}; Qt platform: {os.environ.get('QT_QPA_PLATFORM', 'automatic')}\n")
+        _log.write(f"Desktop: {os.environ.get('XDG_CURRENT_DESKTOP', '')} {os.environ.get('XDG_SESSION_TYPE', '')}; "
+                   f"Qt platform: {os.environ.get('QT_QPA_PLATFORM', 'automatic')}\n")
+        qt_env = {k: v for k, v in os.environ.items()
+                  if k in ("QT_PLUGIN_PATH", "QT_QPA_PLATFORMTHEME", "QT_STYLE_OVERRIDE", "QT_IM_MODULE")}
+        if qt_env:
+            _log.write(f"Qt settings: {qt_env}\n")      # helps with startup crashes (#28)
         faulthandler.enable(file=_log, all_threads=True)
         previous = sys.excepthook
         def report(kind, value, trace):

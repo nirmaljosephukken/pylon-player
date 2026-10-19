@@ -806,6 +806,18 @@ class Engine(QObject):
             self.player.video_set_crop_geometry(self.live["crop"] or None)
             self.player.video_set_scale(self.live["zoom"])
 
+    def refresh_upscaler(self):
+        """VLC 3 only resizes its Super Resolution picture when the crop, aspect or zoom
+        changes, not when the window does (#42). A brief 2-pixel crop, put straight back,
+        makes it redraw at the current size without restarting playback."""
+        if not self.ok:
+            return
+        vw, vh = self.video_size()
+        if not vw or vh < 4:
+            return
+        self.player.video_set_crop_geometry("0+0+0+2")
+        QTimer.singleShot(80, self._apply_crop)
+
     def zoom_level(self) -> float:
         return self.izoom["z"] if self.izoom else 1.0
 

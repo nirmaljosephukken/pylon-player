@@ -15,7 +15,8 @@ from . import theme
 from .colour_dialog import choose_colour
 from .icons import icon, pixmap
 from .store import DEFAULT_SHORTCUTS
-from .util import MATCH_LEVELS, SUB_EXTS, auto_match_folder, display_name, is_url, list_media
+from .util import MATCH_LEVELS, SUB_EXTS, auto_match_folder, display_name, is_url, list_media, subtitle_query
+from .widgets import subtitle_search_menu
 
 SUB_FILTER = "Subtitles (" + " ".join(f"*{e}" for e in sorted(SUB_EXTS)) + ");;All files (*)"
 
@@ -88,8 +89,8 @@ class SubtitleDialog(QDialog):
         pick_dir.clicked.connect(self.pick_dir)
         online = QPushButton("Search online")
         online.setIcon(icon("globe", theme.TEXT, 16))
-        online.setToolTip("Opens OpenSubtitles in your browser. Download, unzip, then choose the files here.")
-        online.clicked.connect(self.search_online)
+        online.setToolTip("Opens a subtitle site in your browser. Download, unzip, then choose the files here.")
+        online.setMenu(subtitle_search_menu(online, self.store, self.search_query))
         frow.addWidget(pick_files)
         frow.addWidget(pick_dir)
         frow.addWidget(online)
@@ -145,13 +146,11 @@ class SubtitleDialog(QDialog):
             self.subs = found
             self.rematch()
 
-    def search_online(self):
+    def search_query(self) -> str:
         vids = self.videos()
-        name = display_name(vids[0]) if vids else ""
         if self.scope.checkedId() == 1 and self.folder:
-            name = os.path.basename(self.folder)
-        q = QUrl.toPercentEncoding(name).data().decode()
-        QDesktopServices.openUrl(QUrl(f"https://www.opensubtitles.org/en/search2/moviename-{q}/sublanguageid-all"))
+            return subtitle_query(self.folder)      # the folder is usually the show's name
+        return subtitle_query(vids[0]) if vids else ""
 
     def rematch(self):
         vids = self.videos()
@@ -545,7 +544,7 @@ class PreferencesDialog(QDialog):
                 choice.addItem(text, value)
             choice.addItem("Last used", "last")
             choice.setCurrentIndex(max(0, choice.findData(self.store.setting(key))))
-            choice.setToolTip("Applies next time Pylon starts. Reopening a sidebar keeps its current tab.")
+            choice.setToolTip("Applies next time Pylon starts. Reopening a side panel keeps its current tab.")
             choice.currentIndexChanged.connect(
                 lambda _, c=choice, k=key: self.store.set_setting(k, c.currentData()))
             tabs.addRow(label, choice)
@@ -750,7 +749,7 @@ class WelcomeDialog(QDialog):
         grid.setVerticalSpacing(8)
         keys = [("Space", "Play / pause"), ("← →", "Jump 10 seconds"), ("F", "Fullscreen"),
                 ("H", "Hide the interface"), ("G  J", "Move subtitles earlier / later"), ("[  ]", "Slower / faster"),
-                ("Ctrl+B", "Bookmark this moment"), ("Ctrl+L", "Library"), ("Ctrl+T", "Settings sidebar"), ("F1", "All shortcuts")]
+                ("Ctrl+B", "Bookmark this moment"), ("Ctrl+L", "Library"), ("Ctrl+T", "Settings panel"), ("F1", "All shortcuts")]
         for i, (k, d) in enumerate(keys):
             kl = QLabel(k)
             kl.setStyleSheet(f"background: {theme.SURFACE}; border: 1px solid {theme.BORDER}; border-radius: 3px;"

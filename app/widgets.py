@@ -541,8 +541,19 @@ class SubtitleTimeline(QWidget):
         # playhead
         p.setPen(QPen(QColor("#FFFFFF"), 2))
         p.drawLine(QPointF(w / 2, 2), QPointF(w / 2, h - 14))
+        # offset label: sized to its own font so the digits aren't cut off at the top
+        small = QFont(self.font())
+        small.setPointSizeF(8)
+        small.setBold(True)
+        p.setFont(small)
+        sfm = QFontMetrics(small)
+        label = fmt_delay(self.delay)
+        box = QRectF(w / 2 + 5, 2, sfm.horizontalAdvance(label) + 8, sfm.height() + 2)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(theme.SURFACE))
+        p.drawRoundedRect(box, 3, 3)
         p.setPen(QColor(theme.accent()))
-        p.drawText(QRectF(w / 2 + 6, 0, 120, 12), Qt.AlignLeft | Qt.AlignTop, fmt_delay(self.delay))
+        p.drawText(box, Qt.AlignCenter, label)
         p.end()
 
 
@@ -634,3 +645,28 @@ class Card(QWidget):
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.LeftButton and self.rect().contains(e.position().toPoint()):
             self.clicked.emit()
+
+
+def subtitle_search_menu(parent, store, query_fn):
+    """Menu of subtitle sites for "Find online" (#46). The last site used is listed first."""
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+    from PySide6.QtWidgets import QMenu
+    from .util import SUBTITLE_SITES, subtitle_search_url
+    menu = QMenu(parent)
+
+    def fill():
+        menu.clear()
+        last = store.setting("sub_site") or SUBTITLE_SITES[0][0]
+        sites = sorted(SUBTITLE_SITES, key=lambda s: s[0] != last)
+        for key, name, _url in sites:
+            act = menu.addAction(name, lambda k=key: open_site(k))
+            act.setToolTip(f"Search {name} in your browser")
+
+    def open_site(key):
+        store.set_setting("sub_site", key)
+        QDesktopServices.openUrl(QUrl(subtitle_search_url(key, query_fn())))
+
+    menu.aboutToShow.connect(fill)
+    fill()
+    return menu
