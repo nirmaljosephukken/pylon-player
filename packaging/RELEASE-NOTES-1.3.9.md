@@ -21,11 +21,10 @@ Install VLC separately. Checksums are in `SHA256SUMS.txt`. Not affiliated with V
 
 ### Testing
 Tested on Windows 11 with the installer, upgrading over 1.3.8:
-- **Zoom:** stepped in with the keyboard up to 244% and dragged to the corners of the picture. The picture filled the window every time.
+- **Zoom:** stepped in with the keyboard up to 244%, zoomed around the mouse pointer with Ctrl+scroll, and dragged to the corners of the picture. The picture filled the window every time.
 - **Picture in picture:** moved by dragging, resized from a corner, and returned with Esc. Clicks still play and pause, and drags don't.
 - **Super Resolution option:** turned on and off while paused. The frame stayed put and playback continued normally.
 
 Not yet tested:
 - **The upscaling effect itself.** It needs an RTX or Intel graphics card.
-- **Zooming around the mouse pointer with Ctrl+scroll.** This couldn't be done remotely. It was checked with real VLC on Linux, where the picture on screen matched the requested area at every step near all four corners.
 - **The Mac top bar fix.** It's covered by an automated check that simulates macOS moving the bar, but hasn't been run on a real Mac.
