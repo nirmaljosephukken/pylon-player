@@ -668,6 +668,12 @@ class PreferencesDialog(QDialog):
         folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(self.store.path))))
         f.addWidget(folder)
 
+    def _set_rtx_upscale(self, on: bool):
+        self.store.set_setting("rtx_upscale", on)
+        engine = self.win.engine
+        if engine.ok:
+            engine.rebuild()            # applies now and continues from the same point
+
     def _clear(self):
         self.store.clear_history()
         self.win.home.refresh()
@@ -682,6 +688,16 @@ class PreferencesDialog(QDialog):
         lab.setObjectName("Muted")
         lab.setWordWrap(True)
         f.addWidget(lab)
+        if sys.platform == "win32":
+            up = QCheckBox("Use RTX Video Super Resolution to upscale video (NVIDIA RTX and Intel graphics)")
+            up.setChecked(bool(self.store.setting("rtx_upscale")))
+            up.toggled.connect(self._set_rtx_upscale)
+            f.addWidget(up)
+            note = QLabel("Makes lower-resolution video sharper on a bigger screen. On NVIDIA, also turn on "
+                          "Video Super Resolution in the NVIDIA app. Other graphics cards play normally.")
+            note.setObjectName("Muted")
+            note.setWordWrap(True)
+            f.addWidget(note)
         f.addWidget(info_label("VLC engine", "Pylon finds an installed VLC automatically. Use this for a portable VLC "
                                              "or one installed somewhere unusual."))
         cur = self.store.setting("vlc_dir") or "Found automatically"

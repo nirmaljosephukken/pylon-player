@@ -76,6 +76,7 @@ DEFAULT_SETTINGS = {
     "sub_lang": "",             # preferred subtitle language, e.g. "eng"
     "audio_lang": "",
     "hw_decoding": True,
+    "rtx_upscale": False,    # Windows: VLC's Super Resolution upscaling (#42)
     "onboarded": False,
     "vlc_dir": "",
     "desktop_entry": "",

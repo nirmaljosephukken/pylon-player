@@ -270,6 +270,10 @@ class Engine(QObject):
         st = self.sub_style
         args = ["--no-video-title-show", "--no-osd", "--no-snapshot-preview",
                 "--avcodec-hw=" + ("any" if self.store.setting("hw_decoding") else "none")]
+        if sys.platform == "win32" and self.store.setting("rtx_upscale"):
+            # Lets NVIDIA RTX / Intel Video Super Resolution sharpen upscaled video (#42).
+            # VLC falls back to its normal scaler on graphics that can't do it.
+            args.append("--d3d11-upscale-mode=super")
         if st["size_mode"] == "precise":
             args.append(f"--freetype-fontsize={int(st['px'])}")
         else:
@@ -790,9 +794,14 @@ class Engine(QObject):
             return
         z = self.izoom
         if z:
+            # Use VLC's border form "left+top+right+bottom". VLC 3 reads the window
+            # form "WxH+X+Y" as edges rather than a size, which gave the wrong area (#41).
+            vw, vh = self.video_size()
+            left, top = round(z["x"]), round(z["y"])
+            right = max(0, vw - left - round(z["w"]))
+            bottom = max(0, vh - top - round(z["h"]))
             self.player.video_set_scale(0)
-            self.player.video_set_crop_geometry(
-                f"{round(z['w'])}x{round(z['h'])}+{round(z['x'])}+{round(z['y'])}")
+            self.player.video_set_crop_geometry(f"{left}+{top}+{right}+{bottom}")
         else:
             self.player.video_set_crop_geometry(self.live["crop"] or None)
             self.player.video_set_scale(self.live["zoom"])

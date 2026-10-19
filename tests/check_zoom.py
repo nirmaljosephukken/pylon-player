@@ -56,6 +56,19 @@ class Zoom(unittest.TestCase):
         e.zoom_at(2.0); e.set_zoom(0.0)
         self.assertIsNone(e.izoom)               # the sidebar's zoom choice replaces it
 
+    def test_crop_uses_border_form(self):
+        # VLC 3 misreads "WxH+X+Y" as edges (#41), so the crop is sent as left+top+right+bottom
+        e = self.e
+        sent = []
+        class Player:
+            def video_set_scale(self, s): pass
+            def video_set_crop_geometry(self, g): sent.append(g)
+        e.player = Player()
+        e.zoom_at(2.0, 0.75, 0.25)
+        self.assertEqual(sent[-1], "480+90+160+270")   # 640x360 area starting at 480,90
+        l, t, r, b = map(int, sent[-1].split("+"))
+        self.assertEqual((1280 - l - r, 720 - t - b), (640, 360))   # same shape as the video
+
     def test_shortcuts_are_unique(self):
         seqs = [v[1] for v in DEFAULT_SHORTCUTS.values()]
         self.assertEqual(len(seqs), len(set(seqs)))

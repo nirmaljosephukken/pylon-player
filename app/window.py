@@ -5,7 +5,7 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QActionGroup, QCursor, QGuiApplication, QKeySequence, QShortcut, QRegion
 from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QMainWindow, QMenu,
                                QMessageBox, QStackedWidget, QWidget)
@@ -46,8 +46,11 @@ class VideoSurface(QFrame):
         self._double_release = False
         self._pending_action = "none"
         self.zoomed = False                 # set by the window; dragging pans only when zoomed
+        self.pip = False                    # borderless picture in picture: drag moves the window
         self._drag_from = None
         self._panned = False
+        self._move_from = None
+        self._moved = False
         self.setAttribute(Qt.WA_NativeWindow, True)
         self.setAttribute(Qt.WA_DontCreateNativeAncestors, True)
         self.setStyleSheet("background: #000;")
@@ -71,12 +74,37 @@ class VideoSurface(QFrame):
         super().hideEvent(e)
 
     def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self._moved = False              # a system move may have swallowed the last release
+            self._press_pos = e.position()
+        if e.button() == Qt.LeftButton and self.pip:
+            win = self.window()
+            if win.pip_edges(e.globalPosition().toPoint()) and win.pip_grab(e.globalPosition().toPoint(), move=False):
+                self._moved = True           # resizing from an edge is not a click
+                return
         if e.button() == Qt.LeftButton and self.zoomed:
             self._drag_from = e.position()
             self._panned = False
+        elif e.button() == Qt.LeftButton and self.pip:
+            self._move_from = e.position()
+            self._moved = False
         super().mousePressEvent(e)
 
     def mouseMoveEvent(self, e):
+        if self.pip and not e.buttons():
+            cur = self.window().edge_cursor(self.window().pip_edges(e.globalPosition().toPoint()))
+            if cur is not None:
+                self.setCursor(cur)
+            else:
+                self.setCursor(Qt.OpenHandCursor if self.zoomed else Qt.ArrowCursor)
+        if self._move_from is not None and e.buttons() & Qt.LeftButton:
+            d = e.position() - self._move_from
+            if abs(d.x()) + abs(d.y()) > 4:
+                self._move_from = None
+                self._moved = True
+                self.cancel_click()
+                self.window().pip_grab(e.globalPosition().toPoint())
+            return
         if self._drag_from is not None and e.buttons() & Qt.LeftButton:
             d = e.position() - self._drag_from
             if self._panned or abs(d.x()) + abs(d.y()) > 4:
@@ -89,6 +117,16 @@ class VideoSurface(QFrame):
         super().mouseMoveEvent(e)
 
     def mouseReleaseEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self._move_from = None
+            press, self._press_pos = getattr(self, "_press_pos", None), None
+            if self._moved:                  # moving or resizing the window is not a click
+                self._moved = False
+                return
+            if self.pip and press is not None and not self.zoomed:
+                d = e.position() - press
+                if abs(d.x()) + abs(d.y()) > 4:
+                    return                   # released somewhere else: a drag, not a click
         if e.button() == Qt.LeftButton and self._drag_from is not None:
             self._drag_from = None
             if self._panned:                 # a drag is not a click
@@ -191,6 +229,9 @@ class MainWindow(QMainWindow):
         # overlays (separate translucent windows over the video)
         self.top = TopBar(self)
         self.bottom = BottomBar(self)
+        for bar in (self.top, self.bottom):
+            bar.setMouseTracking(True)
+            bar.installEventFilter(self)
         self.osd = Toast(self)
         self.seek_preview = SeekPreview(self)
         self.thumbs = ThumbnailMaker(self)
@@ -632,6 +673,7 @@ class MainWindow(QMainWindow):
         if visible == self._bars_visible:
             return
         self._bars_visible = visible
+        self._overlay_fixes = 0          # each show may be moved again (#40)
         if not visible:
             self.seek_preview.hide()
         for w in (self.top, self.bottom):
@@ -657,8 +699,10 @@ class MainWindow(QMainWindow):
             bar.layout().activate()
             bar.setMinimumWidth(bar.layout().minimumSize().width())
         geo = (tl.x(), tl.y(), w, h)
-        if geo == self._overlay_geo:
+        if geo == self._overlay_geo and not self._bars_moved(tl, h):
             return
+        if geo != self._overlay_geo:
+            self._overlay_fixes = 0
         self._overlay_geo = geo
         self.top.setGeometry(QRect(tl.x(), tl.y(), w, TopBar.HEIGHT))
         self.bottom.setGeometry(QRect(tl.x(), tl.y() + h - BottomBar.HEIGHT, w, BottomBar.HEIGHT))
@@ -669,6 +713,20 @@ class MainWindow(QMainWindow):
         self.osd.anchor = QPoint(tl.x() + 20, tl.y() + TopBar.HEIGHT + 10)
         if self.osd.isVisible():
             self.osd.move(self.osd.anchor)
+
+    def _bars_moved(self, tl: QPoint, h: int) -> bool:
+        """True when the system moved a visible bar away from where we put it.
+
+        macOS keeps a window out of the menu bar strip when it is shown, even in full
+        screen, which left a gap above the top bar (#40). Put it back, but give up after
+        a few tries so a system that insists doesn't cost a move on every tick."""
+        if not self._bars_visible or getattr(self, "_overlay_fixes", 0) >= 5:
+            return False
+        moved = (self.top.pos() != tl or
+                 self.bottom.pos() != QPoint(tl.x(), tl.y() + h - BottomBar.HEIGHT))
+        if moved:
+            self._overlay_fixes = getattr(self, "_overlay_fixes", 0) + 1
+        return moved
 
     def _pinned(self) -> bool:
         """Controls stay put (and opaque) in a normal window when the user asked for it."""
@@ -995,14 +1053,21 @@ class MainWindow(QMainWindow):
             scr = (self.screen() or QGuiApplication.primaryScreen()).availableGeometry()
             w = 480
             h = 270
+            self._set_frameless(True)          # borderless: drag to move, edges to resize (#42)
+            self.setMinimumSize(320, 180)
             self.resize(w, h)
             self.move(scr.right() - w - 24, scr.bottom() - h - 56)
             self._topmost(True)
+            self.video.pip = True
             self.top.btn_pip.setChecked(True)
             self.toast("Picture in picture   Esc to return")
         else:
             st = self._pip
             self._pip = None
+            self.video.pip = False
+            self.video.unsetCursor()
+            self._set_frameless(False)
+            self.setMinimumSize(640, 400)
             self._topmost(False)
             self.restoreGeometry(st["geo"])
             if st["max"]:
@@ -1011,6 +1076,64 @@ class MainWindow(QMainWindow):
             self.sidebar.setVisible(st["side"])
             self.top.btn_pip.setChecked(False)
         self._overlay_geo = None
+
+    def _set_frameless(self, on: bool):
+        if bool(self.windowFlags() & Qt.FramelessWindowHint) == on:
+            return
+        self.setWindowFlag(Qt.FramelessWindowHint, on)
+        self.show()
+        self.engine.set_window(int(self.video.winId()))
+
+    def pip_edges(self, gpos: QPoint):
+        """Which window edges are under the pointer in borderless picture in picture."""
+        if not self._pip:
+            return Qt.Edges()
+        r, m = self.frameGeometry(), 8
+        edges = Qt.Edges()
+        if gpos.x() - r.left() < m:
+            edges |= Qt.LeftEdge
+        elif r.right() - gpos.x() < m:
+            edges |= Qt.RightEdge
+        if gpos.y() - r.top() < m:
+            edges |= Qt.TopEdge
+        elif r.bottom() - gpos.y() < m:
+            edges |= Qt.BottomEdge
+        return edges
+
+    @staticmethod
+    def edge_cursor(edges):
+        if edges in (Qt.LeftEdge | Qt.TopEdge, Qt.RightEdge | Qt.BottomEdge):
+            return Qt.SizeFDiagCursor
+        if edges in (Qt.RightEdge | Qt.TopEdge, Qt.LeftEdge | Qt.BottomEdge):
+            return Qt.SizeBDiagCursor
+        if edges & (Qt.LeftEdge | Qt.RightEdge):
+            return Qt.SizeHorCursor
+        if edges & (Qt.TopEdge | Qt.BottomEdge):
+            return Qt.SizeVerCursor
+        return None
+
+    def pip_grab(self, gpos: QPoint, move: bool = True) -> bool:
+        """Start resizing from an edge, or moving the window. Returns True if started."""
+        handle = self.windowHandle()
+        if not self._pip or handle is None:
+            return False
+        edges = self.pip_edges(gpos)
+        if edges:
+            return bool(handle.startSystemResize(edges))
+        return bool(move and handle.startSystemMove())
+
+    def eventFilter(self, obj, e):
+        # In borderless picture in picture the bars' empty areas move the window,
+        # and their outer edges resize it.
+        if self._pip and obj in (self.top, self.bottom):
+            t = e.type()
+            if t == QEvent.MouseButtonPress and e.button() == Qt.LeftButton:
+                if self.pip_grab(e.globalPosition().toPoint()):
+                    return True
+            elif t == QEvent.MouseMove and not e.buttons():
+                cur = self.edge_cursor(self.pip_edges(e.globalPosition().toPoint()))
+                obj.setCursor(cur) if cur is not None else obj.unsetCursor()
+        return super().eventFilter(obj, e)
 
     def _topmost(self, on: bool):
         if sys.platform == "win32":
