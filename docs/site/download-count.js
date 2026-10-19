@@ -23,8 +23,10 @@
   } catch (_) { saved = null; }
   if (saved) render(saved);
 
-  async function update() {
-    if (busy || document.hidden || (saved && Date.now() - saved.time < interval)) return;
+  // A page load or reload always asks GitHub. The 5-minute wait only applies
+  // to the automatic refresh while the tab stays open.
+  async function update(force) {
+    if (busy || (!force && (document.hidden || (saved && Date.now() - saved.time < interval)))) return;
     busy = true;
     try {
       var count = 0;
@@ -33,6 +35,7 @@
       while (true) {
         var response = await fetch(api + "?per_page=100&page=" + page, {
           headers: {Accept: "application/vnd.github+json"},
+          cache: "no-cache",
           signal: AbortSignal.timeout(15000)
         });
         if (!response.ok) throw new Error("GitHub unavailable");
@@ -62,7 +65,7 @@
     } finally { busy = false; }
   }
 
-  update();
-  setInterval(update, interval);
-  document.addEventListener("visibilitychange", update);
+  update(true);
+  setInterval(function () { update(false); }, interval);
+  document.addEventListener("visibilitychange", function () { update(false); });
 })();
