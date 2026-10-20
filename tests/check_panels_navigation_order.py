@@ -79,6 +79,7 @@ class PanelsNavigationOrder(unittest.TestCase):
         lib = self.win.library
         for n in ("Bravo", "alpha", "Charlie"):     # created in this order
             self.store.data["playlists"][n] = ["a"] * (3 if n == "alpha" else 1)
+        # Pylon saves each new stream at the top, so Zed is the newest here (#44)
         self.store.data["streams"] = [{"name": "Zed", "url": "http://z"}, {"name": "Amy", "url": "http://a"}]
         lib.show_section("playlists")
         from app.library import ROLE_PATH
@@ -92,6 +93,9 @@ class PanelsNavigationOrder(unittest.TestCase):
         names = [lib.pl_list.item(i).data(ROLE_PATH) for i in range(lib.pl_list.count())]
         self.assertEqual(names, ["alpha", "Bravo", "Charlie"])
         lib.show_section("streams")
+        urls = [lib.st_list.item(i).data(ROLE_PATH) for i in range(lib.st_list.count())]
+        self.assertEqual(urls, ["http://z", "http://a"])
+        lib.streams_sort.setCurrentIndex(lib.streams_sort.findData("oldest"))
         urls = [lib.st_list.item(i).data(ROLE_PATH) for i in range(lib.st_list.count())]
         self.assertEqual(urls, ["http://a", "http://z"])
         # renaming keeps a playlist's place by age, and can't overwrite another

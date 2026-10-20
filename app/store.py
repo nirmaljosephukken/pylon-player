@@ -6,6 +6,15 @@ import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+# What the queue does when an item ends (#48), in the order the queue button cycles through them:
+# key -> (short name, what it does, icon)
+QUEUE_MODES = {
+    "none": ("Stop", "Stop when this item ends", "mode_stop"),
+    "shuffle": ("Shuffle", "Shuffle: play the queue in random order", "shuffle"),
+    "next": ("In order", "Play the queue in order", "mode_next"),
+    "loop": ("Loop", "Loop: play this item again and again", "repeat_one"),
+}
+
 DEFAULT_SHORTCUTS = {
     "play_pause": ("Play / pause", "Space"),
     "seek_fwd": ("Jump forward 10s", "Right"),
@@ -45,6 +54,7 @@ DEFAULT_SHORTCUTS = {
     "open_stream": ("Open network stream", "Ctrl+N"),
     "snapshot": ("Take a snapshot", "Shift+S"),
     "shortcuts": ("Show keyboard shortcuts", "F1"),
+    "preferences": ("Open Preferences", "Ctrl+,"),
     "stop": ("Stop", "S"),
 }
 
@@ -68,6 +78,9 @@ DEFAULT_SETTINGS = {
     "osd_shortcuts": True,      # show which key was pressed in on-screen messages
     "hide_delay_ms": 1600,
     "volume": 80,
+    "max_volume": 125,          # 125, 150 or 200 (#47)
+    "queue_mode": "next",       # mode the queue button starts in: none | shuffle | next | loop (#48)
+    "repeat_queue": False,      # start the queue again when it reaches the end
     "remember_history": True,
     "home_continue": True,
     "home_recent": True,

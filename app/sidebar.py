@@ -17,6 +17,7 @@ from .engine import CUSTOM_EQ, DEFAULT_SUB_STYLE, EQ_RANGE
 from .icons import icon
 from .util import (display_name, subtitle_query, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
                    match_subtitle, parse_subtitles)
+from .store import QUEUE_MODES
 from .widgets import IconButton, SubtitleTimeline, hline, subtitle_search_menu
 
 
@@ -694,10 +695,16 @@ class SettingsSidebar(QWidget):
         self.binge.setChecked(bool(self.store.setting("binge")))
         self.binge.toggled.connect(lambda on: self.store.set_setting("binge", on))
         lay.addWidget(self.binge)
-        self.repeat = ChipGroup([("No repeat", "off"), ("Queue", "all"), ("This file", "one")], cols=3)
-        self.repeat.picked.connect(self.win.set_repeat)
-        self.repeat.select("off")
-        lay.addWidget(self.repeat)
+        # Same choice as the button above the queue (#48)
+        self.queue_mode = ChipGroup([(v[0], k) for k, v in QUEUE_MODES.items()], cols=2,
+                                    tips={k: v[1] for k, v in QUEUE_MODES.items()})
+        self.queue_mode.picked.connect(self.win.set_queue_mode)
+        self.queue_mode.select(self.win.queue_mode)
+        lay.addWidget(self.queue_mode)
+        self.repeat_queue = QCheckBox("Start the queue again when it reaches the end")
+        self.repeat_queue.setChecked(bool(self.store.setting("repeat_queue")))
+        self.repeat_queue.toggled.connect(lambda on: self.store.set_setting("repeat_queue", on))
+        lay.addWidget(self.repeat_queue)
 
         lay.addWidget(section("Media info"))
         self.meta = QLabel("Nothing playing")

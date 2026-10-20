@@ -211,7 +211,8 @@ def _dec(b) -> str:
 MAX_SHARPEN = 1.5  # strongest sharpening the slider offers (#36)
 CUSTOM_EQ = -2     # live["eq"] value for the user's own 10-band curve (#38)
 EQ_RANGE = 20.0    # VLC's equalizer works in -20..+20 dB
-MAX_ZOOM = 8.0     # interactive zoom limit (#39)
+MAX_ZOOM = 8.0
+AUDIO_WARMUP = 0.6     # seconds to wait before the first volume change on Linux (#28)     # interactive zoom limit (#39)
 
 DEFAULT_SUB_STYLE = {
     "size_mode": "relative",   # relative | precise
@@ -270,6 +271,11 @@ class Engine(QObject):
         st = self.sub_style
         args = ["--no-video-title-show", "--no-osd", "--no-snapshot-preview",
                 "--avcodec-hw=" + ("any" if self.store.setting("hw_decoding") else "none")]
+        if sys.platform.startswith("linux") and not any(a.startswith("--aout") for a in os.environ.get("PYLON_VLC_ARGS", "").split()):
+            # Fedora's PipeWire add-on for VLC can crash when the volume is set before
+            # playback starts (#28). Prefer VLC's PulseAudio output, which PipeWire also
+            # serves on modern desktops, then ALSA, then whatever else is installed.
+            args.append("--aout=pulse,alsa,any")
         if sys.platform == "win32" and self.store.setting("rtx_upscale"):
             # Lets NVIDIA RTX / Intel Video Super Resolution sharpen upscaled video (#42).
             # VLC falls back to its normal scaler on graphics that can't do it.
@@ -312,7 +318,12 @@ class Engine(QObject):
         self.player = self.instance.media_player_new()
         self.player.video_set_mouse_input(False)
         self.player.video_set_key_input(False)
-        self.player.audio_set_volume(int(self.store.setting("volume")))
+        # Fedora's PipeWire output for VLC can crash if the volume is set in the
+        # first moments after the player is made (#28). On Linux, hold volume and
+        # mute changes briefly and apply them once the output has settled.
+        self._audio_ready_at = time.monotonic() + (AUDIO_WARMUP if sys.platform.startswith("linux") else 0)
+        self._audio_pending = {}
+        self._queue_audio(volume=int(self.store.setting("volume")))
         em = self.player.event_manager()
         E = vlc.EventType
         hooks = {
@@ -392,8 +403,8 @@ class Engine(QObject):
             # VLC on Windows draws nothing for a media opened with :start-paused, so
             # start it silently, pause as soon as it plays, then jump back to start_ms.
             self._held_ms = int(start_ms)
-            self._settle = {"ms": int(start_ms), "vol": self.player.audio_get_volume()}
-            self.player.audio_set_volume(0)
+            self._settle = {"ms": int(start_ms), "vol": self.volume()}
+            self._queue_audio(volume=0)
         self.player.set_media(media)
         self.extra_subs = []
         for s in subs or []:
@@ -429,18 +440,24 @@ class Engine(QObject):
         except Exception:
             pass
         self._build()
-        self.player.audio_set_volume(vol)
+        self._queue_audio(volume=vol)
         if target:
             self._live_pending = True     # the new player starts with VLC defaults
             zoom = self.izoom
-            self.open(target, start_ms=pos, subs=subs, title=self.current_title, paused=not was_playing)
-            self.izoom = zoom          # re-applied with the other live settings
-            def restore():
-                if sub_id is not None:
-                    self.set_sub(sub_id)
-                if audio_id is not None:
-                    self.set_audio(audio_id)
-            QTimer.singleShot(700, restore)
+            def reopen():
+                self.open(target, start_ms=pos, subs=subs, title=self.current_title, paused=not was_playing)
+                self.izoom = zoom          # re-applied with the other live settings
+                def restore():
+                    if sub_id is not None:
+                        self.set_sub(sub_id)
+                    if audio_id is not None:
+                        self.set_audio(audio_id)
+                QTimer.singleShot(700, restore)
+            wait = self._audio_wait_ms()
+            if wait:       # reopening paused mutes the output, so let it settle first (#28)
+                QTimer.singleShot(wait, reopen)
+            else:
+                reopen()
 
     def recreate(self):
         """Rebuild the VLC instance without reopening anything (used when a
@@ -455,7 +472,7 @@ class Engine(QObject):
         except Exception:
             pass
         self._build()
-        self.player.audio_set_volume(vol)
+        self._queue_audio(volume=vol)
 
     def _on_vout(self, _n=0):
         if self.ok and self.live.get("adjust"):
@@ -471,12 +488,15 @@ class Engine(QObject):
         self._apply_crop()
 
     def _on_state_internal(self, state):
+        if state == "playing":
+            self._audio_ready_at = 0      # the output is running, so changes are safe now
+            self._flush_audio()
         if state == "playing" and self._settle:
             settle, self._settle = self._settle, None
             self.player.set_pause(1)
             def back():
                 self.player.set_time(settle["ms"])     # redraws the paused picture there
-                QTimer.singleShot(150, lambda: self.player.audio_set_volume(max(0, settle["vol"])))
+                QTimer.singleShot(150, lambda: self._queue_audio(volume=max(0, settle["vol"])))
             QTimer.singleShot(50, back)
         # a media reopened paused (#36) never reaches "playing", so apply there too
         if state in ("playing", "paused") and self._live_pending:
@@ -581,23 +601,52 @@ class Engine(QObject):
         return bool(self.ok and self.player.is_seekable())
 
     # ------------------------------------------------------------------ audio
+    def _audio_wait_ms(self) -> int:
+        return max(0, int((getattr(self, "_audio_ready_at", 0) - time.monotonic()) * 1000))
+
+    def _queue_audio(self, **change):
+        """Apply volume/mute now, or once the audio output has settled (#28)."""
+        if not self.ok:
+            return
+        self._audio_pending.update(change)
+        wait = self._audio_wait_ms()
+        if wait:
+            QTimer.singleShot(wait + 20, self._flush_audio)
+        else:
+            self._flush_audio()
+
+    def _flush_audio(self):
+        if not self.ok or not self._audio_pending or self._audio_wait_ms():
+            return
+        pending, self._audio_pending = self._audio_pending, {}
+        if "volume" in pending:
+            self.player.audio_set_volume(int(pending["volume"]))
+        if "mute" in pending:
+            self.player.audio_set_mute(bool(pending["mute"]))
+
     def volume(self) -> int:
+        if self.ok and "volume" in self._audio_pending:
+            return int(self._audio_pending["volume"])
         v = self.player.audio_get_volume() if self.ok else -1
         return int(v) if v is not None and v >= 0 else int(self.store.setting("volume"))
 
+    def max_volume(self) -> int:
+        m = self.store.setting("max_volume")
+        return m if m in (125, 150, 200) else 125
+
     def set_volume(self, v: int):
-        v = max(0, min(125, int(v)))
-        if self.ok:
-            self.player.audio_set_volume(v)
+        v = max(0, min(self.max_volume(), int(v)))
+        self._queue_audio(volume=v)
         self.store.data["settings"]["volume"] = v
         self.store.save()
 
     def is_muted(self) -> bool:
+        if self.ok and "mute" in self._audio_pending:
+            return bool(self._audio_pending["mute"])
         return bool(self.ok and self.player.audio_get_mute() == 1)
 
     def set_muted(self, m: bool):
-        if self.ok:
-            self.player.audio_set_mute(bool(m))
+        self._queue_audio(mute=bool(m))
 
     def audio_tracks(self) -> list[tuple[int, str]]:
         if not self.ok:

@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog,
 from . import theme
 from .colour_dialog import choose_colour
 from .icons import icon, pixmap
-from .store import DEFAULT_SHORTCUTS
+from .store import DEFAULT_SHORTCUTS, QUEUE_MODES
 from .util import MATCH_LEVELS, SUB_EXTS, auto_match_folder, display_name, is_url, list_media, subtitle_query
 from .widgets import subtitle_search_menu
 
@@ -574,10 +574,33 @@ class PreferencesDialog(QDialog):
         combo.setCurrentIndex(max(0, combo.findData(self.store.setting("resume"))))
         combo.currentIndexChanged.connect(lambda i: self.store.set_setting("resume", combo.itemData(i)))
         f.addWidget(combo)
+        f.addWidget(info_label("Maximum volume", "Above 100% Pylon boosts quiet audio, like VLC. Very loud sound can distort."))
+        vol = QComboBox()
+        for v in (125, 150, 200):
+            vol.addItem(f"{v}%", v)
+        vol.setCurrentIndex(max(0, vol.findData(self.win.engine.max_volume())))
+        vol.currentIndexChanged.connect(lambda i: self._set_max_volume(vol.itemData(i)))
+        f.addWidget(vol)
+        f.addWidget(info_label("Queue mode when Pylon starts",
+                               "The button above the queue changes it while you watch: stop, shuffle, in order or loop."))
+        qm = QComboBox()
+        for k, v in QUEUE_MODES.items():
+            qm.addItem(v[1], k)
+        qm.setCurrentIndex(max(0, qm.findData(self.store.setting("queue_mode"))))
+        qm.currentIndexChanged.connect(lambda i: self.store.set_setting("queue_mode", qm.itemData(i)))
+        f.addWidget(qm)
         cb = QCheckBox("When a file ends, play the next file in the same folder")
         cb.setChecked(bool(self.store.setting("binge")))
         cb.toggled.connect(lambda v: self.store.set_setting("binge", v))
         f.addWidget(cb)
+
+    def _set_max_volume(self, m: int):
+        self.store.set_setting("max_volume", int(m))
+        e = self.win.engine
+        self.win.bottom.cone.set_max(int(m))
+        if e.volume() > m:
+            e.set_volume(m)
+        self.win.bottom.set_volume(e.volume(), e.is_muted())
 
     def _subtitles(self, f):
         f.addWidget(info_label("Find subtitle files automatically",

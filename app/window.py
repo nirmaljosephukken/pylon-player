@@ -20,7 +20,7 @@ from .home import HomePage, NowPlayingPage
 from .icons import icon
 from .library import LibraryPanel, media_filter
 from .sidebar import SettingsSidebar
-from .store import DEFAULT_SHORTCUTS
+from .store import DEFAULT_SHORTCUTS, QUEUE_MODES
 from .util import (SUB_EXTS, PLAYLIST_EXTS, display_name, norm, find_subtitle_candidates, fmt_delay,
                    fmt_time, is_audio, is_media, is_url, list_media, match_subtitle, natural_key,
                    parse_m3u, to_path)
@@ -201,7 +201,7 @@ class MainWindow(QMainWindow):
 
         self.queue: list[dict] = []
         self.qindex = -1
-        self.repeat = "off"
+        self.queue_mode = self.store.setting("queue_mode") if self.store.setting("queue_mode") in QUEUE_MODES else "next"
         self.hide_ui = False
         self._pip = None
         self._last_mouse = QPoint()
@@ -234,6 +234,7 @@ class MainWindow(QMainWindow):
         # overlays (separate translucent windows over the video)
         self.top = TopBar(self)
         self.bottom = BottomBar(self)
+        self.bottom.cone.set_max(self.engine.max_volume())
         for bar in (self.top, self.bottom):
             bar.setMouseTracking(True)
             bar.installEventFilter(self)
@@ -255,6 +256,7 @@ class MainWindow(QMainWindow):
         self.stage.addWidget(self.now_playing)
         self.sidebar = SettingsSidebar(self)
         self.sidebar.hide()
+        self.library.show_queue_mode(self.queue_mode)
 
         lay.addWidget(self.library)
         lay.addWidget(self.stage, 1)
@@ -879,7 +881,7 @@ class MainWindow(QMainWindow):
             e.set_volume(v)
             e.set_muted(False)
             self.bottom.set_volume(e.volume(), False)
-            msg = f"Volume {max(0, min(125, v))}%"
+            msg = f"Volume {e.volume()}%"
         elif action == "mute":
             m = not e.is_muted()
             e.set_muted(m)
@@ -996,6 +998,9 @@ class MainWindow(QMainWindow):
         elif action == "shortcuts":
             self.show_shortcuts()
             return
+        elif action == "preferences":
+            self.show_preferences()
+            return
         if msg:
             hint = self.store.shortcut(action) if key and self.store.setting("osd_shortcuts") else ""
             self.toast(msg, hint)
@@ -1025,9 +1030,24 @@ class MainWindow(QMainWindow):
         self.engine.set_muted(False)
         self.bottom.set_volume(v, False)
 
-    def set_repeat(self, mode):
-        self.repeat = mode
-        self.toast({"off": "Repeat off", "all": "Repeat the queue", "one": "Repeat this file"}[mode])
+    def set_queue_mode(self, mode, announce=True):
+        """What happens when an item ends (#48): stop, shuffle, play in order, or loop it."""
+        if mode not in QUEUE_MODES:
+            return
+        was = self.queue_mode
+        self.queue_mode = mode
+        if mode == "shuffle" and was != "shuffle":
+            self.library.shuffle_on()
+        elif was == "shuffle" and mode != "shuffle":
+            self.library.shuffle_off()
+        self.library.show_queue_mode(mode)
+        self.sidebar.queue_mode.select(mode)
+        if announce:
+            self.toast(QUEUE_MODES[mode][1])
+
+    def cycle_queue_mode(self):
+        order = list(QUEUE_MODES)
+        self.set_queue_mode(order[(order.index(self.queue_mode) + 1) % len(order)])
 
     def set_sleep_timer(self, minutes):
         self._sleep_end_of_file = minutes == -1
@@ -1453,13 +1473,18 @@ class MainWindow(QMainWindow):
             files = [path]
         self.queue = [{"path": f} for f in files]
         self.library.reset_shuffle()
-        self.play_queue_index(files.index(path), start_ms=start_ms)
+        self.qindex = files.index(path)
+        if self.queue_mode == "shuffle":
+            self.library.shuffle_on()
+        self.play_queue_index(self.qindex, start_ms=start_ms)
 
     # ---------------------------------------------------------------- queue
     def set_queue(self, items, index, keep_playing=False):
         self.queue = [{**it, "path": norm(it["path"])} for it in items]
         self.library.reset_shuffle()
         self.qindex = index if 0 <= index < len(self.queue) else -1
+        if self.queue_mode == "shuffle":
+            self.library.shuffle_on()
         self.library.refresh_queue()
         if not keep_playing and self.qindex >= 0:
             self.play_queue_index(self.qindex)
@@ -1522,7 +1547,7 @@ class MainWindow(QMainWindow):
         if self.qindex + 1 < len(self.queue):
             self.play_queue_index(self.qindex + 1)
             return True
-        if self.repeat == "all" and self.queue:
+        if self.store.setting("repeat_queue") and self.queue:
             self.play_queue_index(0)
             return True
         cur = self.engine.current
@@ -1735,8 +1760,14 @@ class MainWindow(QMainWindow):
         elif state == "ended":
             self._on_ended()
         elif state == "error":
-            self.toast("Couldn't play this file")
-            QTimer.singleShot(1500, lambda: self.play_next() if self.qindex + 1 < len(self.queue) else None)
+            if e.current and is_url(e.current):
+                # A dead channel shouldn't jump to the next one (#50): stay put so the
+                # list doesn't move, and let the user pick another stream.
+                self.toast("Couldn't play this stream")
+            else:
+                self.toast("Couldn't play this file")
+                if self.queue_mode in ("next", "shuffle"):
+                    QTimer.singleShot(1500, lambda: self.play_next() if self.qindex + 1 < len(self.queue) else None)
 
     # ---------------------------------------------------------------- seek previews
     def start_previews(self, tries=0):
@@ -1790,10 +1821,10 @@ class MainWindow(QMainWindow):
             self.sidebar.sleep_label.setText("")
             self.toast("Sleep timer: stopped at the end of the file")
             return
-        if self.repeat == "one" and e.current:
+        if self.queue_mode == "loop" and e.current:
             self.play_queue_index(self.qindex) if self.qindex >= 0 else self.play_path(e.current, start_ms=0)
             return
-        if not self.play_next():
+        if self.queue_mode == "none" or not self.play_next():
             self.bottom.set_playing(False)
             self._poke(4)
 

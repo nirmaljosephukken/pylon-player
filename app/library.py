@@ -25,6 +25,7 @@ from . import theme
 from .icons import icon
 from .util import (display_name, fmt_time, is_audio, is_media, is_url, list_media, natural_key, pretty_title,
                    to_path)
+from .store import QUEUE_MODES
 from .widgets import IconButton
 
 ROLE_PATH = Qt.UserRole
@@ -229,15 +230,21 @@ class LibraryPanel(QWidget):
         qh.addStretch(1)
         self._unshuffled = None          # the queue's order before shuffling (None = shuffle is off)
         for ic, tip, fn in (("plus", "Add files to the queue", self._add_files_to_queue),
-                            ("shuffle", SHUFFLE_OFF_TIP, self._shuffle),
+                            ("mode_next", "", win.cycle_queue_mode),
                             ("save", "Save queue as a playlist", self._save_queue_as_playlist),
                             ("trash", "Clear queue", lambda: win.set_queue([], -1))):
             b = IconButton(ic, tip, size=16)
             b.clicked.connect(lambda *_, fn=fn: fn())
             qh.addWidget(b)
-            if ic == "shuffle":
-                self.shuffle_btn = b
+            if ic == "mode_next":
+                self.mode_btn = b
+                b._color = self._mode_color
         ql.addLayout(qh)
+        self.queue_search = QLineEdit()
+        self.queue_search.setPlaceholderText("Search the queue")
+        self.queue_search.setClearButtonEnabled(True)
+        self.queue_search.textChanged.connect(lambda _: self._filter_queue())
+        ql.addWidget(self.queue_search)
         self.queue = QueueList()
         self.queue.itemDoubleClicked.connect(lambda it: win.play_queue_index(self.queue.row(it)))
         self.queue.dropped_urls.connect(self._queue_drop)
@@ -655,10 +662,13 @@ class LibraryPanel(QWidget):
             mode = "newest"
         return mode
 
-    def _ordered(self, items, section, name, count=None, modified=None):
+    def _ordered(self, items, section, name, count=None, modified=None, newest_first=False):
+        """newest_first: the saved list already has the most recent item at the top."""
         mode = self._sort_mode(section)
         items = list(items)
         if mode == "newest":
+            return items if newest_first else items[::-1]
+        if mode == "oldest" and newest_first:
             return items[::-1]
         if mode == "count" and count:
             return sorted(items, key=lambda x: (-count(x), natural_key(name(x))))
@@ -832,7 +842,8 @@ class LibraryPanel(QWidget):
 
     def refresh_streams(self):
         self.st_list.clear()
-        for s in self._ordered(self.store.data["streams"], "streams", lambda x: x["name"]):
+        # new streams are saved at the top of the list, so it is newest first already (#44)
+        for s in self._ordered(self.store.data["streams"], "streams", lambda x: x["name"], newest_first=True):
             if self.st_search.text().strip().casefold() not in (s["name"] + " " + s["url"]).casefold():
                 continue
             it = QListWidgetItem(icon("stream", theme.accent(), 18), s["name"])
@@ -1230,6 +1241,12 @@ class LibraryPanel(QWidget):
 
     # ================================================================ queue
     def refresh_queue(self):
+        # Rebuilding the list jumps it to the top. Keep the scroll position, and only
+        # bring the playing item into view when a different one starts (#50).
+        bar = self.queue.verticalScrollBar()
+        keep = bar.value()
+        moved = self.win.qindex != getattr(self, "_queue_shown_index", None)
+        self._queue_shown_index = self.win.qindex
         self.queue.clear()
         for i, item in enumerate(self.win.queue):
             p = item["path"]
@@ -1252,8 +1269,20 @@ class LibraryPanel(QWidget):
             self.queue.addItem(it)
         n = len(self.win.queue)
         self.queue_count.setText(f"{n} item{'s' if n != 1 else ''}" if n else "")
-        if 0 <= self.win.qindex < self.queue.count():
+        self.queue_search.setVisible(n > 8 or bool(self.queue_search.text()))
+        self._filter_queue()
+        if moved and 0 <= self.win.qindex < self.queue.count() and not self.queue.item(self.win.qindex).isHidden():
             self.queue.scrollToItem(self.queue.item(self.win.qindex))
+        else:
+            bar.setValue(keep)
+
+    def _filter_queue(self):
+        """Search the queue by name (#44); the order and numbering stay the same."""
+        text = self.queue_search.text().strip().casefold() if hasattr(self, "queue_search") else ""
+        for i in range(self.queue.count()):
+            it = self.queue.item(i)
+            hay = (it.text() + " " + (it.data(ROLE_PATH) or "")).casefold()
+            it.setHidden(bool(text) and text not in hay)
 
     def _queue_drop(self, paths, row):
         self.win.insert_into_queue(paths, row)
@@ -1326,43 +1355,49 @@ class LibraryPanel(QWidget):
     def shuffled(self) -> bool:
         return self._unshuffled is not None
 
-    def _shuffle(self):
-        """Shuffle on: mix up everything except what's playing. Shuffle off: put the original order back."""
+    def shuffle_on(self):
+        """Mix up everything except what's playing, remembering the original order."""
         win = self.win
         q = win.queue
         cur = q[win.qindex] if 0 <= win.qindex < len(q) else None
-        if self.shuffled:
-            # original order for items that are still here; anything added while shuffled goes after them
-            ids = {id(x) for x in q}
-            new = [x for x in self._unshuffled if id(x) in ids]
-            kept = {id(x) for x in new}
-            new += [x for x in q if id(x) not in kept]
-            self._set_shuffle(None)
-            msg = "Shuffle off: original order"
-        else:
-            if len(q) < 2:
-                win.toast("Add more to the queue to shuffle it")
-                return
-            self._set_shuffle(list(q))
-            rest = [x for x in q if x is not cur]
-            random.shuffle(rest)
-            new = ([cur] if cur else []) + rest
-            msg = "Shuffle on"
+        self._unshuffled = list(q)
+        rest = [x for x in q if x is not cur]
+        random.shuffle(rest)
+        self._reorder(([cur] if cur else []) + rest, cur)
+
+    def shuffle_off(self):
+        """Put the original order back. Anything added while shuffled goes after it."""
+        if not self.shuffled:
+            return
+        q = self.win.queue
+        cur = q[self.win.qindex] if 0 <= self.win.qindex < len(q) else None
+        ids = {id(x) for x in q}
+        new = [x for x in self._unshuffled if id(x) in ids]
+        kept = {id(x) for x in new}
+        new += [x for x in q if id(x) not in kept]
+        self._unshuffled = None
+        self._reorder(new, cur)
+
+    def _reorder(self, new, cur):
+        win = self.win
         win.queue = new
         win.qindex = next((i for i, x in enumerate(new) if x is cur), -1)
         self.refresh_queue()
-        win.toast(msg)
-
-    def _set_shuffle(self, order):
-        self._unshuffled = order
-        on = order is not None
-        self.shuffle_btn.set_dot(on)
-        self.shuffle_btn.setToolTip(SHUFFLE_ON_TIP if on else SHUFFLE_OFF_TIP)
 
     def reset_shuffle(self):
-        """A brand-new queue (a folder, a playlist, Clear) starts in its normal order."""
-        if self.shuffled:
-            self._set_shuffle(None)
+        """A brand-new queue (a folder, a playlist, Clear) forgets the order from before."""
+        self._unshuffled = None
+
+    def _mode_color(self):
+        return theme.MUTED if self.win.queue_mode == "none" else theme.accent()
+
+    def show_queue_mode(self, mode):
+        """The queue button shows the current mode: grey when it stops, accent colour otherwise (#48)."""
+        name, what, ic = QUEUE_MODES[mode]
+        order = list(QUEUE_MODES)
+        after = QUEUE_MODES[order[(order.index(mode) + 1) % len(order)]][0]
+        self.mode_btn.setToolTip(f"{what}. Click for {after}")
+        self.mode_btn.set_icon(ic)
 
     def _save_queue_as_playlist(self):
         if not self.win.queue:
@@ -1370,8 +1405,6 @@ class LibraryPanel(QWidget):
         self.save_to_playlist([x["path"] for x in self.win.queue])
 
 
-SHUFFLE_OFF_TIP = "Shuffle the queue"
-SHUFFLE_ON_TIP = "Shuffle is on. Click to go back to the original order"
 
 
 def win_call(fn):

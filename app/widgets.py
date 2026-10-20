@@ -220,7 +220,7 @@ class SeekBar(QWidget):
 class ConeVolume(QWidget):
     """Volume as a traffic cone lying on its side: narrow tip = quiet,
     wide base = loud. Fills with the accent color, white reflective bands
-    keep the cone look. Goes up to 125%."""
+    keep the cone look. Goes up to 125% by default, or 150% or 200% (#47)."""
     volume_changed = Signal(int)
 
     MAX = 125
@@ -229,9 +229,14 @@ class ConeVolume(QWidget):
         super().__init__(parent)
         self.value = 80
         self.muted = False
+        self.MAX = ConeVolume.MAX
         self.setFixedSize(84, 26)
         self.setCursor(Qt.PointingHandCursor)
         self.setMouseTracking(True)
+
+    def set_max(self, m: int):
+        self.MAX = int(m)
+        self.set_value(self.value)
 
     def set_value(self, v, muted=None):
         self.value = max(0, min(self.MAX, int(v)))

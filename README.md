@@ -4,7 +4,7 @@
 
 ### [⬇ Download page: nirmaljosephukken.github.io/pylon-player](https://nirmaljosephukken.github.io/pylon-player/)
 
-**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.3.10.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.10-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.3.10-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
+**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.4.0.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.4.0-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.4.0-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
 
 **The story:** [700,000 people watched a VLC redesign. I built the player.](https://dev.to/nekku/700000-people-watched-a-vlc-redesign-i-built-the-player-1aio) · [Demo video](https://youtu.be/vCV3B_blLU0)
@@ -18,6 +18,8 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 ![Library, queue and settings sidebar](docs/panels.png)
 
 ## What's new
+
+**1.4.0:** Fixes a startup crash on Fedora and other Linux systems using PipeWire. A broken stream no longer skips to the next one, and the queue keeps its place. The queue button now switches between Stop, Shuffle, In order and Loop. Search long queues, raise the maximum volume to 150% or 200% in Preferences, and open Preferences with Ctrl+,. Streams sort the right way round, and the subtitle timeline's offset label is no longer cut off.
 
 **1.3.10:** Files dropped onto Pylon or opened with "Open with" now play in name order, so episodes stay in sequence. Saved streams can be renamed and their links copied, from the library and the queue. Double-click an equalizer slider to reset it. Find online offers several subtitle sites and searches by show or film name. With RTX Video Super Resolution on, the picture now redraws correctly after panels open or close and in full screen. The Linux AppImage no longer picks up the system's Qt add-ons, and its startup log records more detail for crash reports.
 
@@ -72,7 +74,7 @@ Pylon plays everything through **VLC**, which you install yourself (Pylon never 
 | | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ (experimental) |
 | --- | --- | --- | --- |
 | **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
-| **2. Pylon** | `Pylon-Setup-1.3.10.exe` | `Pylon-1.3.10-x86_64.AppImage` | `Pylon-1.3.10-macOS.zip` |
+| **2. Pylon** | `Pylon-Setup-1.4.0.exe` | `Pylon-1.4.0-x86_64.AppImage` | `Pylon-1.4.0-macOS.zip` |
 | **3. Run** | Run the setup. No admin rights needed. | `chmod +x Pylon-*.AppImage`, then double-click it | Unzip, move **Pylon** to Applications, see the first-launch note below |
 
 Nothing else is needed: each download carries its own Python and Qt.
@@ -113,7 +115,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **Thick seek bar** | Along the bottom edge, with bookmark ticks and chapter marks. Hover to see a **preview picture** of that moment. Previews are made in the background the first time you play a video and kept for next time. |
 | **Cone volume** | A volume control shaped like a cone. Click, drag or scroll. Goes to 125%. |
 | **Subtitle and audio buttons** | Bottom right. Audio also lists output devices (speakers, headphones). |
-| **Queue** | A real queue. Drag files in from the library or from Explorer, and reorder by dragging. Playing a file queues the rest of its folder, so the next episode just plays. Select several items (`Ctrl` or `Shift` click) and right-click to mark them watched or remove them, or press `Delete`. **Shuffle** is a switch: an orange dot shows it's on, and switching it off puts the original order back. |
+| **Queue** | A real queue. Drag files in from the library or from Explorer, and reorder by dragging. Playing a file queues the rest of its folder, so the next episode just plays. Select several items (`Ctrl` or `Shift` click) and right-click to mark them watched or remove them, or press `Delete`. The **queue mode** button cycles through Stop (grey: stop when the item ends), Shuffle, In order and Loop (play the item again). Leaving Shuffle puts the original order back. Choose the starting mode in Preferences. |
 | **Settings sidebar** | `Ctrl+T`. Subtitles, Audio, Video, Playback and Bookmarks tabs, without a dialog covering the video. |
 | **Subtitle timeline** | See where subtitle lines fall around the playhead and drag them until they line up with the speech. Sliders and the `G` / `J` keys also work. |
 | **Subtitle look** | Relative or exact pixel size, font, color, outline, background and position. |
@@ -121,7 +123,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **Default tracks** | Pick a subtitle or audio language to switch to on every episode. |
 | **Add subtitles in bulk** | To this file, a whole folder or the whole queue. Files are matched by name or episode number (S01E02, 1x02, E02), you can fix any pairing, and pairings are remembered. "Search online" opens OpenSubtitles. |
 | **Picture and sound presets** | Vivid, Bright, Cinema, Soft, Mono, plus sliders and **Sharpen**. VLC's equalizer presets as one-click chips. Rotate, flip, crop, zoom and aspect ratio. |
-| **Playback** | Speed, sleep timer (including "end of this file"), repeat, and media info. |
+| **Playback** | Speed, sleep timer (including "end of this file"), queue mode, starting the queue again at the end, and media info. |
 | **Music** | Songs from your library folders, sorted by **artist, album and song**, with cover art from the files. Open an album and press Play, or double-click any song. |
 | **Library** | Opens from the folder name in the top bar without leaving the video. Back, forward, up, address bar, search, sorting (including unwatched first), pins, recent files, playlists and streams. |
 | **Continue watching** | A home page with what you were watching and how far you got, plus a "Continue from 12:34" button next to the play controls. Hover a card and click ✓✓ to mark it as watched. Playlists show how many items you've watched and pick up from the first one you haven't finished. |
