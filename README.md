@@ -7,6 +7,8 @@
 **Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.5.0.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.5.0-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.5.0-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
 
+**New to Pylon?** The [user guide](https://nirmaljosephukken.github.io/pylon-player/guide.html) shows every screen, panel and setting with pictures and step-by-step how-tos. It's also available as a [PDF](https://nirmaljosephukken.github.io/pylon-player/guide/Pylon-User-Guide.pdf).
+
 **The story:** [700,000 people watched a VLC redesign. I built the player.](https://dev.to/nekku/700000-people-watched-a-vlc-redesign-i-built-the-player-1aio) · [Demo video](https://youtu.be/vCV3B_blLU0)
 
 Pylon puts a new interface on top of libVLC, the engine inside VLC media player. VLC still does all the playback, decoding, subtitles and streaming, so Pylon plays everything VLC plays. The interface is built around the way people actually watch: quiet bars that get out of the way, a thick seek bar, subtitle timing you can see, per-show presets, and a library and queue you can reach without leaving the video.
@@ -115,7 +117,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **Quiet bars** | Top and bottom bars float over the video, appear when you move the mouse, and vanish when you stop. They work in fullscreen too, so the title is always one hover away. `H` hides everything. Prefer them always on screen? **Preferences > Interface > Keep the controls visible**. |
 | **Controls** | Play on the left with previous and next around it. Fullscreen and picture-in-picture at top right. One menu button instead of a duplicate menu bar. |
 | **Thick seek bar** | Along the bottom edge, with bookmark ticks and chapter marks. Hover to see a **preview picture** of that moment. Previews are made in the background the first time you play a video and kept for next time. |
-| **Cone volume** | A volume control shaped like a cone. Click, drag or scroll. Goes to 125%. |
+| **Cone volume** | A volume control shaped like a cone. Click, drag or scroll. Goes to 125%, or to 150% or 200% if you raise the limit in Preferences > Playback. |
 | **Subtitle and audio buttons** | Bottom right. Audio also lists output devices (speakers, headphones). |
 | **Queue** | A real queue. Drag files in from the library or from Explorer, and reorder by dragging. Playing a file queues the rest of its folder, so the next episode just plays. Select several items (`Ctrl` or `Shift` click) and right-click to mark them watched or remove them, or press `Delete`. The **queue mode** button cycles through Stop (grey: stop when the item ends), Shuffle, In order and Loop (play the item again). Leaving Shuffle puts the original order back. Choose the starting mode in Preferences. |
 | **Settings sidebar** | `Ctrl+T`. Subtitles, Audio, Video, Playback and Bookmarks tabs, without a dialog covering the video. |

@@ -1,0 +1,752 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pylon User Guide</title>
+<meta name="description" content="How to use Pylon 1.5.0: every screen, panel and setting, with pictures, keyboard shortcuts and step-by-step how-tos.">
+<meta property="og:title" content="Pylon User Guide">
+<meta property="og:description" content="Every screen, panel and setting in Pylon, with pictures and step-by-step how-tos.">
+<meta property="og:image" content="https://nirmaljosephukken.github.io/pylon-player/site/og.jpg">
+<meta property="og:url" content="https://nirmaljosephukken.github.io/pylon-player/guide.html">
+<meta name="theme-color" content="#101725">
+<link rel="icon" href="site/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#101725; --deep:#080c15; --a1:#ff8800; --a2:#ff8800; --moon:#f6e7c9; --text:#e9edf5; --mist:#93a0b8;
+  --line:rgba(255,255,255,.09); --panel:rgba(255,255,255,.035); --ink-on-accent:#140b00;
+  --display:"Bricolage Grotesque","Inter",ui-sans-serif,system-ui,sans-serif;
+  --body:"Hanken Grotesk","Inter",ui-sans-serif,system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+body{margin:0;background:var(--bg);color:var(--text);font:16.5px/1.65 var(--body);-webkit-font-smoothing:antialiased}
+img{max-width:100%;height:auto;display:block}
+a{color:var(--text);text-decoration-color:color-mix(in srgb,var(--a1) 70%,transparent);text-underline-offset:3px}
+:focus-visible{outline:2px solid var(--a1);outline-offset:3px;border-radius:6px}
+.wrap{width:100%;max-width:1240px;margin:0 auto;padding:0 24px}
+code{font:13.5px ui-monospace,Consolas,monospace;background:var(--panel);border:1px solid var(--line);padding:1px 6px;border-radius:6px;white-space:nowrap}
+kbd{display:inline-block;min-width:1.7em;text-align:center;font:600 13px ui-monospace,Consolas,monospace;padding:1px 6px;border-radius:6px;
+  background:color-mix(in srgb,var(--text) 10%,transparent);border:1px solid var(--line);border-bottom-width:2px;color:var(--text)}
+.muted{color:var(--mist)}
+
+/* nav, same as the main page */
+nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;height:64px;gap:24px}
+.brand{display:flex;align-items:center;gap:10px;font:700 20px var(--display);text-decoration:none}
+.brand img{width:28px;height:28px}
+nav .links{margin-left:auto;display:flex;align-items:center;gap:24px;font-size:15px;font-weight:500}
+nav .links a{text-decoration:none;color:var(--mist)}
+nav .links a:hover,nav .links a[aria-current]{color:var(--text)}
+nav .gh{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);padding:6px 14px;border-radius:99px;color:var(--text)!important}
+nav .gh svg{width:16px;height:16px}
+
+/* header */
+header{padding:56px 0 34px;border-bottom:1px solid var(--line);background:radial-gradient(70% 140% at 85% 0%,color-mix(in srgb,var(--a1) 16%,transparent),transparent 60%)}
+h1{font:800 clamp(40px,6vw,72px)/1 var(--display);letter-spacing:-.035em;margin:0 0 14px;color:var(--moon)}
+.lede{color:color-mix(in srgb,var(--text) 82%,transparent);font-size:19px;max-width:640px;margin:0 0 26px}
+.tools{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:10px;padding:12px 20px;border-radius:12px;font:700 16px var(--body);text-decoration:none;color:var(--ink-on-accent);
+  background:linear-gradient(90deg,var(--a1),var(--a2));box-shadow:0 10px 30px -10px color-mix(in srgb,var(--a1) 70%,transparent)}
+.btn svg{width:19px;height:19px}
+.search{position:relative;flex:1 1 280px;max-width:420px}
+.search input{width:100%;font:500 16px var(--body);color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px 12px 42px}
+.search input::placeholder{color:var(--mist)}
+.search svg{position:absolute;left:14px;top:50%;width:18px;height:18px;transform:translateY(-50%);color:var(--mist)}
+.found{font-size:14px;color:var(--mist);min-height:1.4em;margin:10px 0 0}
+
+/* layout */
+.layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:56px;padding-top:40px;padding-bottom:80px}
+aside{position:sticky;top:84px;align-self:start;max-height:calc(100vh - 100px);overflow:auto;padding-right:6px;font-size:14.5px}
+aside .label{font:700 12px var(--body);letter-spacing:.12em;text-transform:uppercase;color:var(--mist);margin:0 0 10px}
+aside ol{list-style:none;margin:0;padding:0}
+aside > ol > li{margin:0 0 4px}
+aside a{display:block;text-decoration:none;color:var(--mist);padding:4px 10px;border-radius:8px;border-left:2px solid transparent}
+aside > ol > li > a{color:var(--text);font-weight:600}
+aside ol ol{margin:2px 0 8px 10px}
+aside ol ol a{font-size:13.5px;padding:2px 10px}
+aside a:hover{background:var(--panel);color:var(--text)}
+aside a.on{border-left-color:var(--a1);color:var(--text);background:color-mix(in srgb,var(--a1) 9%,transparent)}
+.toc-mobile{display:none}
+
+/* content */
+main section{padding:8px 0 40px;border-bottom:1px solid var(--line);margin-bottom:40px}
+main section:last-of-type{border-bottom:0}
+h2{font:800 clamp(30px,3.6vw,44px)/1.05 var(--display);letter-spacing:-.03em;margin:0 0 16px;color:var(--moon)}
+h3{font:700 22px/1.25 var(--display);letter-spacing:-.01em;margin:38px 0 12px;color:var(--text)}
+h4{font:700 17px var(--display);margin:0 0 8px}
+p,li{color:color-mix(in srgb,var(--text) 88%,transparent)}
+main ul,main ol{padding-left:22px}
+li{margin:4px 0}
+ol.steps{counter-reset:s;list-style:none;padding:0}
+ol.steps li{counter-increment:s;position:relative;padding-left:40px;margin:10px 0}
+ol.steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:27px;height:27px;border-radius:50%;display:grid;place-items:center;
+  font:800 14px var(--display);color:var(--ink-on-accent);background:linear-gradient(135deg,var(--a1),var(--a2))}
+.cols3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+.card ol{padding-left:20px;margin:0}
+.card li{font-size:15px}
+.tip{margin:20px 0;padding:16px 18px;border-radius:12px;border:1px solid color-mix(in srgb,var(--a1) 35%,transparent);background:color-mix(in srgb,var(--a1) 8%,transparent)}
+table{border-collapse:collapse;width:100%}
+td,th{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mist)}
+.modes{margin:12px 0 18px}
+.keys{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:16px 0 24px}
+.keys td{font-size:15px;padding:6px 4px}
+.keys td:last-child{text-align:right;white-space:nowrap}
+
+/* figures */
+figure{margin:22px 0}
+figcaption{font-size:14px;color:var(--mist);margin-top:8px}
+.plain img{border-radius:10px;border:1px solid var(--line);box-shadow:0 20px 50px -25px rgba(0,0,0,.9)}
+.plain.menu{display:inline-block;margin:10px 16px 10px 0;vertical-align:top}
+.plain.menu img{max-width:260px}
+.plain.tall img{max-width:300px}
+.pair{display:flex;flex-wrap:wrap;align-items:flex-start;gap:0 6px}
+.side{display:grid;grid-template-columns:300px minmax(0,1fr);gap:32px;align-items:start;margin:8px 0 18px}
+.side > figure{margin:0;position:sticky;top:84px}
+.side.wide{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr)}
+.side.duo > :nth-child(2){grid-column:1;position:static}
+.side.duo > :last-child{grid-column:2;grid-row:1 / span 2}
+.duo-col > .plain.menu{display:block;margin:18px 0 0}
+.side.wide > figure img{max-width:100%}
+.side > div > *:first-child{margin-top:0}
+.shot .frame img{width:100%}
+.shot .frame{position:relative;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.12);box-shadow:0 30px 70px -30px rgba(0,0,0,.9)}
+.spot{position:absolute;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;border:2px solid #fff;padding:0;cursor:pointer;
+  font:800 11px/18px var(--body);color:var(--ink-on-accent);background:var(--a1);box-shadow:0 2px 10px rgba(0,0,0,.6);transition:transform .15s}
+.spot:hover,.spot.on{transform:translate(-50%,-50%) scale(1.18);background:#fff;color:#000}
+.box{position:absolute;border:2px solid var(--a1);border-radius:6px;box-shadow:0 0 0 9999px rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .2s}
+.box.on{opacity:1}
+.pop{position:absolute;z-index:3;max-width:320px;padding:12px 14px;border-radius:12px;background:color-mix(in srgb,var(--deep) 94%,transparent);
+  border:1px solid color-mix(in srgb,var(--a1) 50%,transparent);box-shadow:0 18px 40px -12px rgba(0,0,0,.9);font-size:14.5px;line-height:1.5}
+.pop b{display:block;font:700 16px var(--display);margin-bottom:3px;color:var(--text)}
+.hint{font-size:14px;color:var(--mist);margin:6px 0 4px}
+.legend{list-style:none;padding:0;margin:8px 0 0;columns:2;column-gap:22px}
+.legend li{break-inside:avoid;margin:0}
+.legend button{all:unset;box-sizing:border-box;cursor:pointer;display:flex;gap:10px;width:100%;padding:7px 8px;border-radius:8px;font-size:14.5px;line-height:1.45;color:color-mix(in srgb,var(--text) 86%,transparent)}
+.legend button:hover,.legend li.on button{background:var(--panel)}
+.legend li.on button{box-shadow:inset 2px 0 0 var(--a1)}
+.legend button:focus-visible{outline:2px solid var(--a1)}
+.legend .n{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font:800 12px var(--body);color:var(--ink-on-accent);background:var(--a1);margin-top:1px}
+.legend b{color:var(--text)}
+
+/* how-tos */
+details.howto{border:1px solid var(--line);border-radius:12px;margin:10px 0;background:var(--panel)}
+details.howto summary{cursor:pointer;list-style:none;padding:14px 44px 14px 18px;font:700 17px var(--display);position:relative}
+details.howto summary::-webkit-details-marker{display:none}
+details.howto summary::after{content:"";position:absolute;right:18px;top:50%;width:9px;height:9px;border-right:2px solid var(--mist);border-bottom:2px solid var(--mist);transform:translateY(-70%) rotate(45deg);transition:transform .2s}
+details.howto[open] summary::after{transform:translateY(-30%) rotate(225deg)}
+details.howto > :not(summary){margin:0 18px 16px}
+mark{background:color-mix(in srgb,var(--a1) 45%,transparent);color:inherit;border-radius:3px;padding:0 1px}
+[hidden]{display:none!important}
+.none{padding:30px;border:1px dashed var(--line);border-radius:14px;color:var(--mist);text-align:center}
+footer{border-top:1px solid var(--line);padding:28px 0 40px;color:var(--mist);font-size:14.5px}
+footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 30px}
+
+@media screen and (max-width:980px){
+  .layout{grid-template-columns:minmax(0,1fr);gap:0;padding-top:24px}
+  aside{display:none}
+  .toc-mobile{display:block;margin:0 0 28px}
+  .toc-mobile summary{cursor:pointer;font-weight:700;padding:12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+  .toc-mobile ol{list-style:none;padding:10px 4px 0;margin:0}
+  .toc-mobile ol ol{padding:2px 0 6px 14px}
+  .toc-mobile a{display:block;padding:4px 8px;text-decoration:none;color:var(--mist)}
+  .toc-mobile > ol > li > a{color:var(--text);font-weight:600}
+  .cols3,.keys{grid-template-columns:minmax(0,1fr)}
+  .side{grid-template-columns:minmax(0,1fr)}
+  .side > figure{position:static;max-width:300px}
+  .side.wide{grid-template-columns:minmax(0,1fr)}
+  /* on a phone each tab's text comes first, then its pictures */
+  .side.duo{display:flex;flex-direction:column;gap:14px}
+  .side.duo > :last-child,.duo-col{display:contents}
+  .side.duo > :last-child > *{order:2;margin:0}
+  .side.duo > :last-child > h3:first-child{order:1;margin-top:0}
+  .side.duo > :last-child > h3 ~ h3,.side.duo > :last-child > h3 ~ h3 ~ *{order:5}
+  .side.duo > :last-child > h3 ~ h3{margin-top:18px}
+  .side.duo > figure:first-child,.duo-col > figure{order:3}
+  .side.duo > :nth-child(2){order:6}
+  .side.wide > figure{max-width:none}
+  .legend{columns:1}
+  nav .links a.hide-s{display:none}
+}
+.hint .small{display:none}
+@media screen and (max-width:700px){
+  /* markers would overlap on a small picture: tap the list instead, and the control lights up */
+  .spot{display:none}
+  .hint .big{display:none}
+  .hint .small{display:inline}
+}
+@media screen and (max-width:560px){
+  .pop{max-width:240px;font-size:13.5px}
+  header{padding:36px 0 26px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* the PDF: light pages, everything open, no navigation */
+.cover{display:none}
+@media print{
+  /* the PDF: a dark cover, then light pages that flow on without gaps */
+  @page{size:A4;margin:15mm 14mm 16mm;
+    @bottom-center{content:"Pylon user guide  \00B7  " counter(page) " / " counter(pages);font:7.5pt "Inter",sans-serif;color:#8a90a0}}
+  @page :first{margin:0;@bottom-center{content:none}}
+  :root{--bg:#fff;--text:#16181d;--mist:#5a6170;--moon:#16181d;--line:#d9dde4;--panel:#f4f5f8}
+  html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-size:10.5pt;line-height:1.5;background:#fff}
+  nav,aside,header,.found,.hint,.pop,.box,footer,.print-hide{display:none!important}
+
+  .cover{display:flex;flex-direction:column;justify-content:space-between;width:210mm;height:297mm;padding:26mm 22mm 20mm;break-after:page;
+    background:radial-gradient(120% 70% at 85% 0%,#3a2a1a 0%,#101725 55%,#080c15 100%);color:#e9edf5;overflow:hidden}
+  .cover .mark{display:flex;align-items:center;gap:5mm;font:800 22pt var(--display);color:#f6e7c9}
+  .cover .mark img{width:20mm;height:20mm}
+  .cover h1{font:800 54pt/0.95 var(--display);letter-spacing:-.035em;color:#f6e7c9;margin:0 0 6mm}
+  .cover .sub{font-size:15pt;color:#c9d1e0;max-width:140mm;margin:0}
+  .cover .shot-wrap{border-radius:4mm;overflow:hidden;border:1px solid rgba(255,255,255,.15);box-shadow:0 10mm 30mm rgba(0,0,0,.5)}
+  .cover .meta{display:flex;justify-content:space-between;font-size:10pt;color:#93a0b8}
+
+  .toc-mobile{display:block;break-after:page;margin:0}
+  .toc-mobile summary{list-style:none;font:800 30pt var(--display);color:var(--moon);margin:0 0 10mm;padding:0;border:0;background:none}
+  .toc-mobile summary::-webkit-details-marker{display:none}
+  .toc-mobile > ol{columns:2;column-gap:12mm;list-style:none;padding:0;margin:0}
+  .toc-mobile > ol > li{break-inside:avoid;margin:0 0 7mm}
+  .toc-mobile > ol > li > a{font-weight:700;color:var(--text);font-size:13.5pt}
+  .toc-mobile ol ol{list-style:none;padding:1mm 0 0 4mm;margin:0}
+  .toc-mobile a{color:var(--mist);font-size:11pt;line-height:1.85}
+
+  .layout{display:block;padding:0;max-width:none}
+  .wrap{padding:0}
+  main section{border:0;margin:0 0 4mm;padding:0}
+  main section + section{padding-top:6mm;border-top:1.5pt solid var(--a1)}
+  h2{font-size:24pt;margin:0 0 3mm;break-after:avoid}
+  h3{font-size:14pt;margin:5mm 0 1.8mm;break-after:avoid}
+  h3 + *, h2 + p{break-before:avoid}
+  p,li{color:var(--text);orphans:3;widows:3}
+  figure{margin:3mm 0}
+  figcaption{font-size:8.5pt;margin-top:1.5mm}
+  .card,details.howto,table tr,.legend li{break-inside:avoid}
+  .cols3{gap:4mm}
+  .card{padding:4mm 5mm}
+  details.howto{background:none;margin:1.6mm 0}
+  details.howto summary{padding:2.4mm 4mm .6mm;font-size:11.5pt}
+  details.howto summary::after{display:none}
+  details.howto > :not(summary){margin:0 4mm 2.4mm}
+  details.howto li,details.howto p{font-size:9.8pt;line-height:1.42}
+
+  /* pictures: full width (182 mm), wide windows (106 mm) or panels (50 mm), always on the same column edges */
+  .shot{break-inside:auto}
+  .shot .frame{break-inside:avoid;box-shadow:none;width:100%}
+  .shot .frame + figcaption{break-before:avoid}
+  .shot.portrait{display:grid;grid-template-columns:84mm minmax(0,1fr);column-gap:8mm;align-items:start}
+  .shot.portrait figcaption{grid-column:1}
+  .shot.portrait .legend{grid-column:2;grid-row:1;columns:1;margin:0;align-self:stretch;display:flex;flex-direction:column;justify-content:space-between;padding:0}
+  .shot.portrait .legend button{font-size:10pt;line-height:1.42}
+  .shot.portrait .legend .n{width:19px;height:19px;font-size:9.5px}
+  .plain{break-inside:avoid}
+  .plain img{box-shadow:none;border-radius:2mm}
+  .plain.wide img{width:106mm}
+  .plain.tall img{width:50mm}
+  .plain.menu{margin:0 5mm 3mm 0}
+  .plain.menu img{width:var(--mw);max-width:none;max-height:none;border-radius:1.5mm}
+  .pair{gap:0;margin:1mm 0 2mm;align-items:flex-end}
+  .side{display:grid;grid-template-columns:50mm minmax(0,1fr);column-gap:8mm;margin:1.5mm 0 4mm;align-items:start}
+  .side.wide{grid-template-columns:106mm minmax(0,1fr)}
+  .side.wide > figure figcaption{display:none}   /* the heading above already names it */
+  .side.duo{grid-template-columns:50mm 50mm minmax(0,1fr);column-gap:6mm}
+  .side.duo > :nth-child(2){grid-column:2;grid-row:1}
+  .side.duo > :last-child{grid-column:3;grid-row:1;padding-left:2mm}
+  .duo-col > .plain.tall img{width:100%}
+  .duo-col > .plain.menu{margin:4mm 0 0}
+  .side.duo h3{margin:5mm 0 2mm}
+  .side > figure{position:static;margin:0;max-width:none;width:100%}
+  .side > figure img{width:100%!important;max-width:none!important;max-height:none!important}
+  .side > div > :first-child{margin-top:0}
+  .side > div > :last-child{margin-bottom:0}
+  .side .pair .plain.menu:last-child{margin-right:0}
+  .with-menu{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:7mm;align-items:start}
+  .with-menu > .plain.menu{margin:0}
+  .modes{break-inside:avoid}
+  p:has(+ .modes){break-after:avoid}
+  p:has(+ .pair),p:has(+ .side){break-after:avoid}
+  #keys{break-before:page;border-top:0!important;padding-top:0!important}
+  .legend{columns:2;column-gap:6mm;margin-top:2mm}
+  .legend button{padding:.55mm 1mm;font-size:8.5pt;line-height:1.32;color:var(--text)}
+  .legend .n{width:16px;height:16px;font-size:8.5px}
+  .spot{width:17px;height:17px;font-size:8.5px;line-height:13px;border-width:1.5px}
+  .keys{gap:4mm;margin:3mm 0}
+  .keys td{font-size:9.5pt;padding:1mm 1.5mm}
+  .modes td,.modes th{padding:1.5mm 2mm}
+  a{text-decoration:none}
+  kbd{background:#eef0f4;font-size:8.5pt}
+  code{font-size:8.5pt}
+}
+</style>
+</head>
+<body>
+<nav><div class="wrap">
+  <a class="brand" href="index.html"><img src="site/icon.png" alt="">Pylon</a>
+  <div class="links">
+    <a class="hide-s" href="index.html#features">Features</a>
+    <a href="guide.html" aria-current="page">User guide</a>
+    <a class="hide-s" href="index.html#download">Download</a>
+    <a class="gh" href="https://github.com/nirmaljosephukken/pylon-player"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+  </div>
+</div></nav>
+
+<div class="cover" aria-hidden="true">
+  <div class="mark"><img src="site/icon.png" alt="">Pylon</div>
+  <div><h1>User guide</h1><p class="sub">Every screen, panel and setting in Pylon 1.5.0, with pictures and step-by-step how-tos.</p></div>
+  <div class="shot-wrap"><img src="guide/player.webp" alt=""></div>
+  <div class="meta"><span>Version 1.5.0</span><span>nirmaljosephukken.github.io/pylon-player</span></div>
+</div>
+<header><div class="wrap">
+  <h1>User guide</h1>
+  <p class="lede">Everything in Pylon 1.5.0 and where to find it: every screen, panel and setting, with step-by-step how-tos.</p>
+  <div class="tools">
+    <a class="btn" href="guide/Pylon-User-Guide.pdf" download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg>Download PDF</a>
+    <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search the guide, e.g. subtitles, volume, shortcut" autocomplete="off" aria-label="Search the guide"></label>
+  </div>
+  <p class="found" id="found" aria-live="polite"></p>
+</div></header>
+
+<div class="wrap layout">
+  <aside aria-label="Contents"><p class="label">Contents</p><ol><li><a href="#start">Getting started</a><ol><li><a href="#install">Install</a></li><li><a href="#open">Opening something to watch</a></li></ol></li><li><a href="#home">The home screen</a><ol><li><a href="#home-arrange">Arrange the home screen</a></li></ol></li><li><a href="#player">The player</a><ol><li><a href="#mouse">Mouse</a></li><li><a href="#zoom">Zoom into the picture</a></li><li><a href="#pip">Picture in picture</a></li><li><a href="#right-click">The right-click menu</a></li><li><a href="#snapshots">Snapshots</a></li></ol></li><li><a href="#library">The library panel</a><ol><li><a href="#lib-library">Library tab</a></li><li><a href="#lib-music">Music tab</a></li><li><a href="#lib-recent">Recent tab</a></li><li><a href="#lib-playlists">Playlists tab</a></li><li><a href="#lib-streams">Streams tab</a></li><li><a href="#pins">Pin to top</a></li></ol></li><li><a href="#queue">The queue</a><ol><li><a href="#queue-mode">Queue mode</a></li></ol></li><li><a href="#settings">The settings panel</a><ol><li><a href="#presets">Presets: settings for a show</a></li><li><a href="#set-subtitles">Subtitles tab</a></li><li><a href="#add-subs">Add subtitles to a whole season</a></li><li><a href="#set-audio">Audio tab</a></li><li><a href="#set-video">Video tab</a></li><li><a href="#set-playback">Playback tab</a></li><li><a href="#set-bookmarks">Bookmarks tab</a></li></ol></li><li><a href="#prefs">Preferences</a><ol><li><a href="#prefs-general">General: colours and themes</a></li><li><a href="#prefs-interface">Interface</a></li><li><a href="#prefs-playback">Playback</a></li><li><a href="#prefs-subtitles">Subtitles</a></li><li><a href="#prefs-controls">Controls</a></li><li><a href="#prefs-privacy">Privacy</a></li><li><a href="#prefs-performance">Performance</a></li></ol></li><li><a href="#keys">Keyboard shortcuts</a></li><li><a href="#howto">How to…</a></li><li><a href="#data">Your data and updates</a></li><li><a href="#trouble">Troubleshooting</a></li></ol></aside>
+  <main>
+    <details class="toc-mobile"><summary>Contents</summary><ol><li><a href="#start">Getting started</a><ol><li><a href="#install">Install</a></li><li><a href="#open">Opening something to watch</a></li></ol></li><li><a href="#home">The home screen</a><ol><li><a href="#home-arrange">Arrange the home screen</a></li></ol></li><li><a href="#player">The player</a><ol><li><a href="#mouse">Mouse</a></li><li><a href="#zoom">Zoom into the picture</a></li><li><a href="#pip">Picture in picture</a></li><li><a href="#right-click">The right-click menu</a></li><li><a href="#snapshots">Snapshots</a></li></ol></li><li><a href="#library">The library panel</a><ol><li><a href="#lib-library">Library tab</a></li><li><a href="#lib-music">Music tab</a></li><li><a href="#lib-recent">Recent tab</a></li><li><a href="#lib-playlists">Playlists tab</a></li><li><a href="#lib-streams">Streams tab</a></li><li><a href="#pins">Pin to top</a></li></ol></li><li><a href="#queue">The queue</a><ol><li><a href="#queue-mode">Queue mode</a></li></ol></li><li><a href="#settings">The settings panel</a><ol><li><a href="#presets">Presets: settings for a show</a></li><li><a href="#set-subtitles">Subtitles tab</a></li><li><a href="#add-subs">Add subtitles to a whole season</a></li><li><a href="#set-audio">Audio tab</a></li><li><a href="#set-video">Video tab</a></li><li><a href="#set-playback">Playback tab</a></li><li><a href="#set-bookmarks">Bookmarks tab</a></li></ol></li><li><a href="#prefs">Preferences</a><ol><li><a href="#prefs-general">General: colours and themes</a></li><li><a href="#prefs-interface">Interface</a></li><li><a href="#prefs-playback">Playback</a></li><li><a href="#prefs-subtitles">Subtitles</a></li><li><a href="#prefs-controls">Controls</a></li><li><a href="#prefs-privacy">Privacy</a></li><li><a href="#prefs-performance">Performance</a></li></ol></li><li><a href="#keys">Keyboard shortcuts</a></li><li><a href="#howto">How to…</a></li><li><a href="#data">Your data and updates</a></li><li><a href="#trouble">Troubleshooting</a></li></ol></details>
+    
+<section id="start" data-title="Getting started">
+<h2>Getting started</h2>
+<p>Pylon is a media player that uses VLC's engine to play your files, with a calmer interface and features made for watching shows. It plays everything VLC plays. You install VLC yourself, and Pylon finds it.</p>
+<h3 id="install">Install</h3>
+<div class="cols3">
+<div class="card"><h4>Windows 10 and 11</h4><ol>
+<li>Install the 64-bit VLC from <a href="https://www.videolan.org/vlc/download-windows.html">videolan.org</a>.</li>
+<li>Download <code>Pylon-Setup-1.5.0.exe</code> from the <a href="index.html#download">download page</a> and run it. No admin rights are needed.</li>
+<li>If Windows says "Windows protected your PC", click <b>More info</b>, then <b>Run anyway</b>. Pylon isn't code-signed yet.</li></ol></div>
+<div class="card"><h4>Linux</h4><ol>
+<li>Install VLC from your distribution's packages, for example <code>sudo apt install vlc</code>. The Flatpak and Snap versions of VLC can't be used by other apps.</li>
+<li>Download <code>Pylon-1.5.0-x86_64.AppImage</code>, run <code>chmod +x Pylon-*.AppImage</code>, then double-click it.</li>
+<li>The first start adds Pylon to your applications menu and "Open with".</li></ol></div>
+<div class="card"><h4>macOS 14 and later (experimental)</h4><ol>
+<li>Install VLC from <a href="https://www.videolan.org/vlc/download-macosx.html">videolan.org</a> and drag it into Applications.</li>
+<li>Download <code>Pylon-1.5.0-macOS.zip</code>, unzip it and move Pylon to Applications.</li>
+<li>The first launch is blocked because Pylon isn't signed by Apple. Open <b>System Settings > Privacy &amp; Security</b> and click <b>Open Anyway</b>.</li></ol></div>
+</div>
+<h3 id="open">Opening something to watch</h3>
+<ul>
+<li><b>Drop</b> files, folders or links anywhere on the Pylon window.</li>
+<li>Use <b>Open file</b>, <b>Open folder</b> or <b>Network stream</b> on the home screen, or the same choices under <b>Menu > Open</b>. <b>Link from clipboard</b> plays a link or file path you've copied.</li>
+<li>On Windows, right-click a file and choose <b>Open with > Pylon</b>. Opening another file while Pylon is running plays it in the same window.</li>
+<li>When you play a file, the rest of its folder goes into the queue in name order, so the next episode is ready.</li>
+</ul>
+<div class="tip"><b>Make Pylon your default player on Windows.</b> Right-click a video, choose <b>Open with > Choose another app</b>, pick Pylon and click <b>Always</b>. Or open <b>Settings > Apps > Default apps</b>, type a file type such as <code>.mkv</code>, and choose Pylon.</div>
+</section>
+
+<section id="home" data-title="The home screen">
+<h2>The home screen</h2>
+<p>Pylon opens on the home screen: what you were watching, what you played recently, your library folders, playlists, music and saved streams. Click any card to play it, or right-click it for more choices.</p>
+<figure class="shot portrait" id="fig-home"><div class="frame"><img src="guide/home.webp" width="800" height="1046" alt="The home screen. Click a number to see what it does." loading="lazy"><span class="box" data-i="1" style="left:3.05%;top:1.49%;width:2.71%;height:2.0699999999999994%"></span><span class="box" data-i="2" style="left:3.05%;top:4.28%;width:8.64%;height:1.9400000000000004%"></span><span class="box" data-i="3" style="left:12.37%;top:4.28%;width:10.08%;height:1.9400000000000004%"></span><span class="box" data-i="4" style="left:23.14%;top:4.28%;width:12.200000000000003%;height:1.9400000000000004%"></span><span class="box" data-i="5" style="left:36.02%;top:4.28%;width:14.410000000000004%;height:1.9400000000000004%"></span><span class="box" data-i="6" style="left:3.05%;top:12.05%;width:17.8%;height:8.3%"></span><span class="box" data-i="7" style="left:94.24%;top:1.49%;width:2.7099999999999937%;height:2.0699999999999994%"></span><button class="spot" type="button" data-i="1" style="left:4.40%;top:5.24%" aria-label="1: Library panel">1</button><button class="spot" type="button" data-i="2" style="left:7.37%;top:7.90%" aria-label="2: Open file">2</button><button class="spot" type="button" data-i="3" style="left:17.41%;top:7.90%" aria-label="3: Open folder">3</button><button class="spot" type="button" data-i="4" style="left:29.24%;top:7.90%" aria-label="4: Network stream">4</button><button class="spot" type="button" data-i="5" style="left:43.23%;top:7.90%" aria-label="5: Add folder to library">5</button><button class="spot" type="button" data-i="6" style="left:4.65%;top:14.34%" aria-label="6: Continue watching">6</button><button class="spot" type="button" data-i="7" style="left:95.59%;top:5.24%" aria-label="7: Menu">7</button><div class="pop" role="status" hidden></div></div><figcaption>The home screen. Click a number to see what it does.</figcaption><p class="hint"><span class="big">Click a number on the picture, or an item in the list, to see what it is.</span><span class="small">Tap an item in the list to light it up on the picture.</span></p><ol class=legend><li data-i="1"><button type="button"><span class="n">1</span><span><b>Library panel</b> Opens the library panel on the left: your folders, music, recent files, playlists, streams and the queue. Shortcut: Ctrl+L.</span></button></li><li data-i="2"><button type="button"><span class="n">2</span><span><b>Open file</b> Pick one or more files to play. Shortcut: Ctrl+O.</span></button></li><li data-i="3"><button type="button"><span class="n">3</span><span><b>Open folder</b> Plays every video or song in a folder, in name order. Shortcut: Ctrl+F.</span></button></li><li data-i="4"><button type="button"><span class="n">4</span><span><b>Network stream</b> Paste a link to a video, a live stream or a channel list (.m3u). Shortcut: Ctrl+N.</span></button></li><li data-i="5"><button type="button"><span class="n">5</span><span><b>Add folder to library</b> Adds a folder to Your library, so it appears on the home screen and in the Library and Music tabs.</span></button></li><li data-i="6"><button type="button"><span class="n">6</span><span><b>Continue watching</b> Everything you started but didn&#x27;t finish, with how far you got. Click to carry on. Hover a card and click the double tick to mark it as watched.</span></button></li><li data-i="7"><button type="button"><span class="n">7</span><span><b>Menu</b> Open, Home, Library, Preferences, keyboard shortcuts, updates and About.</span></button></li></ol></figure>
+<h3 id="home-arrange">Arrange the home screen</h3>
+<p>Open <b>Preferences > Interface</b> and find <b>Home screen sections</b>.</p>
+<ol class="steps">
+<li>Drag a section by its handle (the dots on the left) to move it up or down.</li>
+<li>Click the eye next to a section to show or hide it. A crossed-out eye means hidden.</li>
+</ol>
+<p>Hiding a section doesn't delete anything. The <b>Music</b> section shows your albums, pinned ones first, then the newest. Pinned playlists and streams also come first in their sections.</p>
+</section>
+
+<section id="player" data-title="The player">
+<h2>The player</h2>
+<p>While something plays, the top and bottom bars float over the picture. They appear when you move the mouse and fade away when you stop. Press <kbd>H</kbd> to hide them completely, or keep them on screen with <b>Preferences > Interface > Keep the controls visible when not in fullscreen</b>.</p>
+<figure class="shot" id="fig-player"><div class="frame"><img src="guide/player.webp" width="800" height="474" alt="The player with both bars showing." loading="lazy"><span class="box" data-i="1" style="left:0.85%;top:1.14%;width:2.71%;height:4.57%"></span><span class="box" data-i="2" style="left:3.9%;top:1.71%;width:13.31%;height:3.4300000000000006%"></span><span class="box" data-i="3" style="left:18.22%;top:0.86%;width:71.1%;height:5.14%"></span><span class="box" data-i="4" style="left:90.34%;top:1.14%;width:2.7099999999999937%;height:4.57%"></span><span class="box" data-i="5" style="left:93.39%;top:1.14%;width:2.7099999999999937%;height:4.57%"></span><span class="box" data-i="6" style="left:96.44%;top:1.14%;width:2.7099999999999937%;height:4.57%"></span><span class="box" data-i="7" style="left:1.02%;top:90.71%;width:2.54%;height:4.290000000000006%"></span><span class="box" data-i="8" style="left:3.73%;top:90.29%;width:4.24%;height:5.140000000000001%"></span><span class="box" data-i="9" style="left:8.14%;top:90.71%;width:2.539999999999999%;height:4.290000000000006%"></span><span class="box" data-i="10" style="left:10.85%;top:91.71%;width:8.31%;height:2.2900000000000063%"></span><span class="box" data-i="11" style="left:38.9%;top:91.14%;width:12.880000000000003%;height:3.430000000000007%"></span><span class="box" data-i="12" style="left:71.53%;top:91.14%;width:4.579999999999998%;height:3.430000000000007%"></span><span class="box" data-i="13" style="left:76.61%;top:90.57%;width:2.7099999999999937%;height:4.569999999999993%"></span><span class="box" data-i="14" style="left:79.49%;top:90.57%;width:2.7099999999999937%;height:4.569999999999993%"></span><span class="box" data-i="15" style="left:82.37%;top:90.57%;width:2.7099999999999937%;height:4.569999999999993%"></span><span class="box" data-i="16" style="left:85.76%;top:90.71%;width:2.5400000000000063%;height:4.290000000000006%"></span><span class="box" data-i="17" style="left:88.47%;top:91.0%;width:7.1200000000000045%;height:3.7099999999999937%"></span><span class="box" data-i="18" style="left:96.27%;top:90.57%;width:2.7099999999999937%;height:4.569999999999993%"></span><span class="box" data-i="19" style="left:1.02%;top:96.0%;width:97.97%;height:2.569999999999993%"></span><button class="spot" type="button" data-i="1" style="left:2.21%;top:9.42%" aria-label="1: Library panel">1</button><button class="spot" type="button" data-i="2" style="left:10.55%;top:8.85%" aria-label="2: Folder name">2</button><button class="spot" type="button" data-i="3" style="left:53.77%;top:9.71%" aria-label="3: Title">3</button><button class="spot" type="button" data-i="4" style="left:91.69%;top:9.42%" aria-label="4: Picture in picture">4</button><button class="spot" type="button" data-i="5" style="left:94.75%;top:9.42%" aria-label="5: Fullscreen">5</button><button class="spot" type="button" data-i="6" style="left:97.79%;top:9.42%" aria-label="6: Menu">6</button><button class="spot" type="button" data-i="7" style="left:2.29%;top:87.00%" aria-label="7: Previous">7</button><button class="spot" type="button" data-i="8" style="left:5.85%;top:86.58%" aria-label="8: Play / pause">8</button><button class="spot" type="button" data-i="9" style="left:9.41%;top:87.00%" aria-label="9: Next">9</button><button class="spot" type="button" data-i="10" style="left:15.00%;top:88.00%" aria-label="10: Time">10</button><button class="spot" type="button" data-i="11" style="left:45.34%;top:87.43%" aria-label="11: Continue from">11</button><button class="spot" type="button" data-i="12" style="left:73.82%;top:87.43%" aria-label="12: Speed">12</button><button class="spot" type="button" data-i="13" style="left:77.97%;top:86.86%" aria-label="13: Subtitles">13</button><button class="spot" type="button" data-i="14" style="left:80.84%;top:86.86%" aria-label="14: Audio">14</button><button class="spot" type="button" data-i="15" style="left:83.72%;top:86.86%" aria-label="15: Queue">15</button><button class="spot" type="button" data-i="16" style="left:87.03%;top:87.00%" aria-label="16: Mute">16</button><button class="spot" type="button" data-i="17" style="left:92.03%;top:87.29%" aria-label="17: Volume">17</button><button class="spot" type="button" data-i="18" style="left:97.62%;top:86.86%" aria-label="18: Settings panel">18</button><button class="spot" type="button" data-i="19" style="left:2.62%;top:97.28%" aria-label="19: Seek bar">19</button><div class="pop" role="status" hidden></div></div><figcaption>The player with both bars showing.</figcaption><p class="hint"><span class="big">Click a number on the picture, or an item in the list, to see what it is.</span><span class="small">Tap an item in the list to light it up on the picture.</span></p><ol class=legend><li data-i="1"><button type="button"><span class="n">1</span><span><b>Library panel</b> Shows or hides the library panel and queue. Shortcut: Ctrl+L.</span></button></li><li data-i="2"><button type="button"><span class="n">2</span><span><b>Folder name</b> The folder the file came from. Click it to browse that folder in the library panel without stopping the video.</span></button></li><li data-i="3"><button type="button"><span class="n">3</span><span><b>Title</b> The name of what&#x27;s playing. For a stream it also shows what&#x27;s on, if the stream says.</span></button></li><li data-i="4"><button type="button"><span class="n">4</span><span><b>Picture in picture</b> A small window that stays on top of other apps. Shortcut: Ctrl+P. Esc goes back.</span></button></li><li data-i="5"><button type="button"><span class="n">5</span><span><b>Fullscreen</b> Shortcut: F or Enter. Esc leaves fullscreen.</span></button></li><li data-i="6"><button type="button"><span class="n">6</span><span><b>Menu</b> Open files and links, Home, Library, Add subtitles, Add bookmark, Take a snapshot, Preferences, Keyboard shortcuts, Check for updates and About.</span></button></li><li data-i="7"><button type="button"><span class="n">7</span><span><b>Previous</b> The previous item in the queue. Shortcut: P.</span></button></li><li data-i="8"><button type="button"><span class="n">8</span><span><b>Play / pause</b> Shortcut: Space, or click anywhere on the video.</span></button></li><li data-i="9"><button type="button"><span class="n">9</span><span><b>Next</b> The next item in the queue, or the next file in the folder. Shortcut: N.</span></button></li><li data-i="10"><button type="button"><span class="n">10</span><span><b>Time</b> Where you are and how long it is. Click to show the time remaining instead.</span></button></li><li data-i="11"><button type="button"><span class="n">11</span><span><b>Continue from</b> Appears when you open something you didn&#x27;t finish. Click it to jump back to where you stopped. You can make Pylon always continue, or always start from the beginning, in Preferences &gt; Playback.</span></button></li><li data-i="12"><button type="button"><span class="n">12</span><span><b>Speed</b> Shows only when the speed isn&#x27;t 1x. Click it to open the speed settings. Keys: [ slower, ] faster, = normal.</span></button></li><li data-i="13"><button type="button"><span class="n">13</span><span><b>Subtitles</b> Choose a subtitle track, add subtitle files, or open the timing and look settings. V switches to the next track.</span></button></li><li data-i="14"><button type="button"><span class="n">14</span><span><b>Audio</b> Choose an audio track (for example a different language) and where the sound plays: speakers, headphones and so on. B switches to the next track.</span></button></li><li data-i="15"><button type="button"><span class="n">15</span><span><b>Queue</b> Opens the library panel on the queue. Shortcut: Ctrl+Q.</span></button></li><li data-i="16"><button type="button"><span class="n">16</span><span><b>Mute</b> Shortcut: M.</span></button></li><li data-i="17"><button type="button"><span class="n">17</span><span><b>Volume</b> Click, drag or scroll over it. Up and Down change it in steps of 5. It goes to 125%, or to 150% or 200% if you raise the limit in Preferences &gt; Playback.</span></button></li><li data-i="18"><button type="button"><span class="n">18</span><span><b>Settings panel</b> Subtitle, audio, video and playback settings in a panel on the right, without covering the video. Shortcut: Ctrl+T.</span></button></li><li data-i="19"><button type="button"><span class="n">19</span><span><b>Seek bar</b> Click or drag to move. Hover to see a preview picture of that moment. Small triangles mark your bookmarks, and thin lines mark chapters.</span></button></li></ol></figure>
+<h3 id="mouse">Mouse</h3>
+<ul>
+<li><b>Click</b> the video to play or pause, <b>double-click</b> for fullscreen, <b>scroll</b> to change the volume and <b>right-click</b> for the menu. You can change what each click does in <b>Preferences > Controls</b>, including the middle button and the back and forward buttons.</li>
+<li><b>Hover the seek bar</b> to see a preview picture of that moment. Previews are made in the background the first time you play a video, and kept for next time. They work for files on your computer, not online streams.</li>
+</ul>
+<h3 id="zoom">Zoom into the picture</h3>
+<p>Hold <kbd>Ctrl</kbd> and scroll over the video to zoom in on the spot under the mouse, or use <kbd>Ctrl</kbd>+<kbd>=</kbd> and <kbd>Ctrl</kbd>+<kbd>-</kbd>. While zoomed, drag the picture to look around. <kbd>Ctrl</kbd>+<kbd>0</kbd> resets the zoom.</p>
+<h3 id="pip">Picture in picture</h3>
+<div class="side wide"><figure class="plain wide"><img src="guide/pip.webp" width="480" height="270" alt="Picture in picture" loading="lazy"><figcaption>Picture in picture</figcaption></figure><div>
+<p>Click the picture-in-picture button in the top bar or press <kbd>Ctrl</kbd>+<kbd>P</kbd>. Pylon becomes a small borderless window that stays on top of your other apps.</p>
+<p>Drag it anywhere, and drag its edges to resize it. Press <kbd>Esc</kbd> or the button again to go back.</p>
+</div></div>
+<h3 id="right-click">The right-click menu</h3>
+<p>Right-click the video for the things you change most while watching: subtitle and audio tracks, the video track and aspect ratio, speed, bookmarks, snapshots, the panels, fullscreen and picture in picture.</p>
+<div class="pair"><figure class="plain menu" style="--mw:34.9mm"><img src="guide/menu_context.webp" width="237" height="466" alt="Right-click menu" loading="lazy"><figcaption>Right-click menu</figcaption></figure><figure class="plain menu" style="--mw:36.0mm"><img src="guide/menu_main.webp" width="245" height="354" alt="The Menu button" loading="lazy"><figcaption>The Menu button</figcaption></figure></div>
+<h3 id="snapshots">Snapshots</h3>
+<p>Press <kbd>Shift</kbd>+<kbd>S</kbd>, or choose <b>Take a snapshot</b> in the menu, to save the current picture. Snapshots go to <code>Pictures\Pylon</code>.</p>
+</section>
+
+<section id="library" data-title="The library panel">
+<h2>The library panel</h2>
+<p>The library panel opens on the left with <kbd>Ctrl</kbd>+<kbd>L</kbd>, the button at the top left, or by clicking the folder name in the top bar. The video keeps playing next to it. The top half has five tabs; the bottom half is the queue.</p>
+<figure class="shot" id="fig-panels"><div class="frame"><img src="guide/panels.webp" width="800" height="512" alt="The library panel on the left and the settings panel on the right." loading="lazy"><span class="box" data-i="1" style="left:0.62%;top:0.98%;width:12.34%;height:3.6600000000000006%"></span><span class="box" data-i="2" style="left:0.62%;top:8.17%;width:23.759999999999998%;height:3.66%"></span><span class="box" data-i="3" style="left:0.62%;top:12.56%;width:23.76%;height:3.6599999999999984%"></span><span class="box" data-i="4" style="left:14.69%;top:67.56%;width:9.690000000000003%;height:3.4099999999999966%"></span><span class="box" data-i="5" style="left:0.62%;top:71.46%;width:23.75%;height:3.6599999999999966%"></span><span class="box" data-i="6" style="left:0.62%;top:75.61%;width:23.75%;height:21.22%"></span><span class="box" data-i="7" style="left:78.52%;top:5.37%;width:17.42%;height:3.660000000000001%"></span><span class="box" data-i="8" style="left:73.44%;top:10.24%;width:26.560000000000002%;height:4.15%"></span><button class="spot" type="button" data-i="1" style="left:15.16%;top:2.81%" aria-label="1: Library tabs">1</button><button class="spot" type="button" data-i="2" style="left:26.58%;top:10.00%" aria-label="2: Back, forward, up and the address bar">2</button><button class="spot" type="button" data-i="3" style="left:26.58%;top:14.39%" aria-label="3: Search, sort and add">3</button><button class="spot" type="button" data-i="4" style="left:19.54%;top:64.13%" aria-label="4: Queue buttons">4</button><button class="spot" type="button" data-i="5" style="left:26.57%;top:73.29%" aria-label="5: Search the queue">5</button><button class="spot" type="button" data-i="6" style="left:26.57%;top:86.22%" aria-label="6: The queue">6</button><button class="spot" type="button" data-i="7" style="left:87.23%;top:2.50%" aria-label="7: Presets">7</button><button class="spot" type="button" data-i="8" style="left:86.72%;top:17.82%" aria-label="8: Settings tabs">8</button><div class="pop" role="status" hidden></div></div><figcaption>The library panel on the left and the settings panel on the right.</figcaption><p class="hint"><span class="big">Click a number on the picture, or an item in the list, to see what it is.</span><span class="small">Tap an item in the list to light it up on the picture.</span></p><ol class=legend><li data-i="1"><button type="button"><span class="n">1</span><span><b>Library tabs</b> Library (your folders), Music, Recent, Playlists and Streams. Each tab is described below. The house next to them goes back to the home screen, and the cross closes the panel.</span></button></li><li data-i="2"><button type="button"><span class="n">2</span><span><b>Back, forward, up and the address bar</b> Move between folders you&#x27;ve opened, like a web browser, or go up one folder. The address bar shows where you are: type or paste a folder path and press Enter to go there.</span></button></li><li data-i="3"><button type="button"><span class="n">3</span><span><b>Search, sort and add</b> Search filters what&#x27;s shown as you type. Sort offers Name, Date modified (newest), Unwatched first and Watched first. The + button adds a folder to the library or opens a file or folder.</span></button></li><li data-i="4"><button type="button"><span class="n">4</span><span><b>Queue buttons</b> From left: add files to the queue; the queue mode (Stop, Shuffle, In order or Loop, see The queue below); save the queue as a playlist, or as a channel list if it&#x27;s all streams; and clear the queue. Clearing never touches your files.</span></button></li><li data-i="5"><button type="button"><span class="n">5</span><span><b>Search the queue</b> Appears when the queue has more than 8 items. Type to find an item, handy for long channel lists.</span></button></li><li data-i="6"><button type="button"><span class="n">6</span><span><b>The queue</b> Double-click an item to play it. Drag to reorder, and drag files in from the library or your file manager.</span></button></li><li data-i="7"><button type="button"><span class="n">7</span><span><b>Presets</b> Saved settings for a show: subtitle timing and look, tracks, speed and picture. The save button stores the current settings for every file in this folder; the bin deletes the preset.</span></button></li><li data-i="8"><button type="button"><span class="n">8</span><span><b>Settings tabs</b> Subtitles, Audio, Video, Playback and Bookmarks. Each tab is described below.</span></button></li></ol></figure>
+<p><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> shows or hides both side panels at once. Preferences > Interface lets you choose which tab each panel opens on.</p>
+
+<h3 id="lib-library">Library tab</h3>
+<div class="side"><figure class="plain tall"><img src="guide/lib_library.webp" width="320" height="308" alt="Library tab" loading="lazy"><figcaption>Library tab</figcaption></figure><div>
+<p>Your library folders, with pinned folders at the top. Double-click a folder to open it, and a file to play it with the rest of its folder queued.</p>
+<ul>
+<li>Use the <b>+</b> button, or <b>Add folder to library</b> on the home screen, to add a folder.</li>
+<li>Files you've watched have a tick. Sort by <b>Unwatched first</b> to see what's next.</li>
+<li>Select several files with <kbd>Ctrl</kbd> or <kbd>Shift</kbd>, and drag them into the queue.</li>
+<li>Right-click a file or folder for more:</li>
+</ul>
+<div class="pair"><figure class="plain menu" style="--mw:36.9mm"><img src="guide/menu_library_file.webp" width="251" height="215" alt="Right-click a file" loading="lazy"><figcaption>Right-click a file</figcaption></figure><figure class="plain menu" style="--mw:36.9mm"><img src="guide/menu_library_folder.webp" width="251" height="215" alt="Right-click a folder" loading="lazy"><figcaption>Right-click a folder</figcaption></figure></div>
+</div></div>
+
+<h3 id="lib-music">Music tab</h3>
+<div class="side"><figure class="plain tall"><img src="guide/lib_music.webp" width="320" height="370" alt="Music tab" loading="lazy"><figcaption>Music tab</figcaption></figure><div>
+<p>Songs from your library folders, with cover art from the files. Switch between <b>Artists</b>, <b>Albums</b> and <b>Songs</b>. Open an album and press <b>Play</b>, or double-click any song.</p>
+<p>Pylon reads your music in the background. Click the circular arrow to look for new music. Right-click an artist or album to play it, queue it, add it to a playlist or <b>Pin to top</b>.</p>
+</div></div>
+
+<h3 id="lib-recent">Recent tab</h3>
+<div class="side"><figure class="plain tall"><img src="guide/lib_recent.webp" width="320" height="291" alt="Recent tab" loading="lazy"><figcaption>Recent tab</figcaption></figure><div class="with-menu"><div>
+<p>Everything you played recently, newest first. Right-click an item to play it, queue it, add it to a playlist or mark it as watched. Streams also have <b>Copy link</b> and <b>Save to Streams</b>.</p>
+<p><b>Remove from Recent</b> takes one item (or several selected items) off the list, along with where you stopped. <b>Clear history</b> at the bottom forgets everything.</p></div>
+<figure class="plain menu" style="--mw:29.9mm"><img src="guide/menu_recent.webp" width="203" height="224" alt="Right-click in Recent" loading="lazy"><figcaption>Right-click in Recent</figcaption></figure>
+</div></div>
+
+<h3 id="lib-playlists">Playlists tab</h3>
+<div class="side"><figure class="plain tall"><img src="guide/lib_playlists.webp" width="320" height="333" alt="Playlists tab" loading="lazy"><figcaption>Playlists tab</figcaption></figure><div>
+<p>Click <b>New playlist…</b> to make one, or right-click files, folders, albums or the queue and choose <b>Add to playlist</b>. The number next to each name is how many items it has.</p>
+<p>Playing a playlist continues from the first item you haven't finished. Right-click a playlist to play it, queue it, add files, rename it, export it as an <code>.m3u</code> file, pin it to the top or delete it. Deleting a playlist never deletes your files.</p>
+</div></div>
+
+<h3 id="lib-streams">Streams tab</h3>
+<div class="side"><figure class="plain tall"><img src="guide/lib_streams.webp" width="320" height="334" alt="Streams tab" loading="lazy"><figcaption>Streams tab</figcaption></figure><div class="with-menu"><div>
+<p>Saved streams and channel lists. <b>Open a stream…</b> plays a link and can save it here. <b>Import list…</b> saves an <code>.m3u</code> channel list, and its channel count appears next to the name. You can also drop <code>.m3u</code> files straight onto this list.</p>
+<p>Double-click a channel list to load its channels into the queue, where you can search them. Right-click it to add more streams, rename it, export it or remove it.</p>
+</div>
+<figure class="plain menu" style="--mw:27.5mm"><img src="guide/menu_streams_list.webp" width="187" height="215" alt="Right-click a channel list" loading="lazy"><figcaption>Right-click a channel list</figcaption></figure>
+</div></div>
+
+<h3 id="pins">Pin to top</h3>
+<p>Right-click a library folder, stream, playlist, artist or album and choose <b>Pin to top</b>. Pinned items sit in their own group at the top of the tab whatever the sort order, and come first on the home screen. Choose <b>Unpin</b> to put an item back.</p>
+</section>
+
+<section id="queue" data-title="The queue">
+<h2>The queue</h2>
+<div class="side"><figure class="plain tall"><img src="guide/lib_queue.webp" width="320" height="299" alt="The queue" loading="lazy"><figcaption>The queue</figcaption></figure><div>
+<p>The queue is the list of what plays next, at the bottom of the library panel. Open it with <kbd>Ctrl</kbd>+<kbd>Q</kbd> or the queue button on the bottom bar.</p>
+<ul>
+<li>Double-click an item to play it. Drag items to reorder them.</li>
+<li>Drag files in from the library or from your file manager, or right-click a file anywhere and choose <b>Add to queue</b> or <b>Play next</b>.</li>
+<li>Select several items with <kbd>Ctrl</kbd> or <kbd>Shift</kbd>, then right-click to mark them watched or remove them, or press <kbd>Delete</kbd>.</li>
+<li>With more than 8 items, a search box appears above the queue.</li>
+</ul>
+</div></div>
+<h3 id="queue-mode">Queue mode</h3>
+<p>The button above the queue decides what happens when an item ends. Click it to cycle through the modes:</p>
+<table class="modes"><tr><th>Mode</th><th>What happens when an item ends</th></tr>
+<tr><td><b>Stop</b> <span class="muted">(grey button)</span></td><td>Playback stops.</td></tr>
+<tr><td><b>Shuffle</b></td><td>The queue is mixed up (what's playing stays first) and plays in that order. Leaving Shuffle puts the original order back.</td></tr>
+<tr><td><b>In order</b></td><td>The next item in the queue plays. This is the default.</td></tr>
+<tr><td><b>Loop</b></td><td>The same item plays again.</td></tr></table>
+<p>The same choice is in the settings panel under <b>Playback</b>, along with <b>Start the queue again when it reaches the end</b>, which repeats the whole queue, and works with Shuffle too. <b>Preferences > Playback</b> sets the mode Pylon starts in.</p>
+<figure class="plain menu" style="--mw:36.6mm"><img src="guide/menu_queue.webp" width="249" height="215" alt="Right-click in the queue" loading="lazy"><figcaption>Right-click in the queue</figcaption></figure>
+</section>
+
+<section id="settings" data-title="The settings panel">
+<h2>The settings panel</h2>
+<p>Press <kbd>Ctrl</kbd>+<kbd>T</kbd> or click the sliders button at the bottom right. The panel opens on the right, so you can adjust things while the video plays.</p>
+<h3 id="presets">Presets: settings for a show</h3>
+<p>A preset keeps subtitle timing and look, audio and subtitle tracks, speed and picture settings for a show. Set things up once, then click the save button next to <b>Preset</b> and give it a name. Every file in that folder uses it automatically from then on. Pick another preset from the list, or <b>No preset</b>, at any time.</p>
+
+<h3 id="set-subtitles">Subtitles tab</h3>
+<div class="side"><figure class="plain tall"><img src="guide/set_subtitles.webp" width="340" height="986" alt="Subtitles tab" loading="lazy"><figcaption>Subtitles tab</figcaption></figure><div>
+<ul>
+<li><b>Track</b>: choose a subtitle track. <b>Add subtitles…</b> adds files; <b>Find online</b> opens a subtitle site in your browser.</li>
+<li><b>Timing</b>: pause when someone starts talking, then drag the timeline until their line sits under the white playhead. The <b>-</b> and <b>+</b> buttons, the slider, and the <kbd>G</kbd> and <kbd>J</kbd> keys move subtitles 50 ms at a time.</li>
+<li><b>Look</b>: size (relative or exact pixels), font, color, outline, bold, background box and distance from the bottom. Click <b>Apply look</b>. The video restarts at the same spot, because VLC reads these when it starts.</li>
+<li><b>Every episode</b>: a language to switch to automatically, such as <code>eng</code> or <code>English</code>. Use <code>off</code> to start with subtitles off.</li>
+</ul>
+<p>Pylon also finds subtitle files next to the video, or in a <code>Subs</code> or <code>Subtitles</code> folder, by itself. How closely names must match is set in <b>Preferences > Subtitles</b>.</p>
+<div class="pair"><figure class="plain menu" style="--mw:30.7mm"><img src="guide/menu_subs.webp" width="209" height="168" alt="Subtitles button" loading="lazy"><figcaption>Subtitles button</figcaption></figure><figure class="plain menu" style="--mw:30.3mm"><img src="guide/menu_findonline.webp" width="206" height="150" alt="Find online, with a preferred site starred" loading="lazy"><figcaption>Find online, with a preferred site starred</figcaption></figure></div>
+</div></div>
+
+<h3 id="add-subs">Add subtitles to a whole season</h3>
+<div class="side wide"><figure class="plain wide"><img src="guide/dlg_subtitles.webp" width="760" height="540" alt="Add subtitles" loading="lazy"><figcaption>Add subtitles</figcaption></figure><div>
+<ol class="steps">
+<li>Choose <b>Add subtitles…</b> in the Subtitles tab, the subtitles button or the menu.</li>
+<li>Pick where they go: <b>This file</b>, <b>This folder</b> or <b>Everything in the queue</b>.</li>
+<li>Choose <b>Files on this computer…</b> or <b>A folder of subtitles…</b>. Each subtitle file is matched to its video by name or episode number (S01E02, 1x02, E02).</li>
+<li>Fix any row by hand, then click <b>Save and use</b>. Pylon remembers the pairings.</li>
+</ol>
+</div></div>
+
+<div class="side duo"><div class="duo-col"><figure class="plain tall"><img src="guide/set_audio.webp" width="340" height="830" alt="Audio tab" loading="lazy"><figcaption>Audio tab</figcaption></figure><figure class="plain menu" style="--mw:29.9mm"><img src="guide/menu_audio.webp" width="203" height="177" alt="Audio button" loading="lazy"><figcaption>Audio button</figcaption></figure></div><figure class="plain tall"><img src="guide/set_video.webp" width="340" height="1162" alt="Video tab" loading="lazy"><figcaption>Video tab</figcaption></figure><div>
+<h3 id="set-audio">Audio tab</h3>
+<ul>
+<li><b>Track</b> and <b>Output</b>: the audio track, and where sound plays (speakers, headphones and so on).</li>
+<li><b>Timing</b>: move the sound earlier or later if it doesn't match the picture. Keys: <kbd>K</kbd> later, <kbd>Shift</kbd>+<kbd>K</kbd> earlier.</li>
+<li><b>Sound</b>: VLC's equalizer presets in one click. Hover a preset to see what it does. <b>Custom</b> opens a 10-band equalizer; double-click any slider to reset it to 0 dB, or click <b>Flat</b> to reset them all.</li>
+<li><b>Every episode</b>: an audio language to pick automatically, such as <code>jpn</code> or <code>eng</code>.</li>
+</ul>
+
+<h3 id="set-video">Video tab</h3>
+<ul>
+<li><b>Aspect ratio</b>, <b>Crop and zoom</b>: fix a stretched picture or remove black bars.</li>
+<li><b>Picture</b>: one-click looks (Original, Vivid, Bright, Cinema, Soft, Mono) and sliders for brightness, contrast, saturation, gamma and hue. Each slider's circular arrow resets it.</li>
+<li><b>Sharpen</b>: makes soft or low-resolution video look crisper.</li>
+<li><b>Rotate and flip</b>, and <b>Deinterlace</b> for old TV recordings with comb-like lines.</li>
+</ul>
+<p>Changing sharpen or rotation restarts the video at the same spot.</p>
+</div></div>
+
+<div class="side duo"><figure class="plain tall"><img src="guide/set_playback.webp" width="340" height="656" alt="Playback tab" loading="lazy"><figcaption>Playback tab</figcaption></figure><figure class="plain tall"><img src="guide/set_bookmarks.webp" width="340" height="428" alt="Bookmarks tab" loading="lazy"><figcaption>Bookmarks tab</figcaption></figure><div>
+<h3 id="set-playback">Playback tab</h3>
+<ul>
+<li><b>Speed</b>: from 0.5x to 2x.</li>
+<li><b>Sleep timer</b>: stop after 15, 30 or 45 minutes, an hour, or at the end of this file.</li>
+<li><b>When a file ends</b>: play the next file in the folder, the queue mode, and whether the queue starts again at the end.</li>
+<li><b>Media info</b>: resolution, length and where the file is.</li>
+</ul>
+
+<h3 id="set-bookmarks">Bookmarks tab</h3>
+<p>Press <kbd>Ctrl</kbd>+<kbd>B</kbd> anywhere to bookmark the current moment. Bookmarks show as small triangles on the seek bar. In this tab, click one to jump to it and double-click to rename it. If the file has chapters, they're listed below, and they show as thin lines on the seek bar.</p>
+</div></div>
+</section>
+
+<section id="prefs" data-title="Preferences">
+<h2>Preferences</h2>
+<p>Open Preferences with <kbd>Ctrl</kbd>+<kbd>,</kbd> or <b>Menu > Preferences…</b>. Each option has an info icon; hover it for a short explanation. Changes apply straight away.</p>
+<h3 id="prefs-general">General: colours and themes</h3>
+<div class="side wide"><figure class="plain wide"><img src="guide/prefs_general.webp" width="800" height="507" alt="Preferences &gt; General" loading="lazy"><figcaption>Preferences &gt; General</figcaption></figure><div>
+<p>Pick an <b>accent color</b> for highlights, the seek bar and the volume, or <b>Custom…</b> for any colour. Pick a <b>theme</b>: Dark, Pitch black, Warm grey, Midnight blue, or <b>Tint…</b> for dark shades of any colour. The <b>Neon</b> themes (Neon, Sunset, Aurora, Synthwave) add glowing gradient highlights and use their own colours.</p>
+</div></div>
+<h3 id="prefs-interface">Interface</h3>
+<div class="side wide"><figure class="plain wide"><img src="guide/prefs_interface.webp" width="800" height="646" alt="Preferences &gt; Interface" loading="lazy"><figcaption>Preferences &gt; Interface</figcaption></figure><div>
+<ul>
+<li><b>Hide the controls after</b>: how long the bars stay after the mouse stops.</li>
+<li>Show which key you pressed in on-screen messages, keep the controls visible in a window, show simplified names in the queue, and turn seek bar preview pictures on or off.</li>
+<li><b>Library tab at startup</b> and <b>Settings tab at startup</b>: which tab each panel opens on, or the last one you used.</li>
+<li><b>Home screen sections</b>: reorder and show or hide each home screen section.</li>
+</ul>
+</div></div>
+<h3 id="prefs-playback">Playback</h3>
+<div class="side wide"><figure class="plain wide"><img src="guide/prefs_playback.webp" width="800" height="507" alt="Preferences &gt; Playback" loading="lazy"><figcaption>Preferences &gt; Playback</figcaption></figure><div>
+<ul>
+<li><b>When I open something I didn't finish</b>: ask (the Continue from button), always continue, or always start from the beginning.</li>
+<li><b>Maximum volume</b>: 125%, 150% or 200%. Above 100%, Pylon boosts quiet audio, like VLC. Very loud sound can distort.</li>
+<li><b>Queue mode when Pylon starts</b>, and whether the next file in the folder plays when one ends.</li>
+</ul>
+</div></div>
+<h3 id="prefs-subtitles">Subtitles</h3>
+<div class="side wide"><figure class="plain wide"><img src="guide/prefs_subtitles.webp" width="800" height="507" alt="Preferences &gt; Subtitles" loading="lazy"><figcaption>Preferences &gt; Subtitles</figcaption></figure><div>
+<ul>
+<li><b>Find subtitle files automatically</b>: how closely a subtitle's name must match the video.</li>
+<li><b>Preferred subtitle site</b>: marked with a star in the Find online menu. The menu always keeps the same order.</li>
+<li><b>Preferred subtitle language</b> and <b>Preferred audio language</b> for every file, unless a preset says otherwise.</li>
+</ul>
+</div></div>
+<h3 id="prefs-controls">Controls</h3>
+<div class="side wide"><figure class="plain wide"><img src="guide/prefs_controls.webp" width="800" height="507" alt="Preferences &gt; Controls" loading="lazy"><figcaption>Preferences &gt; Controls</figcaption></figure><div>
+<p>Choose what left click, left double-click, middle click and the mouse's back and forward buttons do over the video. Turn off double-click for instant single clicks. <b>Edit keyboard shortcuts…</b> opens the shortcut list.</p>
+</div></div>
+<h3 id="prefs-privacy">Privacy</h3>
+<div class="side wide"><figure class="plain wide"><img src="guide/prefs_privacy.webp" width="800" height="507" alt="Preferences &gt; Privacy" loading="lazy"><figcaption>Preferences &gt; Privacy</figcaption></figure><div>
+<p>Turn history and resume points on or off, clear your history, and choose whether Pylon checks for new versions once a day. <b>Open data folder</b> shows where your library, history and settings are kept.</p>
+</div></div>
+<h3 id="prefs-performance">Performance</h3>
+<div class="side wide"><figure class="plain wide"><img src="guide/prefs_performance.webp" width="800" height="507" alt="Preferences &gt; Performance" loading="lazy"><figcaption>Preferences &gt; Performance</figcaption></figure><div>
+<ul>
+<li><b>Hardware decoding</b> uses the graphics card. Turn it off if you see green frames or glitches.</li>
+<li><b>RTX Video Super Resolution</b> (Windows, NVIDIA RTX and Intel graphics) makes lower-resolution video sharper on a big screen. On NVIDIA, also turn on Video Super Resolution in the NVIDIA app.</li>
+<li><b>VLC engine</b>: use a VLC from a specific folder, such as a portable VLC, or let Pylon find it.</li>
+</ul>
+</div></div>
+</section>
+
+<section id="keys" data-title="Keyboard shortcuts">
+<h2>Keyboard shortcuts</h2>
+<p>Press <kbd>F1</kbd> to see every shortcut. To change one, click its key, then press the new key. <kbd>Esc</kbd> inside the box clears it, and <b>Reset to defaults</b> puts them all back.</p>
+<div class="keys"><div class="card"><h4>Playing</h4><table><tr><td>Play / pause</td><td><kbd>Space</kbd></td></tr><tr><td>Stop</td><td><kbd>S</kbd></td></tr><tr><td>Jump forward 10s</td><td><kbd>→</kbd></td></tr><tr><td>Jump back 10s</td><td><kbd>←</kbd></td></tr><tr><td>Jump forward 1 min</td><td><kbd>Ctrl</kbd>+<kbd>→</kbd></td></tr><tr><td>Jump back 1 min</td><td><kbd>Ctrl</kbd>+<kbd>←</kbd></td></tr><tr><td>Next frame</td><td><kbd>E</kbd></td></tr><tr><td>Next in queue</td><td><kbd>N</kbd></td></tr><tr><td>Previous in queue</td><td><kbd>P</kbd></td></tr><tr><td>Faster</td><td><kbd>]</kbd></td></tr><tr><td>Slower</td><td><kbd>[</kbd></td></tr><tr><td>Normal speed</td><td><kbd>=</kbd></td></tr></table></div><div class="card"><h4>Sound and subtitles</h4><table><tr><td>Volume up</td><td><kbd>↑</kbd></td></tr><tr><td>Volume down</td><td><kbd>↓</kbd></td></tr><tr><td>Mute</td><td><kbd>M</kbd></td></tr><tr><td>Subtitles later (+50 ms)</td><td><kbd>J</kbd></td></tr><tr><td>Subtitles earlier (-50 ms)</td><td><kbd>G</kbd></td></tr><tr><td>Audio later (+50 ms)</td><td><kbd>K</kbd></td></tr><tr><td>Audio earlier (-50 ms)</td><td><kbd>Shift</kbd>+<kbd>K</kbd></td></tr><tr><td>Next subtitle track</td><td><kbd>V</kbd></td></tr><tr><td>Next audio track</td><td><kbd>B</kbd></td></tr></table></div><div class="card"><h4>Window and panels</h4><table><tr><td>Fullscreen</td><td><kbd>F</kbd></td></tr><tr><td>Fullscreen (second key)</td><td><kbd>Enter</kbd></td></tr><tr><td>Leave fullscreen</td><td><kbd>Esc</kbd></td></tr><tr><td>Picture in picture</td><td><kbd>Ctrl</kbd>+<kbd>P</kbd></td></tr><tr><td>Hide the interface</td><td><kbd>H</kbd></td></tr><tr><td>Show or hide library panel</td><td><kbd>Ctrl</kbd>+<kbd>L</kbd></td></tr><tr><td>Show or hide settings panel</td><td><kbd>Ctrl</kbd>+<kbd>T</kbd></td></tr><tr><td>Show queue</td><td><kbd>Ctrl</kbd>+<kbd>Q</kbd></td></tr><tr><td>Show or hide both side panels</td><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd></td></tr><tr><td>Zoom in</td><td><kbd>Ctrl</kbd>+<kbd>=</kbd></td></tr><tr><td>Zoom out</td><td><kbd>Ctrl</kbd>+<kbd>-</kbd></td></tr><tr><td>Reset zoom</td><td><kbd>Ctrl</kbd>+<kbd>0</kbd></td></tr></table></div><div class="card"><h4>Files and other</h4><table><tr><td>Open file</td><td><kbd>Ctrl</kbd>+<kbd>O</kbd></td></tr><tr><td>Open folder</td><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td></tr><tr><td>Open network stream</td><td><kbd>Ctrl</kbd>+<kbd>N</kbd></td></tr><tr><td>Add bookmark</td><td><kbd>Ctrl</kbd>+<kbd>B</kbd></td></tr><tr><td>Take a snapshot</td><td><kbd>Shift</kbd>+<kbd>S</kbd></td></tr><tr><td>Show keyboard shortcuts</td><td><kbd>F1</kbd></td></tr><tr><td>Open Preferences</td><td><kbd>Ctrl</kbd>+<kbd>,</kbd></td></tr></table></div></div>
+<figure class="plain wide print-hide"><img src="guide/dlg_shortcuts.webp" width="640" height="900" alt="The shortcut editor (F1)" loading="lazy"><figcaption>The shortcut editor (F1)</figcaption></figure>
+</section>
+
+<section id="howto" data-title="How to…">
+<h2>How to…</h2>
+<details class="howto" open><summary>Watch a series and always pick up where you left off</summary><ol>
+<li>Add the series folder to your library with <b>Add folder to library</b> on the home screen.</li>
+<li>Play the first episode. The rest of the folder goes into the queue, and each episode plays after the last.</li>
+<li>Next time, click the show under <b>Continue watching</b> on the home screen, or click <b>Continue from</b> next to the play controls.</li></ol></details>
+<details class="howto"><summary>Fix subtitles that are early or late</summary><ol>
+<li>Open the settings panel (<kbd>Ctrl</kbd>+<kbd>T</kbd>) on the Subtitles tab.</li>
+<li>Pause just as someone starts speaking.</li>
+<li>Drag the timeline until their line sits under the white playhead, or press <kbd>G</kbd> or <kbd>J</kbd>.</li>
+<li>Save a preset so every episode of the show uses the same timing.</li></ol></details>
+<details class="howto"><summary>Make every episode of a show look and sound the same</summary><ol>
+<li>Set the subtitle look and timing, audio and subtitle language, speed and picture for one episode.</li>
+<li>In the settings panel, click the save button next to <b>Preset</b> and name it.</li>
+<li>Every file in that folder now uses the preset automatically.</li></ol></details>
+<details class="howto"><summary>Watch an IPTV channel list</summary><ol>
+<li>To keep it: open the library's <b>Streams</b> tab and click <b>Import list…</b>, or drop the <code>.m3u</code> file onto the list.</li>
+<li>For a list online, click <b>Open a stream…</b>, paste the link and tick <b>Save it to Streams in the library</b>. Its channel count appears once it has been opened.</li>
+<li>Double-click the list to load the channels into the queue, then type in the queue's search box to find a channel.</li>
+<li>Right-click your favourite channels' lists and choose <b>Pin to top</b>.</li></ol></details>
+<details class="howto"><summary>Make quiet audio louder</summary><ol>
+<li>Open <b>Preferences > Playback</b> and set <b>Maximum volume</b> to 150% or 200%.</li>
+<li>Drag the volume, scroll over the video or press <kbd>Up</kbd> to go past 100%.</li></ol></details>
+<details class="howto"><summary>Fall asleep to a film</summary><ol>
+<li>Open the settings panel on the <b>Playback</b> tab.</li>
+<li>Under <b>Sleep timer</b>, choose a time, or <b>End of file</b>.</li></ol></details>
+<details class="howto"><summary>Watch in a small window while you work</summary><ol>
+<li>Press <kbd>Ctrl</kbd>+<kbd>P</kbd>.</li>
+<li>Drag the window anywhere and resize it from its edges. It stays on top of other apps.</li>
+<li>Press <kbd>Esc</kbd> to go back.</li></ol></details>
+<details class="howto"><summary>Change the colours</summary><ol>
+<li>Open <b>Preferences > General</b>.</li>
+<li>Pick an accent color and a theme. Try a neon theme for glowing highlights.</li></ol></details>
+</section>
+
+<section id="data" data-title="Your data and updates">
+<h2>Your data and updates</h2>
+<p>Pylon keeps your library, history, resume points, presets, bookmarks and subtitle pairings in one file on your computer: <code>%APPDATA%\Pylon</code> on Windows, <code>~/.local/share/pylon</code> on Linux and <code>~/Library/Application Support/Pylon</code> on macOS. Nothing is uploaded.</p>
+<p>The only time Pylon goes online by itself is a once-a-day check for new versions: an anonymous request to GitHub for the list of Pylon releases. When there's a new version, <b>Menu > Update to Pylon…</b> appears. On Windows, <b>Update now</b> downloads and runs the installer, keeping your settings; on Linux and macOS it opens the download page. Turn the check off in <b>Preferences > Privacy</b>.</p>
+</section>
+
+<section id="trouble" data-title="Troubleshooting">
+<h2>Troubleshooting</h2>
+<details class="howto"><summary>Pylon says it can't find VLC</summary><p>Install VLC 3 (64-bit on Windows). For a portable VLC, click <b>Locate VLC folder…</b> in the message, or use <b>Preferences > Performance > Use VLC from a folder…</b>. On Linux, use VLC from your distribution, not the Flatpak or Snap version.</p></details>
+<details class="howto"><summary>Green frames, glitches or a black picture</summary><p>Turn off <b>hardware decoding</b> in <b>Preferences > Performance</b>. If you use RTX Video Super Resolution and the picture goes black after opening a panel, turn that option off and tell us on GitHub.</p></details>
+<details class="howto"><summary>No sound, or Pylon closes at start on Linux</summary><p>Pylon uses VLC's PulseAudio output, which PipeWire also serves. To try another output, start Pylon with <code>PYLON_VLC_ARGS=--aout=pipewire</code> (or <code>alsa</code>).</p></details>
+<details class="howto"><summary>Subtitles aren't found automatically</summary><p>Put them next to the video, or in a <code>Subs</code> or <code>Subtitles</code> folder, with the same name or episode number. Or use <b>Add subtitles…</b> and fix the pairing by hand. <b>Preferences > Subtitles</b> sets how closely names must match.</p></details>
+<details class="howto"><summary>The subtitle look or rotation restarted the video</summary><p>That's expected: VLC reads those settings when its engine starts, so Pylon restarts the video at the same spot.</p></details>
+<details class="howto"><summary>Reporting a problem</summary><p>Open an issue on <a href="https://github.com/nirmaljosephukken/pylon-player/issues">GitHub</a> with what you did and what happened. Attach Pylon's <code>error.log</code> and <code>vlc.log</code> from its <code>logs</code> folder (check them first: they contain file names). On Windows, <code>diag.bat</code> in the Pylon folder writes a diagnostic file too.</p></details>
+</section>
+
+    <p class="none" id="none" hidden>Nothing in the guide matches that. Try a shorter word, or <a href="https://github.com/nirmaljosephukken/pylon-player/issues">ask on GitHub</a>.</p>
+  </main>
+</div>
+
+<footer><div class="wrap">
+  <span>Pylon 1.5.0 user guide. Pylon is free and open source under the MIT licence.</span>
+  <span>Not affiliated with VideoLAN. <a href="https://github.com/nirmaljosephukken/pylon-player">GitHub</a></span>
+</div></footer>
+
+<script>
+(function () {
+  // ---- numbered markers on screenshots
+  document.querySelectorAll("figure.shot").forEach(function (fig) {
+    var frame = fig.querySelector(".frame"), pop = fig.querySelector(".pop");
+    var legend = Array.prototype.slice.call(fig.querySelectorAll(".legend li"));
+    function show(i) {
+      fig.querySelectorAll(".spot,.box").forEach(function (el) { el.classList.toggle("on", el.dataset.i === i); });
+      legend.forEach(function (li) { li.classList.toggle("on", li.dataset.i === i); });
+      var li = legend.filter(function (l) { return l.dataset.i === i; })[0], spot = fig.querySelector('.spot[data-i="' + i + '"]');
+      if (!li || !spot) { pop.hidden = true; return; }
+      pop.innerHTML = li.querySelector("span:last-child").innerHTML;
+      pop.hidden = false;
+      var fw = frame.clientWidth, fh = frame.clientHeight, x = spot.offsetLeft, y = spot.offsetTop;
+      if (spot.offsetParent === null) { pop.hidden = true; return; }   // small screens: the list says it all
+      var pw = pop.offsetWidth, ph = pop.offsetHeight;
+      var left = Math.min(Math.max(8, x - pw / 2), fw - pw - 8);
+      var top = y + 22 + ph < fh - 6 ? y + 22 : Math.max(6, y - 22 - ph);
+      pop.style.left = left + "px"; pop.style.top = top + "px";
+    }
+    function hide() {
+      pop.hidden = true;
+      fig.querySelectorAll(".on").forEach(function (el) { el.classList.remove("on"); });
+    }
+    fig.querySelectorAll(".spot").forEach(function (b) {
+      b.addEventListener("click", function (e) {
+        e.stopPropagation();
+        b.classList.contains("on") ? hide() : show(b.dataset.i);
+      });
+    });
+    legend.forEach(function (li) {
+      li.querySelector("button").addEventListener("click", function () {
+        show(li.dataset.i);
+        frame.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
+    });
+    frame.addEventListener("click", hide);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") document.querySelectorAll("figure.shot .pop").forEach(function (p) { p.hidden = true; });
+  });
+
+  // ---- contents: highlight the part you're reading
+  var links = {};
+  document.querySelectorAll("aside a").forEach(function (a) { links[a.getAttribute("href").slice(1)] = a; });
+  var heads = document.querySelectorAll("main section, main h3[id]");
+  if ("IntersectionObserver" in window) {
+    var current = null;
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting && links[en.target.id]) {
+          if (current) current.classList.remove("on");
+          current = links[en.target.id]; current.classList.add("on");
+        }
+      });
+    }, { rootMargin: "-80px 0px -70% 0px" });
+    heads.forEach(function (h) { io.observe(h); });
+  }
+  document.querySelectorAll(".toc-mobile a").forEach(function (a) {
+    a.addEventListener("click", function () { a.closest("details").open = false; });
+  });
+
+  // ---- search: show only the sections that mention every word, and mark the matches
+  var q = document.getElementById("q"), found = document.getElementById("found"), none = document.getElementById("none");
+  var sections = Array.prototype.slice.call(document.querySelectorAll("main section"));
+  function unmark() {
+    document.querySelectorAll("main mark").forEach(function (m) {
+      var t = document.createTextNode(m.textContent); m.parentNode.replaceChild(t, m); t.parentNode.normalize();
+    });
+  }
+  function markWords(root, words) {
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) { return n.parentNode.closest("script,style,button.spot") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; }
+    });
+    var nodes = [], n;
+    while ((n = walker.nextNode())) nodes.push(n);
+    var re = new RegExp("(" + words.map(function (w) { return w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }).join("|") + ")", "gi");
+    nodes.forEach(function (node) {
+      if (!re.test(node.nodeValue)) return;
+      re.lastIndex = 0;
+      var frag = document.createDocumentFragment(), last = 0, m;
+      node.nodeValue.replace(re, function (match, _g, idx) {
+        frag.appendChild(document.createTextNode(node.nodeValue.slice(last, idx)));
+        var mk = document.createElement("mark"); mk.textContent = match; frag.appendChild(mk);
+        last = idx + match.length;
+      });
+      frag.appendChild(document.createTextNode(node.nodeValue.slice(last)));
+      node.parentNode.replaceChild(frag, node);
+    });
+  }
+  var timer;
+  q.addEventListener("input", function () {
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      unmark();
+      var words = q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      var shown = 0;
+      sections.forEach(function (s) {
+        var text = s.textContent.toLowerCase();
+        var hit = !words.length || words.every(function (w) { return text.indexOf(w) >= 0; });
+        s.hidden = !hit;
+        if (hit) shown++;
+        s.querySelectorAll("details.howto").forEach(function (d) {
+          if (words.length) d.open = words.every(function (w) { return d.textContent.toLowerCase().indexOf(w) >= 0; });
+        });
+        if (hit && words.length) markWords(s, words);
+      });
+      none.hidden = shown > 0;
+      found.textContent = words.length ? (shown ? shown + (shown === 1 ? " part of the guide matches." : " parts of the guide match.") : "") : "";
+      var first = document.querySelector("main mark");
+      if (first && words.length) first.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 220);
+  });
+  // open every how-to for printing
+  window.addEventListener("beforeprint", function () { document.querySelectorAll("details").forEach(function (d) { d.dataset.was = d.open; d.open = true; }); });
+  window.addEventListener("afterprint", function () { document.querySelectorAll("details").forEach(function (d) { d.open = d.dataset.was === "true"; }); });
+})();
+</script>
+</body>
+</html>

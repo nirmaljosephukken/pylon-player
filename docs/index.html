@@ -41,7 +41,7 @@ nav .wrap{display:flex;align-items:center;height:76px;gap:28px}
 .brand{display:flex;align-items:center;gap:10px;font:700 21px var(--display);text-decoration:none;letter-spacing:-.01em}
 .brand img{width:30px;height:30px}
 nav .links{margin-left:auto;display:flex;align-items:center;gap:26px;font-size:15px;font-weight:500}
-nav .links a{text-decoration:none;color:var(--mist)}
+nav .links a{text-decoration:none;color:var(--mist);white-space:nowrap}
 nav .links a:hover{color:var(--text)}
 nav .gh{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);padding:7px 14px;border-radius:99px;color:var(--text)!important}
 nav .gh svg{width:17px;height:17px}
@@ -123,6 +123,8 @@ h2{font:800 clamp(34px,4.6vw,60px)/1 var(--display);letter-spacing:-.03em;margin
 .step h3{margin:0 0 8px;font:700 24px var(--display);letter-spacing:-.01em;color:var(--text)}
 .step p{margin:0;color:var(--mist)}
 .step a{color:var(--text)}
+.guide-link{margin:56px 0 0;color:var(--mist);font-size:17px}
+.guide-link a{color:var(--text);text-decoration-color:var(--a1);text-underline-offset:4px}
 code{font:14px ui-monospace,Consolas,monospace;background:var(--panel);border:1px solid var(--line);padding:2px 7px;border-radius:6px;color:var(--text);white-space:nowrap}
 
 /* download */
@@ -183,6 +185,9 @@ footer a{color:var(--text)}
   section{padding:84px 0}
 }
 @media (max-width:620px){
+  nav .wrap{gap:12px}
+  nav .links{gap:14px;font-size:14px}
+  nav .gh{padding:6px 11px}
   .picker{flex-direction:column;gap:10px;border-radius:20px;padding:14px}
   .swatches{gap:6px;justify-content:center}
   .sw{width:28px;height:28px}
@@ -190,6 +195,9 @@ footer a{color:var(--text)}
   .extras div,.extras div+div{padding:22px 0 0;border-left:0}
   .ridge{height:200px}
   .stage{margin-top:52px;padding-bottom:56px}
+}
+@media (max-width:480px){
+  nav .links a.hide-xs{display:none}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 </style>
@@ -201,7 +209,8 @@ footer a{color:var(--text)}
   <div class="links">
     <a class="hide-s" href="#features">Features</a>
     <a class="hide-s" href="#start">Get started</a>
-    <a href="#download">Download</a>
+    <a href="guide.html">User guide</a>
+    <a class="hide-xs" href="#download">Download</a>
     <a class="gh" href="https://github.com/nirmaljosephukken/pylon-player"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
   </div>
 </div></nav>
@@ -283,6 +292,7 @@ footer a{color:var(--text)}
     <div class="step"><div class="n">2</div><h3>Run the AppImage</h3><p>Make it executable with <code>chmod +x Pylon-*.AppImage</code>, then double-click it.</p></div>
     <div class="step"><div class="n">3</div><h3>Drop in a show</h3><p>Drag a file or a whole season folder onto the window and press play.</p></div>
   </div>
+  <p class="guide-link">New to Pylon? The <a href="guide.html">user guide</a> shows every screen and setting with pictures, and comes as a <a href="guide/Pylon-User-Guide.pdf" download>PDF</a> too.</p>
 </div></section>
 
 <section class="dl-sec" id="download"><div class="wrap">
