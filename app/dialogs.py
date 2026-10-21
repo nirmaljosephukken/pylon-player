@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog,
 from . import theme
 from .colour_dialog import choose_colour
 from .icons import icon, pixmap
-from .store import DEFAULT_SHORTCUTS, QUEUE_MODES
+from .store import DEFAULT_SHORTCUTS, HOME_SECTIONS, QUEUE_MODES
 from .util import MATCH_LEVELS, SUB_EXTS, auto_match_folder, display_name, is_url, list_media, subtitle_query
 from .widgets import subtitle_search_menu
 
@@ -335,6 +335,82 @@ def muted_note(text):
     return lab
 
 
+class HomeSectionList(QWidget):
+    """Home screen sections (#53): drag the handle to reorder, click the eye to show or hide."""
+    ROW = 34
+
+    def __init__(self, store, on_change):
+        super().__init__()
+        from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem, QStyledItemDelegate
+        self.store, self.on_change = store, on_change
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.list = QListWidget()
+        self.list.setObjectName("HomeSections")
+        self.list.setDragDropMode(QAbstractItemView.InternalMove)
+        self.list.setDefaultDropAction(Qt.MoveAction)
+        self.list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.list.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.list.setFixedHeight(self.ROW * len(HOME_SECTIONS) + 6)
+        for key in store.home_order():
+            it = QListWidgetItem(HOME_SECTIONS[key][0])
+            it.setData(Qt.UserRole, key)
+            it.setSizeHint(QSize(10, self.ROW))
+            it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled)
+            self.list.addItem(it)
+        owner = self
+
+        class Rows(QStyledItemDelegate):
+            def paint(self, p, opt, index):
+                r = opt.rect
+                shown = owner.is_shown(index.data(Qt.UserRole))
+                p.save()
+                from PySide6.QtWidgets import QStyle
+                if opt.state & QStyle.State_MouseOver:
+                    p.fillRect(r, QColor(theme.SURFACE_HI))
+                p.drawPixmap(r.x() + 6, r.y() + (r.height() - 16) // 2, pixmap("drag", theme.FAINT, 16))
+                p.drawPixmap(owner.eye_rect(r).topLeft(), pixmap("eye" if shown else "eye_off",
+                                                                 theme.accent() if shown else theme.FAINT, 18))
+                p.setPen(QColor(theme.TEXT if shown else theme.FAINT))
+                p.drawText(r.adjusted(58, 0, -8, 0), Qt.AlignVCenter | Qt.AlignLeft, index.data())
+                p.restore()
+
+        self.list.setItemDelegate(Rows(self.list))
+        self.list.viewport().installEventFilter(self)
+        self.list.setMouseTracking(True)
+        self.list.model().rowsMoved.connect(lambda *_: self._save_order())
+        lay.addWidget(self.list)
+
+    @staticmethod
+    def eye_rect(r):
+        from PySide6.QtCore import QRect
+        return QRect(r.x() + 30, r.y() + (r.height() - 18) // 2, 18, 18)
+
+    def is_shown(self, key):
+        return bool(self.store.setting(HOME_SECTIONS[key][1]))
+
+    def keys(self):
+        return [self.list.item(i).data(Qt.UserRole) for i in range(self.list.count())]
+
+    def toggle(self, key):
+        self.on_change(HOME_SECTIONS[key][1], not self.is_shown(key))
+        self.list.viewport().update()
+
+    def _save_order(self):
+        self.store.set_setting("home_order", self.keys())
+        self.on_change(None, None)
+
+    def eventFilter(self, obj, e):
+        from PySide6.QtCore import QEvent
+        if e.type() == QEvent.MouseButtonRelease and e.button() == Qt.LeftButton:
+            pos = e.position().toPoint()
+            it = self.list.itemAt(pos)
+            if it and self.eye_rect(self.list.visualItemRect(it)).adjusted(-6, -6, 6, 6).contains(pos):
+                self.toggle(it.data(Qt.UserRole))
+                return True
+        return False
+
+
 class PreferencesDialog(QDialog):
     """Settings grouped in plain words, each with an info icon."""
 
@@ -549,13 +625,19 @@ class PreferencesDialog(QDialog):
                 lambda _, c=choice, k=key: self.store.set_setting(k, c.currentData()))
             tabs.addRow(label, choice)
         f.addLayout(tabs)
+        f.addWidget(info_label("Home screen sections",
+                               "Drag a section by its handle to move it. Click the eye to show or hide it. "
+                               "Hiding a section doesn't delete anything."))
+        self.home_sections = HomeSectionList(self.store, self._set_home_section)
+        f.addWidget(self.home_sections)
 
     def _set_simple_queue(self, on):
         self.store.set_setting("simple_queue_names", on)
         self.win.library.refresh_queue()
 
     def _set_home_section(self, key, on):
-        self.store.set_setting(key, on)
+        if key:
+            self.store.set_setting(key, on)
         self.win.home.refresh()
 
     def _set_previews(self, on):
@@ -611,6 +693,15 @@ class PreferencesDialog(QDialog):
         combo.setCurrentIndex(max(0, combo.findData(self.store.setting("sub_match"))))
         combo.currentIndexChanged.connect(lambda i: self.store.set_setting("sub_match", combo.itemData(i)))
         f.addWidget(combo)
+        f.addWidget(info_label("Preferred subtitle site", "Marked with a star in the Find online menu. The menu keeps the same order."))
+        from .util import SUBTITLE_SITES
+        site = QComboBox()
+        site.addItem("No preference", "")
+        for key, name, _u in SUBTITLE_SITES:
+            site.addItem(name, key)
+        site.setCurrentIndex(max(0, site.findData(self.store.setting("sub_site_star"))))
+        site.currentIndexChanged.connect(lambda i: self.store.set_setting("sub_site_star", site.itemData(i)))
+        f.addWidget(site)
         f.addWidget(info_label("Preferred subtitle language", "Used for every file unless a preset says otherwise. e.g. eng, English, off"))
         le = QLineEdit(self.store.setting("sub_lang"))
         le.textChanged.connect(lambda t: self.store.set_setting("sub_lang", t.strip()))
@@ -648,15 +739,8 @@ class PreferencesDialog(QDialog):
                                "reported by the mouse driver as standard mouse buttons."))
 
     def _privacy(self, f):
-        for key, label in (("home_continue", "Show Continue watching on the home screen"),
-                           ("home_recent", "Show Recently played on the home screen"),
-                           ("home_playlists", "Show playlists on the home screen")):
-            cb_home = QCheckBox(label)
-            cb_home.setChecked(bool(self.store.setting(key)))
-            cb_home.toggled.connect(lambda on, k=key: self._set_home_section(k, on))
-            f.addWidget(cb_home)
-        f.addWidget(muted_note("These switches hide home sections only. They do not delete history, "
-                               "stop recording it, or hide entries in the library's Recent tab."))
+        f.addWidget(muted_note("To hide Continue watching or Recently played from the home screen, use "
+                               "Home screen sections in the Interface tab. Hiding them doesn't delete your history."))
         cb = QCheckBox("Remember recent files and where I stopped")
         cb.setChecked(bool(self.store.setting("remember_history")))
         cb.toggled.connect(lambda v: self.store.set_setting("remember_history", v))

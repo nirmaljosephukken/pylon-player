@@ -23,8 +23,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFile
 
 from . import theme
 from .icons import icon
-from .util import (display_name, fmt_time, is_audio, is_media, is_url, list_media, natural_key, pretty_title,
-                   to_path)
+from .util import (display_name, fmt_time, is_audio, is_media, is_url, list_media, natural_key, parse_m3u,
+                   pretty_title, to_path)
 from .store import QUEUE_MODES
 from .widgets import IconButton
 
@@ -109,6 +109,37 @@ class TwoLineDelegate(QStyledItemDelegate):
         lines = h1 + (int(h1 * 0.9) if "\n" in text else 0)
         h = max(lines, opt.decorationSize.height() if not opt.icon.isNull() else 0) + 10
         return QSize(10, h)
+
+
+class ChannelListDrop(QListWidget):
+    """The Streams list: dropping an .m3u channel list here saves it (#44)."""
+    lists_dropped = Signal(list)
+
+    def __init__(self):
+        super().__init__()
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QAbstractItemView.DropOnly)
+
+    def _lists(self, e):
+        md = e.mimeData()
+        if not md.hasUrls():
+            return []
+        return [u.toLocalFile() for u in md.urls()
+                if u.isLocalFile() and os.path.splitext(u.toLocalFile())[1].lower() in (".m3u", ".m3u8")]
+
+    def dragEnterEvent(self, e):
+        e.acceptProposedAction() if self._lists(e) else e.ignore()
+
+    def dragMoveEvent(self, e):
+        e.acceptProposedAction() if self._lists(e) else e.ignore()
+
+    def dropEvent(self, e):
+        paths = self._lists(e)
+        if paths:
+            e.acceptProposedAction()
+            self.lists_dropped.emit(paths)
+        else:
+            e.ignore()
 
 
 class QueueList(QListWidget):
@@ -231,7 +262,7 @@ class LibraryPanel(QWidget):
         self._unshuffled = None          # the queue's order before shuffling (None = shuffle is off)
         for ic, tip, fn in (("plus", "Add files to the queue", self._add_files_to_queue),
                             ("mode_next", "", win.cycle_queue_mode),
-                            ("save", "Save queue as a playlist", self._save_queue_as_playlist),
+                            ("save", "Save the queue as a playlist, or a list of streams as a channel list", self._save_queue_as_playlist),
                             ("trash", "Clear queue", lambda: win.set_queue([], -1))):
             b = IconButton(ic, tip, size=16)
             b.clicked.connect(lambda *_, fn=fn: fn())
@@ -605,6 +636,8 @@ class LibraryPanel(QWidget):
         lay.setContentsMargins(8, 0, 8, 4)
         self.recent_list = MediaList()
         self.recent_list.itemDoubleClicked.connect(lambda it: self.win.play_from_folder(it.data(ROLE_PATH)))
+        self.recent_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.recent_list.customContextMenuRequested.connect(self._recent_menu)
         lay.addWidget(self.recent_list, 1)
         clear = QPushButton("Clear history")
         clear.clicked.connect(self._clear_history)
@@ -621,6 +654,63 @@ class LibraryPanel(QWidget):
             it.setData(ROLE_PATH, p)
             it.setData(ROLE_KIND, "file")
             self.recent_list.addItem(it)
+
+    def _recent_menu(self, pos):
+        """The same choices as files in the Library tab, plus removing items from Recent (#51)."""
+        it = self.recent_list.itemAt(pos)
+        if not it or not it.data(ROLE_PATH):
+            return
+        path = it.data(ROLE_PATH)
+        paths = [i.data(ROLE_PATH) for i in self.recent_list.selectedItems() if i.data(ROLE_PATH)]
+        if path not in paths:
+            paths = [path]
+        win = self.win
+        m = QMenu(self)
+        m.addAction(icon("play", theme.TEXT, 16), "Play", lambda: win.play_from_folder(path))
+        m.addAction(icon("queue", theme.TEXT, 16), "Add to queue", lambda: win.enqueue(paths))
+        m.addAction("Play next", lambda: win.enqueue(paths, play_next=True))
+        self._playlist_submenu(m, paths)
+        m.addSeparator()
+        if is_url(path):
+            m.addAction("Copy link", lambda: self._copy_link(path))
+            if path not in [s["url"] for s in self.store.data["streams"]]:
+                m.addAction(icon("stream", theme.TEXT, 16), "Save to Streams", lambda: self.save_stream(path))
+        else:
+            files = [p for p in paths if not is_url(p)]
+            watched = self.store.position(path).get("watched")
+            m.addAction("Mark as unwatched" if watched else "Mark as watched",
+                        lambda: [self.store.set_watched(f, not watched) for f in files])
+            m.addAction("Show in Explorer", lambda: reveal(path))
+        m.addSeparator()
+        m.addAction(icon("trash", theme.TEXT, 16),
+                    "Remove from Recent" if len(paths) == 1 else f"Remove {len(paths)} from Recent",
+                    lambda: self.remove_recent(paths))
+        m.exec(self.recent_list.mapToGlobal(pos))
+
+    def remove_recent(self, paths):
+        """Forget these items in Recent, along with where you stopped in each."""
+        gone = set(paths)
+        self.store.data["recent"] = [r for r in self.store.data["recent"] if r["path"] not in gone]
+        for p in gone:
+            self.store.data["positions"].pop(p, None)
+        self.store.save("recent")
+        self.refresh_recent()
+        self.win.home.refresh()
+
+    def _playlist_submenu(self, m, paths):
+        pm = m.addMenu(icon("playlist", theme.TEXT, 16), "Add to playlist")
+        for name in sorted(self.store.data["playlists"]):
+            pm.addAction(name, lambda n=name: self.add_to_playlist(n, paths))
+        pm.addSeparator()
+        pm.addAction("New playlist…", lambda: self.new_playlist(paths))
+
+    def save_stream(self, url, name=""):
+        if url in [s["url"] for s in self.store.data["streams"]]:
+            return
+        self.store.data["streams"].insert(0, {"name": name or display_name(url), "url": url})
+        self.store.save("streams")
+        self.refresh_streams()
+        self.win.toast("Saved to Streams")
 
     def _clear_history(self):
         if QMessageBox.question(self, "Clear history", "Forget recent files and where you stopped in each?") == QMessageBox.Yes:
@@ -700,15 +790,68 @@ class LibraryPanel(QWidget):
         lay.addWidget(self.pl_list, 1)
         self.stack.addWidget(w)
 
+    # ---------------------------------------------------------------- pins (#52)
+    def pins(self, kind):
+        """Pinned items for a tab, newest pin first: streams (by link), playlists, artists, albums."""
+        return self.store.data.setdefault("pins", {}).setdefault(kind, [])
+
+    def is_pinned(self, kind, key):
+        return key in self.pins(kind)
+
+    def toggle_item_pin(self, kind, key):
+        ps = self.pins(kind)
+        if key in ps:
+            ps.remove(key)
+        else:
+            ps.insert(0, key)
+        self.store.save("library")
+        {"streams": self.refresh_streams, "playlists": self.refresh_playlists}.get(kind, self.refresh_music)()
+        self.win.home.refresh()
+
+    def _rename_pin(self, kind, old, new):
+        ps = self.pins(kind)
+        if old in ps:
+            ps[ps.index(old)] = new
+
+    def _drop_pin(self, kind, key):
+        ps = self.pins(kind)
+        if key in ps:
+            ps.remove(key)
+
+    def with_pins(self, kind, items, key):
+        """Split items into (pinned, the rest). Pinned items keep their pin order, whatever the sort."""
+        pinned = self.pins(kind)
+        by_key = {key(x): x for x in items}
+        first = [by_key[k] for k in pinned if k in by_key]
+        keys = set(pinned)
+        return first, [x for x in items if key(x) not in keys]
+
+    def _fill_with_pins(self, lst, first, rest, label, add):
+        """Add items to a list: a Pinned group at the top when anything is pinned."""
+        if first:
+            self._header(lst, "Pinned")
+            for x in first:
+                add(x, True)
+            if rest:
+                self._header(lst, label)
+        for x in rest:
+            add(x, False)
+
     def refresh_playlists(self):
         self.pl_list.clear()
-        for name, items in self._ordered(self.store.data["playlists"].items(), "playlists", lambda x: x[0], lambda x: len(x[1])):
-            if self.pl_search.text().strip().casefold() not in name.casefold():
-                continue
-            it = QListWidgetItem(icon("playlist", theme.accent(), 18), f"{name}   ({len(items)})")
+        q = self.pl_search.text().strip().casefold()
+        items = [x for x in self._ordered(self.store.data["playlists"].items(), "playlists", lambda x: x[0],
+                                          lambda x: len(x[1])) if q in x[0].casefold()]
+        first, rest = self.with_pins("playlists", items, lambda x: x[0])
+
+        def add(x, pinned):
+            name, entries = x
+            it = QListWidgetItem(icon("pin" if pinned else "playlist", theme.accent(), 18), f"{name}   ({len(entries)})")
             it.setData(ROLE_PATH, name)
             self.pl_list.addItem(it)
-        self.playlists_count.setText(f"{self.pl_list.count()} playlists")
+
+        self._fill_with_pins(self.pl_list, first, rest, "Playlists", add)
+        self.playlists_count.setText(f"{len(items)} playlists")
         if not self.store.data["playlists"]:
             it = QListWidgetItem("No playlists yet")
             it.setFlags(Qt.NoItemFlags)
@@ -777,6 +920,9 @@ class LibraryPanel(QWidget):
         m = QMenu(self)
         m.addAction("Play", lambda: self.win.play_playlist(name))
         m.addAction("Add to queue", lambda: self.win.enqueue(self.store.data["playlists"][name]))
+        pinned = self.is_pinned("playlists", name)
+        m.addAction(icon("pin", theme.TEXT, 16), "Unpin" if pinned else "Pin to top",
+                    lambda: self.toggle_item_pin("playlists", name))
         m.addAction("Add files…", lambda: self._pl_add_files(name))
         m.addAction("Rename…", lambda: self._pl_rename(name))
         m.addAction("Export as .m3u…", lambda: self._pl_export(name))
@@ -801,12 +947,14 @@ class LibraryPanel(QWidget):
             return
         # rebuild in the same order, so a renamed playlist keeps its place by age (#37)
         self.store.data["playlists"] = {(new if k == name else k): v for k, v in pls.items()}
+        self._rename_pin("playlists", name, new)
         self.store.save("playlists")
         self.refresh_playlists()
 
     def _pl_delete(self, name):
         if QMessageBox.question(self, "Delete playlist", f"Delete “{name}”? Your files stay where they are.") == QMessageBox.Yes:
             self.store.data["playlists"].pop(name, None)
+            self._drop_pin("playlists", name)
             self.store.save("playlists")
             self.refresh_playlists()
 
@@ -819,40 +967,70 @@ class LibraryPanel(QWidget):
                     f.write(f"#EXTINF:-1,{display_name(p)}\n{p}\n")
 
     # ---------------------------------------------------------------- streams
+    # A saved stream is {"name", "url"}. A channel list (#44) also has "channels": [{"name", "url"}],
+    # and its "url" is the file it came from, or a made-up "pylon-list:" key for a saved queue.
+    # A saved link to an online list gets "count" once it has been opened.
     def _build_streams(self):
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(8, 0, 8, 4)
-        add = QPushButton("Open a network stream…")
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        add = QPushButton("Open a stream…")
         add.setIcon(icon("plus", theme.TEXT, 14))
+        add.setToolTip("Open a network stream, and save it here if you like")
         add.clicked.connect(lambda: self.win.open_stream_dialog())
-        lay.addWidget(add)
+        row.addWidget(add, 1)
+        imp = QPushButton("Import list…")
+        imp.setIcon(icon("playlist", theme.TEXT, 14))
+        imp.setToolTip("Save an .m3u channel list here. You can also drop .m3u files on this list")
+        imp.clicked.connect(self._import_dialog)
+        row.addWidget(imp, 1)
+        lay.addLayout(row)
         self.st_search = QLineEdit()
         self.st_search.setPlaceholderText("Search streams")
         self.st_search.textChanged.connect(lambda _: self.refresh_streams())
         lay.addWidget(self.st_search)
         self._sort_controls(lay, "streams", self.refresh_streams)
-        self.st_list = QListWidget()
+        self.st_list = ChannelListDrop()
         self.st_list.setIconSize(QSize(18, 18))
-        self.st_list.itemDoubleClicked.connect(lambda it: self.win.open_stream(it.data(ROLE_PATH), it.text()))
+        self.st_list.itemDoubleClicked.connect(
+            lambda it: self.win.play_saved_stream(it.data(ROLE_PATH)) if it.data(ROLE_PATH) else None)
         self.st_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.st_list.customContextMenuRequested.connect(self._st_menu)
+        self.st_list.lists_dropped.connect(lambda paths: [self.import_channel_list(p) for p in paths])
         lay.addWidget(self.st_list, 1)
         self.stack.addWidget(w)
 
+    def stream_entry(self, url):
+        return next((s for s in self.store.data["streams"] if s["url"] == url), None)
+
+    @staticmethod
+    def channel_count(s):
+        return len(s["channels"]) if s.get("channels") else s.get("count", 0)
+
     def refresh_streams(self):
         self.st_list.clear()
+        q = self.st_search.text().strip().casefold()
         # new streams are saved at the top of the list, so it is newest first already (#44)
-        for s in self._ordered(self.store.data["streams"], "streams", lambda x: x["name"], newest_first=True):
-            if self.st_search.text().strip().casefold() not in (s["name"] + " " + s["url"]).casefold():
-                continue
-            it = QListWidgetItem(icon("stream", theme.accent(), 18), s["name"])
+        items = [s for s in self._ordered(self.store.data["streams"], "streams", lambda x: x["name"], newest_first=True)
+                 if q in (s["name"] + " " + s["url"]).casefold()]
+        first, rest = self.with_pins("streams", items, lambda x: x["url"])
+
+        def add(s, pinned):
+            n = self.channel_count(s)
+            is_list = bool(s.get("channels")) or n > 1
+            it = QListWidgetItem(icon("pin" if pinned else ("playlist" if is_list else "stream"), theme.accent(), 18),
+                                 f"{s['name']}   ({n})" if n > 1 else s["name"])
             it.setData(ROLE_PATH, s["url"])
-            it.setToolTip(s["url"])
+            it.setToolTip(f"{n} channels" + (f"\n{s['url']}" if is_url(s["url"]) or os.path.isabs(s["url"]) else "")
+                          if s.get("channels") else s["url"])
             self.st_list.addItem(it)
-        self.streams_count.setText(f"{self.st_list.count()} streams")
+
+        self._fill_with_pins(self.st_list, first, rest, "Streams", add)
+        self.streams_count.setText(f"{len(items)} streams")
         if not self.store.data["streams"]:
-            it = QListWidgetItem("Saved streams and channel lists appear here")
+            it = QListWidgetItem("Saved streams and channel lists appear here. Drop an .m3u file to add one")
             it.setFlags(Qt.NoItemFlags)
             self.st_list.addItem(it)
 
@@ -861,13 +1039,27 @@ class LibraryPanel(QWidget):
         if not it or not it.data(ROLE_PATH):
             return
         url = it.data(ROLE_PATH)
-        name = it.text()
+        s = self.stream_entry(url)
+        if not s:
+            return
         m = QMenu(self)
-        m.addAction("Play", lambda: self.win.open_stream(url, name))
-        m.addAction("Rename…", lambda: self._st_rename(url, name))
-        m.addAction("Copy link", lambda: self._copy_link(url))
+        m.addAction(icon("play", theme.TEXT, 16), "Play", lambda: self.win.play_saved_stream(url))
+        if s.get("channels"):
+            m.addAction(icon("queue", theme.TEXT, 16), "Add to queue",
+                        lambda: self.win.enqueue_items([{"path": c["url"], "title": c["name"]} for c in s["channels"]]))
+        pinned = self.is_pinned("streams", url)
+        m.addAction(icon("pin", theme.TEXT, 16), "Unpin" if pinned else "Pin to top",
+                    lambda: self.toggle_item_pin("streams", url))
+        m.addAction("Rename…", lambda: self._st_rename(url, s["name"]))
+        if s.get("channels"):
+            add = m.addMenu(icon("plus", theme.TEXT, 16), "Add more streams")
+            add.addAction("A stream link…", lambda: self._list_add_link(url))
+            add.addAction("From an .m3u file…", lambda: self._list_add_file(url))
+            m.addAction("Export as .m3u…", lambda: self._st_export(url))
+        if is_url(url):
+            m.addAction("Copy link", lambda: self._copy_link(url))
         m.addSeparator()
-        m.addAction("Remove", lambda: self._st_remove(url))
+        m.addAction(icon("trash", theme.TEXT, 16), "Remove", lambda: self._st_remove(url))
         m.exec(self.st_list.mapToGlobal(pos))
 
     def _st_rename(self, url, name):
@@ -892,8 +1084,103 @@ class LibraryPanel(QWidget):
 
     def _st_remove(self, url):
         self.store.data["streams"] = [s for s in self.store.data["streams"] if s["url"] != url]
+        self._drop_pin("streams", url)
         self.store.save("streams")
         self.refresh_streams()
+
+    # ---- channel lists (#44)
+    @staticmethod
+    def read_channel_file(path):
+        """[{name, url}] from an .m3u file, with paths made absolute. Empty if it isn't a list."""
+        try:
+            with open(path, encoding="utf-8-sig", errors="replace") as f:
+                found = parse_m3u(f.read(8_000_000)) or []
+        except OSError:
+            return []
+        base = os.path.dirname(path)
+        out = []
+        for n, u in found:
+            if not is_url(u) and not os.path.isabs(u):
+                u = os.path.normpath(os.path.join(base, u))
+            out.append({"name": n, "url": u})
+        return out
+
+    def _import_dialog(self):
+        picked, _ = QFileDialog.getOpenFileNames(self, "Import a channel list", "",
+                                                 "Channel lists (*.m3u *.m3u8);;All files (*)")
+        for p in picked:
+            self.import_channel_list(p)
+
+    def import_channel_list(self, path, name=""):
+        """Save the channels in an .m3u file to Streams as one list. Importing the same file again updates it."""
+        path = os.path.normpath(os.path.abspath(path))
+        channels = self.read_channel_file(path)
+        if not channels:
+            self.win.toast(f"No streams found in “{os.path.basename(path)}”")
+            return None
+        s = self.stream_entry(path)
+        if s:
+            s["channels"] = channels
+            msg = f"Updated “{s['name']}”: {len(channels)} channels"
+        else:
+            s = {"name": name or os.path.splitext(os.path.basename(path))[0], "url": path, "channels": channels}
+            self.store.data["streams"].insert(0, s)
+            msg = f"Saved “{s['name']}” to Streams: {len(channels)} channels"
+        self.store.save("streams")
+        self.refresh_streams()
+        self.win.home.refresh()
+        self.win.toast(msg)
+        return s
+
+    def save_channel_list(self, items, name):
+        """Save queue items ({path, title}) as a channel list in Streams."""
+        import time as _t
+        s = {"name": name, "url": f"pylon-list:{int(_t.time() * 1000)}",
+             "channels": [{"name": x.get("title") or display_name(x["path"]), "url": x["path"]} for x in items]}
+        self.store.data["streams"].insert(0, s)
+        self.store.save("streams")
+        self.refresh_streams()
+        self.win.home.refresh()
+        self.win.toast(f"Saved “{name}” to Streams: {len(items)} channels")
+        return s
+
+    def _add_channels(self, url, new):
+        s = self.stream_entry(url)
+        if not s or not new:
+            return 0
+        have = {c["url"] for c in s["channels"]}
+        added = [c for c in new if c["url"] not in have]
+        s["channels"].extend(added)
+        self.store.save("streams")
+        self.refresh_streams()
+        self.win.toast(f"Added {len(added)} stream{'s' if len(added) != 1 else ''} to “{s['name']}”")
+        return len(added)
+
+    def _list_add_link(self, url):
+        link, ok = QInputDialog.getText(self, "Add a stream", "Stream link")
+        link = link.strip()
+        if not ok or not link:
+            return
+        name, ok = QInputDialog.getText(self, "Add a stream", "Name", text=display_name(link))
+        if ok:
+            self._add_channels(url, [{"name": name.strip() or display_name(link), "url": link}])
+
+    def _list_add_file(self, url):
+        p, _ = QFileDialog.getOpenFileName(self, "Add streams from a list", "", "Channel lists (*.m3u *.m3u8)")
+        if p:
+            self._add_channels(url, self.read_channel_file(p))
+
+    def _st_export(self, url):
+        s = self.stream_entry(url)
+        if not s or not s.get("channels"):
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export channel list", f"{s['name']}.m3u", "M3U playlist (*.m3u)")
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("#EXTM3U\n")
+                for c in s["channels"]:
+                    f.write(f"#EXTINF:-1,{c['name']}\n{c['url']}\n")
+            self.win.toast("Channel list exported")
 
 
     # ================================================================ music
@@ -1010,6 +1297,7 @@ class LibraryPanel(QWidget):
         self.music_status.setText(f"{n} song{'s' if n != 1 else ''}" if n else "")
         if self.stack.currentIndex() == 4:
             self.refresh_music()
+        self.win.home.refresh()                  # the home screen's Music section (#53)
 
     def _music_mode(self, mode):
         self.music_mode = mode
@@ -1148,23 +1436,30 @@ class LibraryPanel(QWidget):
         self.music_crumb.setText("")
         if self.music_mode == "artists":
             lst.setIconSize(QSize(44, 44))
-            for name, albums in self._ordered(m.artists(), "music", lambda x: x[0],
-                    lambda x: sum(len(a["tracks"]) for a in x[1]),
-                    lambda x: max((songs.get(p, {}).get("mtime", 0) for a in x[1] for p in a["tracks"]), default=0)):
-                if q and q not in name.lower():
-                    continue
+            artists = [x for x in self._ordered(m.artists(), "music", lambda x: x[0],
+                       lambda x: sum(len(a["tracks"]) for a in x[1]),
+                       lambda x: max((songs.get(p, {}).get("mtime", 0) for a in x[1] for p in a["tracks"]), default=0))
+                       if not q or q in x[0].lower()]
+
+            def add_artist(x, pinned):
+                name, albums = x
                 n = sum(len(a["tracks"]) for a in albums)
                 art = next((a["art"] for a in albums if a["art"]), "")
                 self._music_item(f"{name}\n{len(albums)} album{'s' if len(albums) != 1 else ''}  ·  {n} song{'s' if n != 1 else ''}",
                                  "artist", name, self._cover(art, 44))
+
+            self._fill_with_pins(lst, *self.with_pins("artists", artists, lambda x: x[0]), "Artists", add_artist)
         elif self.music_mode == "albums":
             lst.setIconSize(QSize(44, 44))
-            for a in self._ordered(m.albums(), "music", lambda a: a["album"], lambda a: len(a["tracks"]),
-                                   lambda a: max((songs.get(p, {}).get("mtime", 0) for p in a["tracks"]), default=0)):
-                if q and q not in f"{a['album']} {a['artist']}".lower():
-                    continue
+            albums = [a for a in self._ordered(m.albums(), "music", lambda a: a["album"], lambda a: len(a["tracks"]),
+                      lambda a: max((songs.get(p, {}).get("mtime", 0) for p in a["tracks"]), default=0))
+                      if not q or q in f"{a['album']} {a['artist']}".lower()]
+
+            def add_album(a, pinned):
                 self._music_item(f"{a['album']}\n{a['artist']}{'  ·  ' + a['year'] if a['year'] else ''}",
                                  "album", a["key"], self._cover(a["art"], 44))
+
+            self._fill_with_pins(lst, *self.with_pins("albums", albums, lambda a: a["key"]), "Albums", add_album)
         else:
             lst.setIconSize(QSize(36, 36))
             for p in self._ordered(m.all_songs(), "music", lambda p: m.title_of(p, songs.get(p, {})),
@@ -1229,11 +1524,12 @@ class LibraryPanel(QWidget):
         m.addAction(icon("queue", theme.TEXT, 16), "Add to queue",
                     lambda: self.win.enqueue(paths))
         m.addAction("Play next", lambda: self.win.enqueue(paths, play_next=True))
-        pm = m.addMenu(icon("playlist", theme.TEXT, 16), "Add to playlist")
-        for name in sorted(self.store.data["playlists"]):
-            pm.addAction(name, lambda n=name: self.add_to_playlist(n, paths))
-        pm.addSeparator()
-        pm.addAction("New playlist…", lambda: self.new_playlist(paths))
+        self._playlist_submenu(m, paths)
+        if kind in ("artist", "album"):
+            pin_kind = kind + "s"
+            pinned = self.is_pinned(pin_kind, val)
+            m.addAction(icon("pin", theme.TEXT, 16), "Unpin" if pinned else "Pin to top",
+                        lambda: self.toggle_item_pin(pin_kind, val))
         if kind == "file":
             m.addSeparator()
             m.addAction("Show in Explorer", lambda: reveal(val))
@@ -1400,9 +1696,21 @@ class LibraryPanel(QWidget):
         self.mode_btn.set_icon(ic)
 
     def _save_queue_as_playlist(self):
-        if not self.win.queue:
+        q = self.win.queue
+        if not q:
             return
-        self.save_to_playlist([x["path"] for x in self.win.queue])
+        if len(q) > 1 and all(is_url(x["path"]) for x in q):
+            # a list of channels: keep it in Streams with its names, or as a normal playlist (#44)
+            choices = ["Save to Streams as a channel list", "Save as a playlist"]
+            choice, ok = QInputDialog.getItem(self, "Save the queue", "These are all streams.", choices, 0, False)
+            if not ok:
+                return
+            if choice == choices[0]:
+                name, ok = QInputDialog.getText(self, "Save to Streams", "Name", text="Channels")
+                if ok and name.strip():
+                    self.save_channel_list(q, name.strip())
+                return
+        self.save_to_playlist([x["path"] for x in q])
 
 
 

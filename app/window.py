@@ -31,6 +31,8 @@ from .widgets import IconButton, SeekPreview, Toast
 PAGE_HOME, PAGE_VIDEO, PAGE_AUDIO = 0, 1, 2
 
 
+VSR_FULLSCREEN_RETRIES_MS = (600, 1500)    # extra Super Resolution redraws in full screen (#42)
+
 class VideoSurface(QFrame):
     """Native window that VLC draws into. Mouse input is turned off in VLC so
     clicks and the wheel reach this widget."""
@@ -274,6 +276,16 @@ class MainWindow(QMainWindow):
         self._vsr_timer.setSingleShot(True)
         self._vsr_timer.setInterval(150)
         self._vsr_timer.timeout.connect(self._vsr_refresh)
+        # In full screen some GPUs are still settling after 150 ms, and the picture stays
+        # black (#42), so redraw again a little later. Restarting these on every resize
+        # means they run once the panel has finished moving.
+        self._vsr_late = []
+        for ms in VSR_FULLSCREEN_RETRIES_MS:
+            t = QTimer(self)
+            t.setSingleShot(True)
+            t.setInterval(ms)
+            t.timeout.connect(self._vsr_refresh)
+            self._vsr_late.append(t)
         self.video.resized.connect(self._vsr_resized)
         self.video.pan.connect(self._pan_video)
         # a new file starts unzoomed; the sidebar's crop and zoom choices end interactive zoom
@@ -581,6 +593,7 @@ class MainWindow(QMainWindow):
             return
         self.library.setVisible(on)
         self._update_panel_minimum()
+        self._vsr_resized()           # the picture may not resize if the panel only covers it
         self.top.btn_library.setChecked(on)
         if on:
             self.library.refresh_library()
@@ -597,6 +610,7 @@ class MainWindow(QMainWindow):
             return
         self.sidebar.setVisible(on)
         self._update_panel_minimum()
+        self._vsr_resized()
         self.bottom.btn_tune.setChecked(on)
         if on:
             self.sidebar.refresh_tracks()
@@ -1116,8 +1130,11 @@ class MainWindow(QMainWindow):
                 and bool(e.current) and self.stage.currentIndex() == PAGE_VIDEO and e.has_video())
 
     def _vsr_resized(self):
-        if self._vsr_active():
+        if hasattr(self, "_vsr_late") and self._vsr_active():
             self._vsr_timer.start()
+            if self.isFullScreen():
+                for t in self._vsr_late:
+                    t.start()
 
     def _vsr_refresh(self):
         if self._vsr_active() and not self.isMinimized():
@@ -1411,6 +1428,11 @@ class MainWindow(QMainWindow):
             finally:
                 QApplication.restoreOverrideCursor()
             if channels:
+                saved = self.library.stream_entry(url)
+                if saved is not None and saved.get("count") != len(channels):
+                    saved["count"] = len(channels)          # show the channel count in Streams (#44)
+                    self.store.save("streams")
+                    self.library.refresh_streams()
                 self.set_queue([{"path": u, "title": n} for n, u in channels], 0)
                 self.toggle_queue(True)
                 self.toast(f"Loaded {len(channels)} channels into the queue")
@@ -1431,8 +1453,34 @@ class MainWindow(QMainWindow):
             q.append({"path": p, "title": n})
         if q:
             self.set_queue(q, 0)
+            if len(q) > 1 and all(is_url(x["path"]) for x in q):
+                self.toggle_queue(True)
+                QTimer.singleShot(400, lambda: self.toast(
+                    f"Loaded {len(q)} channels. To keep them, drop the file on the Streams tab"))
         else:
             self.set_queue([{"path": path}], 0)
+
+    def play_saved_stream(self, url):
+        """Play something saved in Streams: a channel list goes into the queue (#44)."""
+        s = self.library.stream_entry(url)
+        if s is None:
+            self.open_stream(url)
+        elif s.get("channels"):
+            self.set_queue([{"path": c["url"], "title": c["name"]} for c in s["channels"]], 0)
+            self.toggle_queue(True)
+            self.toast(f"{s['name']}: {len(s['channels'])} channels")
+        else:
+            self.open_stream(s["url"], s["name"])
+
+    def enqueue_items(self, items):
+        """Add queue entries that keep their names, like channels from a list."""
+        if not items:
+            return
+        self.queue.extend(dict(x) for x in items)
+        self.library.refresh_queue()
+        self.toast(f"Added {len(items)} to the queue")
+        if not self.engine.current:
+            self.play_queue_index(len(self.queue) - len(items))
 
     def play_folder(self, folder):
         folder = norm(folder)

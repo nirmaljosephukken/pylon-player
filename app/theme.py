@@ -177,6 +177,8 @@ def stylesheet() -> str:
     QComboBox::drop-down {{ border: none; width: 18px; }}
     QComboBox QAbstractItemView {{ background: {SURFACE}; border: 1px solid {BORDER}; selection-background-color: {SURFACE_HI}; selection-color: {a}; outline: 0; }}
 
+    QProgressBar {{ background: {SURFACE_HI}; border: none; border-radius: 4px; min-height: 16px; text-align: center; color: {TEXT}; }}
+    QProgressBar::chunk {{ background: {ag}; border-radius: 4px; }}
     QSlider::groove:horizontal {{ height: 6px; background: {SURFACE_HI}; border-radius: 2px; }}
     QSlider::sub-page:horizontal {{ background: {ag}; border-radius: 2px; }}
     QSlider::handle:horizontal {{ background: {TEXT}; width: 12px; margin: -5px 0; border-radius: 2px; }}

@@ -4,7 +4,7 @@
 
 ### [⬇ Download page: nirmaljosephukken.github.io/pylon-player](https://nirmaljosephukken.github.io/pylon-player/)
 
-**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.4.0.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.4.0-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.4.0-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
+**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.5.0.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.5.0-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.5.0-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
 
 **The story:** [700,000 people watched a VLC redesign. I built the player.](https://dev.to/nekku/700000-people-watched-a-vlc-redesign-i-built-the-player-1aio) · [Demo video](https://youtu.be/vCV3B_blLU0)
@@ -18,6 +18,8 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 ![Library, queue and settings sidebar](docs/panels.png)
 
 ## What's new
+
+**1.5.0:** Save `.m3u` channel lists in the Streams tab: import a file or drop it on the list, and it shows how many channels it has. Lists can grow with more streams and be exported. Pin streams, playlists, artists and albums to the top of their tabs. Reorder or hide any home screen section in Preferences, and there's a new Music section. The Recent tab has a right-click menu (play, queue, add to playlist, remove from Recent), and the update download bar uses your accent colour. Find online keeps a fixed order with your preferred site starred, and Super Resolution redraws more reliably in full screen.
 
 **1.4.0:** Fixes a startup crash on Fedora and other Linux systems using PipeWire. A broken stream no longer skips to the next one, and the queue keeps its place. The queue button now switches between Stop, Shuffle, In order and Loop. Search long queues, raise the maximum volume to 150% or 200% in Preferences, and open Preferences with Ctrl+,. Streams sort the right way round, and the subtitle timeline's offset label is no longer cut off.
 
@@ -74,7 +76,7 @@ Pylon plays everything through **VLC**, which you install yourself (Pylon never 
 | | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ (experimental) |
 | --- | --- | --- | --- |
 | **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
-| **2. Pylon** | `Pylon-Setup-1.4.0.exe` | `Pylon-1.4.0-x86_64.AppImage` | `Pylon-1.4.0-macOS.zip` |
+| **2. Pylon** | `Pylon-Setup-1.5.0.exe` | `Pylon-1.5.0-x86_64.AppImage` | `Pylon-1.5.0-macOS.zip` |
 | **3. Run** | Run the setup. No admin rights needed. | `chmod +x Pylon-*.AppImage`, then double-click it | Unzip, move **Pylon** to Applications, see the first-launch note below |
 
 Nothing else is needed: each download carries its own Python and Qt.
@@ -127,7 +129,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **Music** | Songs from your library folders, sorted by **artist, album and song**, with cover art from the files. Open an album and press Play, or double-click any song. |
 | **Library** | Opens from the folder name in the top bar without leaving the video. Back, forward, up, address bar, search, sorting (including unwatched first), pins, recent files, playlists and streams. |
 | **Continue watching** | A home page with what you were watching and how far you got, plus a "Continue from 12:34" button next to the play controls. Hover a card and click ✓✓ to mark it as watched. Playlists show how many items you've watched and pick up from the first one you haven't finished. |
-| **Streams** | Paste a link or a channel list (`.m3u`) and it becomes a queue of channels. |
+| **Streams** | Paste a link or a channel list (`.m3u`) and it becomes a queue of channels. Import `.m3u` files (or drop them on the Streams tab) to keep them as channel lists, with a channel count, more streams added later, and export. Pin favourites to the top. |
 | **Bookmarks** | `Ctrl+B` adds one instantly. A list with chapters in the sidebar. |
 | **Shortcut hints** | On-screen messages show which key you pressed. Every shortcut can be changed (`F1`). |
 | **Themes** | Dark, Pitch black, Warm grey, Midnight blue, a custom tint from any colour, and **neon** themes (Neon, Sunset, Aurora, Synthwave) with glowing gradient highlights. Preferences > General. |

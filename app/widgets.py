@@ -589,7 +589,7 @@ class Card(QWidget):
     clicked = Signal()
 
     def __init__(self, title: str, subtitle: str = "", icon_name: str = "file", progress: float | None = None,
-                 parent=None):
+                 parent=None, picture=None):
         super().__init__(parent)
         from PySide6.QtWidgets import QFrame
         self.setCursor(Qt.PointingHandCursor)
@@ -604,7 +604,10 @@ class Card(QWidget):
         lay.setSpacing(4)
         ic = QLabel()
         from .icons import pixmap
-        ic.setPixmap(pixmap(icon_name, theme.accent(), 26))
+        if picture is not None and not picture.isNull():     # album cover art
+            ic.setPixmap(picture)
+        else:
+            ic.setPixmap(pixmap(icon_name, theme.accent(), 26))
         ic.setStyleSheet("background: transparent; border: none;")
         lay.addWidget(ic)
         lay.addStretch(1)
@@ -653,23 +656,34 @@ class Card(QWidget):
 
 
 def subtitle_search_menu(parent, store, query_fn):
-    """Menu of subtitle sites for "Find online" (#46). The last site used is listed first."""
+    """Menu of subtitle sites for "Find online" (#46). The order never changes; the preferred
+    site from Preferences > Subtitles is marked with a star (#54)."""
     from PySide6.QtCore import QUrl
     from PySide6.QtGui import QDesktopServices
     from PySide6.QtWidgets import QMenu
     from .util import SUBTITLE_SITES, subtitle_search_url
     menu = QMenu(parent)
 
+    from .icons import icon
+
+    from PySide6.QtGui import QIcon, QPixmap
+    pm = QPixmap(16, 16)
+    pm.fill(Qt.transparent)
+    blank = QIcon(pm)
+
     def fill():
         menu.clear()
-        last = store.setting("sub_site") or SUBTITLE_SITES[0][0]
-        sites = sorted(SUBTITLE_SITES, key=lambda s: s[0] != last)
-        for key, name, _url in sites:
+        star = store.setting("sub_site_star")
+        for key, name, _url in SUBTITLE_SITES:
             act = menu.addAction(name, lambda k=key: open_site(k))
-            act.setToolTip(f"Search {name} in your browser")
+            if key == star:
+                act.setIcon(icon("star", theme.accent(), 16))
+                act.setToolTip(f"Your preferred site. Search {name} in your browser")
+            else:
+                act.setIcon(blank)                                 # keeps the names lined up
+                act.setToolTip(f"Search {name} in your browser")
 
     def open_site(key):
-        store.set_setting("sub_site", key)
         QDesktopServices.openUrl(QUrl(subtitle_search_url(key, query_fn())))
 
     menu.aboutToShow.connect(fill)

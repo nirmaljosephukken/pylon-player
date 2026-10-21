@@ -42,18 +42,24 @@ class SubtitleSites(unittest.TestCase):
         self.assertIn("q-Inception/", subtitle_search_url("opensubtitles.com", "Inception"))
         self.assertTrue(subtitle_search_url("unknown", "x").startswith("https://www.opensubtitles.com/"))
 
-    def test_menu_remembers_last_site(self):
+    def test_menu_keeps_its_order_and_stars_the_preferred_site(self):
         temp = tempfile.TemporaryDirectory()
         store = Store(str(Path(temp.name) / "data.json"))
         opened = []
+        names = ["OpenSubtitles.com", "OpenSubtitles.org", "SubDL", "SubSource", "Addic7ed (TV shows)"]
         with patch("PySide6.QtGui.QDesktopServices.openUrl", lambda url: opened.append(url.toString())):
             menu = subtitle_search_menu(None, store, lambda: "Inception")
-            self.assertEqual(menu.actions()[0].text(), "OpenSubtitles.com")      # the default
+            self.assertEqual([a.text() for a in menu.actions()], names)
+            self.assertFalse(any("preferred" in a.toolTip() for a in menu.actions()))   # no star by default
             [a for a in menu.actions() if a.text() == "SubDL"][0].trigger()
             self.assertEqual(opened, ["https://subdl.com/search/Inception"])
-            self.assertEqual(store.setting("sub_site"), "subdl")
             menu.aboutToShow.emit()
-            self.assertEqual(menu.actions()[0].text(), "SubDL")                  # last used comes first
+            self.assertEqual([a.text() for a in menu.actions()], names)        # using a site doesn't move it (#54)
+            store.set_setting("sub_site_star", "subsource")
+            menu.aboutToShow.emit()
+            self.assertEqual([a.text() for a in menu.actions()], names)
+            starred = [a.text() for a in menu.actions() if "preferred" in a.toolTip()]
+            self.assertEqual(starred, ["SubSource"])
         temp.cleanup()
 
 
@@ -108,6 +114,25 @@ class SuperResolutionResize(unittest.TestCase):
         self.store.set_setting("rtx_upscale", True)
         with patch.object(window_mod.sys, "platform", "win32"):
             self.resize_and_settle()
+        self.assertEqual(len(self.rebuilds), 1)
+
+    def test_full_screen_redraws_again_later(self):
+        """Some GPUs are still settling in full screen, so it redraws twice more (#42)."""
+        self.store.set_setting("rtx_upscale", True)
+        with patch.object(window_mod.sys, "platform", "win32"), \
+             patch.object(MainWindow, "isFullScreen", lambda self: True):
+            self.win.toggle_library(True)         # opening a panel counts even if nothing resizes
+            self.win.video.resized.emit()
+            wait(350)
+            self.assertEqual(len(self.rebuilds), 1)   # the usual redraw
+            wait(1400)
+        self.assertEqual(len(self.rebuilds), 3)
+
+    def test_panel_toggle_in_a_window_redraws_once(self):
+        self.store.set_setting("rtx_upscale", True)
+        with patch.object(window_mod.sys, "platform", "win32"):
+            self.win.toggle_library(True)
+            wait(1700)
         self.assertEqual(len(self.rebuilds), 1)
 
     def test_nothing_happens_when_off(self):

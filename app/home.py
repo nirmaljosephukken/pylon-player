@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushBu
 from . import theme
 from .icons import icon, pixmap
 from .util import display_name, fmt_time, is_audio, is_url, natural_key, pretty_title, to_path, list_media
+from .store import HOME_SECTIONS
 from .widgets import Card, IconButton
 
 
@@ -102,8 +103,26 @@ class HomePage(QScrollArea):
         drop.setObjectName("Muted")
         lay.addWidget(drop)
 
-        cont = self.store.continue_watching()
-        if cont and self.store.setting("home_continue"):
+        builders = {"continue": self._sec_continue, "recent": self._sec_recent, "library": self._sec_library,
+                    "playlists": self._sec_playlists, "music": self._sec_music, "streams": self._sec_streams}
+        self._cont = self.store.continue_watching()
+        for key in self.store.home_order():          # your order and choice of sections (#53)
+            if self.store.setting(HOME_SECTIONS[key][1]):
+                builders[key](lay)
+
+        lay.addStretch(1)
+        keys = QLabel("Space play/pause  ·  ←/→ jump 10s  ·  F fullscreen  ·  H hide interface  ·  "
+                      "Ctrl+B bookmark  ·  F1 all shortcuts")
+        keys.setStyleSheet(f"color: {theme.FAINT}; font-size: 12px;")
+        lay.addWidget(keys)
+        old = self.takeWidget()
+        if old:
+            old.deleteLater()
+        self.setWidget(inner)
+
+    def _sec_continue(self, lay):
+        cont = self._cont
+        if cont:
             lay.addWidget(self._section("Continue watching"))
             row = FlowRow()
             for e in cont:
@@ -119,8 +138,10 @@ class HomePage(QScrollArea):
                 row.add(c)
             lay.addWidget(hscroll(row))
 
-        recent = [r for r in self.store.data["recent"] if r["path"] not in {c["path"] for c in cont}][:12]
-        if recent and self.store.setting("home_recent"):
+    def _sec_recent(self, lay):
+        shown = {c["path"] for c in self._cont} if self.store.setting("home_continue") else set()
+        recent = [r for r in self.store.data["recent"] if r["path"] not in shown][:12]
+        if recent:
             lay.addWidget(self._section("Recently played"))
             row = FlowRow()
             for r in recent:
@@ -133,6 +154,7 @@ class HomePage(QScrollArea):
                 row.add(c)
             lay.addWidget(hscroll(row))
 
+    def _sec_library(self, lay):
         folders = self.store.data["pinned"] + [f for f in self.win.library.ordered_library_folders()
                                                if f not in self.store.data["pinned"]]
         lay.addWidget(self._section("Your library"))
@@ -147,8 +169,10 @@ class HomePage(QScrollArea):
         else:
             lay.addWidget(self._muted("Add a folder (movies, shows, music) to see it here and in the library panel."))
 
+    def _sec_playlists(self, lay):
+        lib = self.win.library
         pls = self.store.data["playlists"]
-        if pls and self.store.setting("home_playlists"):
+        if pls:
             lay.addWidget(self._section("Playlists"))
             row = FlowRow()
             positions = self.store.data["positions"]
@@ -160,7 +184,8 @@ class HomePage(QScrollArea):
                 ordered.sort(key=lambda x: natural_key(x[0]), reverse=mode == "reverse")
             elif mode == "count":
                 ordered.sort(key=lambda x: (-len(x[1]), natural_key(x[0])))
-            for name, items in ordered:
+            first, rest = lib.with_pins("playlists", ordered, lambda x: x[0])     # pinned first (#52)
+            for name, items in first + rest:
                 done = sum(1 for p in items if positions.get(p, {}).get("watched"))
                 sub = f"{len(items)} item{'s' if len(items) != 1 else ''}"
                 if done:
@@ -171,26 +196,41 @@ class HomePage(QScrollArea):
                 row.add(c)
             lay.addWidget(hscroll(row))
 
+    def _sec_music(self, lay):
+        """Albums from your library: pinned ones first, then the newest (#53)."""
+        lib = self.win.library
+        m = lib.music
+        albums = m.albums() if m.songs else []
+        if not albums:
+            return
+        newest = lambda a: max((m.songs.get(p, {}).get("mtime", 0) for p in a["tracks"]), default=0)
+        first, rest = lib.with_pins("albums", albums, lambda a: a["key"])
+        rest.sort(key=newest, reverse=True)
+        lay.addWidget(self._section("Music"))
+        row = FlowRow()
+        for a in (first + rest)[:12]:
+            n = len(a["tracks"])
+            cover = lib._cover(a["art"], 40).pixmap(40, 40) if a["art"] else None
+            c = Card(a["album"], f"{a['artist']}  ·  {n} song{'s' if n != 1 else ''}", "music", picture=cover)
+            self._bind_card_menu(c, "album", a["key"])
+            c.clicked.connect(lambda t=a["tracks"]: lib.play_songs(t))
+            row.add(c)
+        lay.addWidget(hscroll(row))
+
+    def _sec_streams(self, lay):
+        lib = self.win.library
         streams = self.store.data["streams"]
         if streams:
             lay.addWidget(self._section("Streams"))
             row = FlowRow()
-            for s in streams[:12]:
-                c = Card(s["name"], s["url"], "stream")
+            first, rest = lib.with_pins("streams", streams, lambda x: x["url"])  # pinned first (#52)
+            for s in (first + rest)[:12]:
+                n = lib.channel_count(s)
+                c = Card(s["name"], f"{n} channels" if n > 1 else s["url"], "stream")
                 self._bind_card_menu(c, "stream", s["url"])
-                c.clicked.connect(lambda s=s: self.win.open_stream(s["url"], s["name"]))
+                c.clicked.connect(lambda u=s["url"]: self.win.play_saved_stream(u))
                 row.add(c)
             lay.addWidget(hscroll(row))
-
-        lay.addStretch(1)
-        keys = QLabel("Space play/pause  ·  ←/→ jump 10s  ·  F fullscreen  ·  H hide interface  ·  "
-                      "Ctrl+B bookmark  ·  F1 all shortcuts")
-        keys.setStyleSheet(f"color: {theme.FAINT}; font-size: 12px;")
-        lay.addWidget(keys)
-        old = self.takeWidget()
-        if old:
-            old.deleteLater()
-        self.setWidget(inner)
 
     def _remove_history_item(self, path):
         self.store.data["recent"] = [r for r in self.store.data["recent"] if r["path"] != path]
@@ -212,13 +252,23 @@ class HomePage(QScrollArea):
                     ("Play folder", lambda: win.play_folder(value)),
                     ("Add folder to queue", lambda: win.enqueue(list_media(value))),
                     ("Save folder to playlist…", lambda: lib.save_to_playlist(list_media(value), os.path.basename(os.path.normpath(value))))]
+        if kind == "album":
+            album = next((x for x in lib.music.albums() if x["key"] == value), None)
+            tracks = album["tracks"] if album else []
+            pinned = lib.is_pinned("albums", value)
+            return [("Play", lambda: lib.play_songs(tracks)),
+                    ("Add to queue", lambda: win.enqueue(tracks)),
+                    ("Unpin" if pinned else "Pin to top", lambda: lib.toggle_item_pin("albums", value))]
         if kind == "playlist":
             return [("Play", lambda: win.play_playlist(value)),
                     ("Add to queue", lambda: win.enqueue(self.store.data["playlists"].get(value, []))),
                     ("Rename…", lambda: lib._pl_rename(value)),
                     ("Export as .m3u…", lambda: lib._pl_export(value))]
-        return [("Play", lambda: win.open_stream(value)),
-                ("Add to queue", lambda: win.enqueue([value])),
+        s = lib.stream_entry(value) or {}
+        add = ((lambda: win.enqueue_items([{"path": c["url"], "title": c["name"]} for c in s["channels"]]))
+               if s.get("channels") else (lambda: win.enqueue([value])))
+        return [("Play", lambda: win.play_saved_stream(value)),
+                ("Add to queue", add),
                 ("Remove saved stream", lambda: lib._st_remove(value))]
 
     def _bind_card_menu(self, card, kind, value):

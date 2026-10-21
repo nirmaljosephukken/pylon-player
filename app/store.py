@@ -15,6 +15,16 @@ QUEUE_MODES = {
     "loop": ("Loop", "Loop: play this item again and again", "repeat_one"),
 }
 
+# Home screen sections (#53): key -> (title, setting that shows it), in their default order.
+HOME_SECTIONS = {
+    "continue": ("Continue watching", "home_continue"),
+    "recent": ("Recently played", "home_recent"),
+    "library": ("Your library", "home_library"),
+    "playlists": ("Playlists", "home_playlists"),
+    "music": ("Music", "home_music"),
+    "streams": ("Streams", "home_streams"),
+}
+
 DEFAULT_SHORTCUTS = {
     "play_pause": ("Play / pause", "Space"),
     "seek_fwd": ("Jump forward 10s", "Right"),
@@ -85,12 +95,16 @@ DEFAULT_SETTINGS = {
     "home_continue": True,
     "home_recent": True,
     "home_playlists": True,
+    "home_library": True,
+    "home_music": True,
+    "home_streams": True,
+    "home_order": [],           # home section order, empty = the default (#53)
     "simple_queue_names": False,
     "sub_lang": "",             # preferred subtitle language, e.g. "eng"
     "audio_lang": "",
     "hw_decoding": True,
     "rtx_upscale": False,              # Windows: VLC's Super Resolution upscaling (#42)
-    "sub_site": "opensubtitles.com",   # last subtitle site used by Find online (#46)
+    "sub_site_star": "",        # preferred subtitle site, starred in Find online; "" = none (#54)
     "onboarded": False,
     "vlc_dir": "",
     "desktop_entry": "",
@@ -135,7 +149,8 @@ class Store(QObject):
             "settings": dict(DEFAULT_SETTINGS),
             "shortcuts": {},
             "library_folders": [],
-            "pinned": [],
+            "pinned": [],            # library folders pinned to the top
+            "pins": {},              # pinned items in other tabs: streams, playlists, artists, albums (#52)
             "recent": [],            # [{path, t}]
             "positions": {},         # path -> {pos, len, watched, t}
             "presets": {},           # name -> settings dict
@@ -216,6 +231,11 @@ class Store(QObject):
         if not watched:
             e["pos"] = 0
         self.save("library")
+
+    def home_order(self) -> list[str]:
+        """Home section keys in the order you chose; anything new goes at the end."""
+        saved = [k for k in (self.setting("home_order") or []) if k in HOME_SECTIONS]
+        return list(dict.fromkeys(saved)) + [k for k in HOME_SECTIONS if k not in saved]
 
     def continue_watching(self, limit=12) -> list[dict]:
         out = []
