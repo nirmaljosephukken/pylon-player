@@ -34,6 +34,40 @@ def natural_key(s: str):
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
 
 
+def merge_in_name_order(existing: list, new: list, path_of=lambda x: x) -> list:
+    """Add items to a list, putting each file next to the files from its own folder in name order (#57).
+
+    Episode 2 added to a list holding episodes 1, 5 and 6 of the same show lands between 1 and 5.
+    A file whose folder isn't in the list yet, or whose folder's files are in an order the user chose
+    themselves (not name order), goes at the end like before. Streams and songs always go at the end:
+    a mix is in the order you add songs, and an album's order is its track numbers, not file names."""
+    out = list(existing)
+
+    def folder(x):
+        p = path_of(x)
+        return None if is_url(p) or is_audio(p) else os.path.normcase(os.path.dirname(os.path.abspath(p)))
+
+    def key(x):
+        return natural_key(os.path.basename(path_of(x)))
+
+    for item in new:
+        f = folder(item)
+        same = [i for i, x in enumerate(out) if f is not None and folder(x) == f]
+        keys = [key(out[i]) for i in same]
+        if not same or keys != sorted(keys):
+            out.append(item)
+            continue
+        k = key(item)
+        after = [i for i in same if key(out[i]) <= k]
+        out.insert(after[-1] + 1 if after else same[0], item)
+    return out
+
+
+def sort_key_by_name(path: str, title: str = ""):
+    """Name order for a whole queue or playlist: by title for channels, else by file name."""
+    return natural_key(title or display_name(path))
+
+
 def is_url(s: str) -> bool:
     return bool(re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", s or "")) and not s.lower().startswith("file://")
 

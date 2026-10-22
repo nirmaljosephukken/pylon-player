@@ -1,6 +1,7 @@
 """Home page (instead of a blank screen: continue watching, recent, your
 library, playlists, streams) and the Now Playing page used for music."""
 import os
+import time
 
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QPixmap
@@ -106,6 +107,7 @@ class HomePage(QScrollArea):
         builders = {"continue": self._sec_continue, "recent": self._sec_recent, "library": self._sec_library,
                     "playlists": self._sec_playlists, "music": self._sec_music, "streams": self._sec_streams}
         self._cont = self.store.continue_watching()
+        self._listen = self.continue_listening() if self.store.setting("home_music") else []
         for key in self.store.home_order():          # your order and choice of sections (#53)
             if self.store.setting(HOME_SECTIONS[key][1]):
                 builders[key](lay)
@@ -140,6 +142,7 @@ class HomePage(QScrollArea):
 
     def _sec_recent(self, lay):
         shown = {c["path"] for c in self._cont} if self.store.setting("home_continue") else set()
+        shown |= {c["path"] for c in self._listen}
         recent = [r for r in self.store.data["recent"] if r["path"] not in shown][:12]
         if recent:
             lay.addWidget(self._section("Recently played"))
@@ -196,8 +199,91 @@ class HomePage(QScrollArea):
                 row.add(c)
             lay.addWidget(hscroll(row))
 
+    def continue_listening(self, limit=12):
+        """What to pick up again in Music (#55), newest first: an album you were partway through
+        (where you left off, or the next song if you finished one) or a song that isn't on an album."""
+        lib = self.win.library
+        m = lib.music
+        hidden = self.store.data.get("listen_hidden", {})
+        key = lambda p: os.path.normcase(os.path.normpath(p))
+        album_of = {}
+        for a in (m.albums() if m.songs else []):
+            if len(a["tracks"]) > 1:
+                for i, p in enumerate(a["tracks"]):
+                    album_of[key(p)] = (a, i)
+        out, seen = [], set()
+        positions = sorted(self.store.data["positions"].items(), key=lambda kv: -kv[1].get("t", 0))
+        for p, e in positions:
+            if is_url(p) or not is_audio(p) or not os.path.exists(p):
+                continue
+            ln, pos, t = e.get("len", 0), e.get("pos", 0), e.get("t", 0)
+            done = e.get("watched") or (ln and pos >= ln * 0.93)
+            found = album_of.get(key(p))
+            k = found[0]["key"] if found else key(p)
+            if k in seen:
+                continue
+            seen.add(k)                       # only the newest song from each album counts
+            if hidden.get(k, 0) >= t:
+                continue                      # removed, and not played since
+            if found:
+                a, i = found
+                if done:
+                    i, pos = i + 1, 0
+                    if i >= len(a["tracks"]):
+                        continue              # the whole album is finished
+                elif i == 0 and pos < 10_000:
+                    continue                  # barely started
+                frac = (pos / ln) if (ln and not done) else 0
+                out.append({"key": k, "album": a, "index": i, "path": a["tracks"][i], "pos": pos,
+                            "progress": (i + frac) / len(a["tracks"])})
+            elif not done and pos > 10_000 and ln:
+                out.append({"key": k, "album": None, "index": 0, "path": p, "pos": pos, "progress": pos / ln})
+            if len(out) >= limit:
+                break
+        return out
+
+    def _resume_listening(self, item):
+        lib = self.win.library
+        if item["album"]:
+            self.win.set_queue(lib._queue_items(item["album"]["tracks"]), item["index"], keep_playing=True)
+            self.win.play_queue_index(item["index"], start_ms=item["pos"])
+        else:
+            self.win.play_from_folder(item["path"], start_ms=item["pos"])
+
+    def _hide_listening(self, k):
+        self.store.data.setdefault("listen_hidden", {})[k] = time.time()
+        self.store.save("library")
+        self.refresh()
+
+    def _sec_listening(self, lay):
+        items = self._listen
+        if not items:
+            return
+        lib = self.win.library
+        lay.addWidget(self._section("Continue listening"))
+        row = FlowRow()
+        for it in items:
+            p, a = it["path"], it["album"]
+            song = lib.music.title_of(p, lib.music.songs.get(p, {})) if a else pretty_title(p)
+            if a:
+                n = len(a["tracks"])
+                cover = lib._cover(a["art"], 40).pixmap(40, 40) if a["art"] else None
+                sub = f"Song {it['index'] + 1} of {n}  ·  {song}"
+                c = Card(a["album"], sub, "music", progress=it["progress"], picture=cover)
+                self._bind_card_menu(c, "album", a["key"])
+                c.setToolTip(f"{a['artist']}  ·  {a['album']}\nNext: {song}")
+            else:
+                c = Card(song, f"{fmt_time(it['pos'])}  ·  {_parent(p)}", "music", progress=it["progress"])
+                self._bind_card_menu(c, "media", p)
+                c.setToolTip(p)
+            c.clicked.connect(lambda it=it: self._resume_listening(it))
+            c.add_corner_button("close", "Remove from Continue listening", lambda k=it["key"]: self._hide_listening(k))
+            row.add(c)
+        lay.addWidget(hscroll(row))
+
     def _sec_music(self, lay):
-        """Albums from your library: pinned ones first, then the newest (#53)."""
+        """Continue listening (#55), then albums from your library: pinned ones first, then the newest (#53)."""
+        self._sec_listening(lay)
         lib = self.win.library
         m = lib.music
         albums = m.albums() if m.songs else []

@@ -5,7 +5,7 @@ import sys
 
 from PySide6.QtCore import QSize, Qt, QUrl, QTimer
 from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QIcon, QPixmap, QPainter
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QFrame,
                                QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout,
                                QHeaderView, QKeySequenceEdit, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QSpinBox,
@@ -279,6 +279,30 @@ class ShortcutsDialog(QDialog):
             self.edits[action] = e
             self.table.setRowHeight(r, 34)
         lay.addWidget(self.table, 1)
+        # a key that's already taken says so straight away, with a way to move it here (#56)
+        self._prev = {a: self._key(a) for a in self.edits}
+        self._last = None
+        self.clash = QFrame()
+        self.clash.setObjectName("ClashBar")
+        self.clash.setStyleSheet(f"#ClashBar {{ background: {theme.SURFACE}; border: 1px solid {theme.accent()};"
+                                 f" border-radius: 10px; }}")
+        cl = QHBoxLayout(self.clash)
+        cl.setContentsMargins(12, 8, 8, 8)
+        self.clash_text = QLabel()
+        self.clash_text.setWordWrap(True)
+        self.clash_text.setStyleSheet(f"color: {theme.TEXT}; background: transparent;")
+        cl.addWidget(self.clash_text, 1)
+        self.clash_use = QPushButton("Use it here")
+        self.clash_use.setObjectName("Primary")
+        self.clash_use.clicked.connect(self._use_here)
+        self.clash_undo = QPushButton("Undo")
+        self.clash_undo.clicked.connect(self._undo)
+        cl.addWidget(self.clash_use)
+        cl.addWidget(self.clash_undo)
+        self.clash.hide()
+        lay.addWidget(self.clash)
+        for action, e in self.edits.items():
+            e.keySequenceChanged.connect(lambda _seq, a=action: self._changed(a))
         bb = QDialogButtonBox()
         reset = bb.addButton("Reset to defaults", QDialogButtonBox.ResetRole)
         reset.clicked.connect(self._reset)
@@ -299,16 +323,58 @@ class ShortcutsDialog(QDialog):
     def _reset(self):
         for action, e in self.edits.items():
             e.setKeySequence(QKeySequence(DEFAULT_SHORTCUTS[action][1]))
+        self.clash.hide()
+
+    def _key(self, action):
+        return self.edits[action].keySequence().toString()
+
+    def _other_with(self, action):
+        k = self._key(action)
+        return next((b for b in self.edits if b != action and k and self._key(b) == k), None)
+
+    def _changed(self, action):
+        other = self._other_with(action)
+        if other:
+            self._last = action
+            self._clash = (action, other)
+            self.clash_text.setText(f"“{self._key(action)}” is already used by “{DEFAULT_SHORTCUTS[other][0]}”. "
+                                    f"Use it for “{DEFAULT_SHORTCUTS[action][0]}” instead?")
+            self.clash.show()
+        else:
+            self._prev[action] = self._key(action)
+            if self.clash.isVisible() and not any(self._other_with(a) for a in self._clash):
+                self.clash.hide()
+
+    def _use_here(self):
+        action, other = self._clash
+        self.edits[other].clear()          # the other action is left without a key
+        self._prev[other] = ""
+        self._prev[action] = self._key(action)
+        self.clash.hide()
+
+    def _undo(self):
+        action, _ = self._clash
+        self.clash.hide()
+        self.edits[action].setKeySequence(QKeySequence(self._prev.get(action, "")))
 
     def save(self):
         seen = {}
         for action, e in self.edits.items():
             k = e.keySequence().toString()
             if k and k in seen:
-                QMessageBox.warning(self, "Same key used twice",
-                                    f"“{k}” is set for both “{DEFAULT_SHORTCUTS[seen[k]][0]}” "
-                                    f"and “{DEFAULT_SHORTCUTS[action][0]}”.")
-                return
+                first = seen[k]
+                keep = first if self._last == first else action      # the one you just changed keeps it
+                drop = action if keep == first else first
+                box = QMessageBox(QMessageBox.Warning, "Same key used twice",
+                                  f"“{k}” is set for both “{DEFAULT_SHORTCUTS[first][0]}” "
+                                  f"and “{DEFAULT_SHORTCUTS[action][0]}”.", parent=self)
+                use = box.addButton(f"Use it for “{DEFAULT_SHORTCUTS[keep][0]}”", QMessageBox.AcceptRole)
+                box.addButton("Go back", QMessageBox.RejectRole)
+                box.exec()
+                if box.clickedButton() is not use:
+                    return
+                self.edits[drop].clear()
+                return self.save()
             if k:
                 seen[k] = action
         sc = {}
@@ -776,6 +842,8 @@ class PreferencesDialog(QDialog):
 
     def _set_rtx_upscale(self, on: bool):
         self.store.set_setting("rtx_upscale", on)
+        if hasattr(self.win, "fit_vsr_margin"):
+            self.win.fit_vsr_margin()
         engine = self.win.engine
         if engine.ok:
             engine.rebuild()            # applies now and continues from the same point

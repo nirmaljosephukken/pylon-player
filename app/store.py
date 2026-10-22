@@ -6,6 +6,8 @@ import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from .util import is_audio
+
 # What the queue does when an item ends (#48), in the order the queue button cycles through them:
 # key -> (short name, what it does, icon)
 QUEUE_MODES = {
@@ -51,6 +53,8 @@ DEFAULT_SHORTCUTS = {
     "audio_delay_minus": ("Audio earlier (-50 ms)", "Shift+K"),
     "cycle_sub": ("Next subtitle track", "V"),
     "cycle_audio": ("Next audio track", "B"),
+    "cycle_aspect": ("Next aspect ratio", "A"),       # same keys as VLC (#56)
+    "cycle_crop": ("Next crop", "C"),
     "bookmark": ("Add bookmark", "Ctrl+B"),
     "library": ("Show or hide library panel", "Ctrl+L"),
     "sidebar": ("Show or hide settings panel", "Ctrl+T"),
@@ -153,6 +157,7 @@ class Store(QObject):
             "pins": {},              # pinned items in other tabs: streams, playlists, artists, albums (#52)
             "recent": [],            # [{path, t}]
             "positions": {},         # path -> {pos, len, watched, t}
+            "listen_hidden": {},     # album key or song path -> when it was removed from Continue listening (#55)
             "presets": {},           # name -> settings dict
             "folder_preset": {},     # folder -> preset name
             "bookmarks": {},         # path -> [{t, name}]
@@ -203,7 +208,14 @@ class Store(QObject):
         self.save("settings")
 
     def shortcut(self, action: str) -> str:
-        return self.data["shortcuts"].get(action, DEFAULT_SHORTCUTS[action][1])
+        sc = self.data["shortcuts"]
+        if action in sc:
+            return sc[action]
+        default = DEFAULT_SHORTCUTS[action][1]
+        # a key the user already gave to something else wins over a newer default (A and C in 1.5.1)
+        if default and any(k == default for a, k in sc.items() if a != action):
+            return ""
+        return default
 
     # ---------- history ----------
     def add_recent(self, path: str):
@@ -241,6 +253,8 @@ class Store(QObject):
         out = []
         for p, e in self.data["positions"].items():
             ln = e.get("len", 0)
+            if is_audio(p):
+                continue           # songs have their own row under Music: Continue listening (#55)
             if ln and 10_000 < e.get("pos", 0) < ln * 0.93 and not e.get("watched"):
                 out.append({"path": p, **e})
         out.sort(key=lambda e: -e.get("t", 0))

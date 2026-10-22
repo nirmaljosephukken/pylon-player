@@ -23,7 +23,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFile
 
 from . import theme
 from .icons import icon
-from .util import (display_name, fmt_time, is_audio, is_media, is_url, list_media, natural_key, parse_m3u,
+from .util import (display_name, fmt_time, is_audio, is_media, is_url, list_media, merge_in_name_order,
+                   natural_key, parse_m3u, sort_key_by_name,
                    pretty_title, to_path)
 from .store import QUEUE_MODES
 from .widgets import IconButton
@@ -883,13 +884,15 @@ class LibraryPanel(QWidget):
         def identity(path):
             return path if is_url(path) else os.path.normcase(os.path.abspath(path))
         seen = {identity(path) for path in target}
-        added = 0
+        fresh = []
         for path in files:
             key = identity(path)
             if key not in seen:
-                target.append(path)
+                fresh.append(path)
                 seen.add(key)
-                added += 1
+        added = len(fresh)
+        # new episodes join the others from their folder in name order (#57)
+        target[:] = merge_in_name_order(target, fresh)
         self.store.save("playlists")
         self.refresh_playlists()
         self.win.toast(f"Added {added} item{'s' if added != 1 else ''} to “{name}”")
@@ -924,11 +927,21 @@ class LibraryPanel(QWidget):
         m.addAction(icon("pin", theme.TEXT, 16), "Unpin" if pinned else "Pin to top",
                     lambda: self.toggle_item_pin("playlists", name))
         m.addAction("Add files…", lambda: self._pl_add_files(name))
+        if len(self.store.data["playlists"].get(name, [])) > 1:
+            m.addAction(icon("sort", theme.TEXT, 16), "Sort by name", lambda: self._pl_sort(name))
         m.addAction("Rename…", lambda: self._pl_rename(name))
         m.addAction("Export as .m3u…", lambda: self._pl_export(name))
         m.addSeparator()
         m.addAction("Delete", lambda: self._pl_delete(name))
         m.exec(self.pl_list.mapToGlobal(pos))
+
+    def _pl_sort(self, name):
+        """Put a playlist in name order (#57)."""
+        items = self.store.data["playlists"].get(name, [])
+        items.sort(key=sort_key_by_name)
+        self.store.save("playlists")
+        self.refresh_playlists()
+        self.win.toast(f"“{name}” sorted by name")
 
     def _pl_add_files(self, name):
         picked, _ = QFileDialog.getOpenFileNames(self, "Add files", "", media_filter())
@@ -1624,6 +1637,8 @@ class LibraryPanel(QWidget):
         if self.queue.count() > 1:
             m.addAction("Select all\tCtrl+A", self.queue.selectAll)
         m.addAction("Add files…", self._add_files_to_queue)
+        if self.queue.count() > 1:
+            m.addAction(icon("sort", theme.TEXT, 16), "Sort by name", self.win.sort_queue_by_name)
         m.addAction("Clear queue", lambda: self.win.set_queue([], -1))
         m.exec(self.queue.mapToGlobal(pos))
 

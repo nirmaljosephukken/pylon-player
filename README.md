@@ -4,7 +4,7 @@
 
 ### [⬇ Download page: nirmaljosephukken.github.io/pylon-player](https://nirmaljosephukken.github.io/pylon-player/)
 
-**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.5.0.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.5.0-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.5.0-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
+**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.5.1.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.5.1-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.5.1-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
 
 **New to Pylon?** The [user guide](https://nirmaljosephukken.github.io/pylon-player/guide.html) shows every screen, panel and setting with pictures and step-by-step how-tos. It's also available as a [PDF](https://nirmaljosephukken.github.io/pylon-player/guide/Pylon-User-Guide.pdf).
@@ -20,6 +20,8 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 ![Library, queue and settings sidebar](docs/panels.png)
 
 ## What's new
+
+**1.5.1:** New episodes added to a playlist or the queue now slot in next to the others from the same show, in order, and the queue and playlists have **Sort by name**. When a key is already taken, the shortcuts window offers to move it to the action you're changing. **A** and **C** step through aspect ratios and crops. Songs no longer appear in Continue watching: the Music section on the home screen starts with **Continue listening**, which picks an album up from the song you were on. Full screen with Super Resolution gets another fix for the picture going black while a panel is open.
 
 **1.5.0:** Save `.m3u` channel lists in the Streams tab: import a file or drop it on the list, and it shows how many channels it has. Lists can grow with more streams and be exported. Pin streams, playlists, artists and albums to the top of their tabs. Reorder or hide any home screen section in Preferences, and there's a new Music section. The Recent tab has a right-click menu (play, queue, add to playlist, remove from Recent), and the update download bar uses your accent colour. Find online keeps a fixed order with your preferred site starred, and Super Resolution redraws more reliably in full screen.
 
@@ -78,7 +80,7 @@ Pylon plays everything through **VLC**, which you install yourself (Pylon never 
 | | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ (experimental) |
 | --- | --- | --- | --- |
 | **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
-| **2. Pylon** | `Pylon-Setup-1.5.0.exe` | `Pylon-1.5.0-x86_64.AppImage` | `Pylon-1.5.0-macOS.zip` |
+| **2. Pylon** | `Pylon-Setup-1.5.1.exe` | `Pylon-1.5.1-x86_64.AppImage` | `Pylon-1.5.1-macOS.zip` |
 | **3. Run** | Run the setup. No admin rights needed. | `chmod +x Pylon-*.AppImage`, then double-click it | Unzip, move **Pylon** to Applications, see the first-launch note below |
 
 Nothing else is needed: each download carries its own Python and Qt.
@@ -130,7 +132,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **Playback** | Speed, sleep timer (including "end of this file"), queue mode, starting the queue again at the end, and media info. |
 | **Music** | Songs from your library folders, sorted by **artist, album and song**, with cover art from the files. Open an album and press Play, or double-click any song. |
 | **Library** | Opens from the folder name in the top bar without leaving the video. Back, forward, up, address bar, search, sorting (including unwatched first), pins, recent files, playlists and streams. |
-| **Continue watching** | A home page with what you were watching and how far you got, plus a "Continue from 12:34" button next to the play controls. Hover a card and click ✓✓ to mark it as watched. Playlists show how many items you've watched and pick up from the first one you haven't finished. |
+| **Continue watching** | A home page with what you were watching and how far you got, plus a "Continue from 12:34" button next to the play controls. Hover a card and click ✓✓ to mark it as watched. Music has its own **Continue listening** row that resumes an album from the song you were on. Playlists show how many items you've watched and pick up from the first one you haven't finished. |
 | **Streams** | Paste a link or a channel list (`.m3u`) and it becomes a queue of channels. Import `.m3u` files (or drop them on the Streams tab) to keep them as channel lists, with a channel count, more streams added later, and export. Pin favourites to the top. |
 | **Bookmarks** | `Ctrl+B` adds one instantly. A list with chapters in the sidebar. |
 | **Shortcut hints** | On-screen messages show which key you pressed. Every shortcut can be changed (`F1`). |
@@ -157,6 +159,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | G / J | Subtitles earlier / later (50 ms) |
 | Shift+K / K | Audio earlier / later |
 | V / B | Next subtitle / audio track |
+| A / C | Next aspect ratio / crop |
 | Ctrl+B | Bookmark |
 | Ctrl+L / Ctrl+T / Ctrl+Q | Library, settings sidebar, queue |
 | Ctrl+Shift+L | Show or hide both side panels |

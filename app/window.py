@@ -22,7 +22,8 @@ from .library import LibraryPanel, media_filter
 from .sidebar import SettingsSidebar
 from .store import DEFAULT_SHORTCUTS, QUEUE_MODES
 from .util import (SUB_EXTS, PLAYLIST_EXTS, display_name, norm, find_subtitle_candidates, fmt_delay,
-                   fmt_time, is_audio, is_media, is_url, list_media, match_subtitle, natural_key,
+                   fmt_time, is_audio, is_media, is_url, list_media, match_subtitle, merge_in_name_order, natural_key,
+                   sort_key_by_name,
                    parse_m3u, to_path)
 from .thumbs import ThumbnailMaker
 from .updates import UpdateChecker
@@ -32,6 +33,7 @@ PAGE_HOME, PAGE_VIDEO, PAGE_AUDIO = 0, 1, 2
 
 
 VSR_FULLSCREEN_RETRIES_MS = (600, 1500)    # extra Super Resolution redraws in full screen (#42)
+VSR_FULLSCREEN_MARGIN = 1                  # pixels kept free at the bottom in full screen with Super Resolution (#42)
 
 class VideoSurface(QFrame):
     """Native window that VLC draws into. Mouse input is turned off in VLC so
@@ -228,6 +230,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.stage = QStackedWidget()
+        self.stage.setObjectName("Stage")
         self.stage.setMinimumWidth(240)
         self.home = None  # created after library (home uses it)
         self.video = VideoSurface(store)
@@ -833,6 +836,7 @@ class MainWindow(QMainWindow):
         self._overlay_geo = None
         if e.type() == e.Type.WindowStateChange:
             self.top.set_fullscreen(self.isFullScreen())
+            self.fit_vsr_margin()
 
     def toast(self, text: str, key: str = ""):
         if self.stage.currentIndex() == PAGE_HOME or self.isMinimized():
@@ -863,6 +867,15 @@ class MainWindow(QMainWindow):
                 sc2.setAutoRepeat(False)
                 sc2.activated.connect(lambda a=action: self.do(a))
                 self._shortcuts.append(sc2)
+
+    def _cycle_chip(self, chips, live_key, setter, what):
+        """Step to the next choice in the settings panel's row for this (aspect ratio or crop, #56)."""
+        values = chips.values
+        cur = self.engine.live.get(live_key, "")
+        i = (values.index(cur) + 1) % len(values) if cur in values else 1 % len(values)
+        setter(values[i])
+        chips.select(values[i])
+        return f"{what}: {chips.group.button(i).text()}"
 
     def do(self, action: str, key: bool = True):
         e = self.engine
@@ -969,6 +982,12 @@ class MainWindow(QMainWindow):
             msg = self._cycle(e.sub_tracks(), e.current_sub(), e.set_sub, "Subtitles")
         elif action == "cycle_audio":
             msg = self._cycle(e.audio_tracks(), e.current_audio(), e.set_audio, "Audio")
+        elif action in ("cycle_aspect", "cycle_crop"):
+            if not e.current:
+                return
+            msg = self._cycle_chip(*((self.sidebar.aspect, "aspect", e.set_aspect, "Aspect ratio")
+                                     if action == "cycle_aspect" else
+                                     (self.sidebar.crop, "crop", e.set_crop, "Crop")))
         elif action == "bookmark":
             if not e.current:
                 return
@@ -1128,6 +1147,16 @@ class MainWindow(QMainWindow):
         e = self.engine
         return (sys.platform == "win32" and bool(self.store.setting("rtx_upscale")) and e.ok
                 and bool(e.current) and self.stage.currentIndex() == PAGE_VIDEO and e.has_video())
+
+    def fit_vsr_margin(self):
+        """Full screen with Super Resolution on keeps the picture one pixel short of the bottom edge (#42).
+        A picture covering the whole screen is shown by Windows in a different way than one in a window,
+        and opening a panel switches between the two, which turns Super Resolution black until the panel
+        closes. One pixel short, full screen works like a window, where panels already work. The pixel
+        is in the black bar, so it can't be seen."""
+        on = (sys.platform == "win32" and bool(self.store.setting("rtx_upscale")) and self.isFullScreen())
+        self.stage.setContentsMargins(0, 0, 0, VSR_FULLSCREEN_MARGIN if on else 0)
+        self.stage.setStyleSheet("#Stage { background: #000; }" if on else "")
 
     def _vsr_resized(self):
         if hasattr(self, "_vsr_late") and self._vsr_active():
@@ -1544,11 +1573,32 @@ class MainWindow(QMainWindow):
         if play_next and self.qindex >= 0:
             self.queue[self.qindex + 1:self.qindex + 1] = items
         else:
-            self.queue.extend(items)
+            # an episode joins the others from its folder in name order, not the end of the queue (#57)
+            cur = self.queue[self.qindex] if 0 <= self.qindex < len(self.queue) else None
+            self.queue = merge_in_name_order(self.queue, items, lambda q: q["path"])
+            if cur is not None:
+                self.qindex = next(i for i, q in enumerate(self.queue) if q is cur)
+            if self.library.shuffled:      # so leaving Shuffle puts it in its place too
+                self.library._unshuffled = merge_in_name_order(self.library._unshuffled, items,
+                                                               lambda q: q["path"])
         self.library.refresh_queue()
         self.toast(f"Added {len(items)} to the queue" if len(items) > 1 else f"Added “{display_name(items[0]['path'])}” to the queue")
         if not self.engine.current:
-            self.play_queue_index(len(self.queue) - len(items) if not play_next else max(0, self.qindex + 1))
+            self.play_queue_index(max(0, self.qindex + 1) if play_next and self.qindex >= 0
+                                  else next(i for i, q in enumerate(self.queue) if q is items[0]))
+
+    def sort_queue_by_name(self):
+        """Put the whole queue in name order (#57); what's playing keeps playing."""
+        if len(self.queue) < 2:
+            return
+        if self.queue_mode == "shuffle":      # a sorted queue isn't a shuffled one
+            self.set_queue_mode("next", announce=False)
+        cur = self.queue[self.qindex] if 0 <= self.qindex < len(self.queue) else None
+        self.queue.sort(key=lambda q: sort_key_by_name(q["path"], q.get("title", "")))
+        if cur is not None:
+            self.qindex = next(i for i, q in enumerate(self.queue) if q is cur)
+        self.library.refresh_queue()
+        self.toast("Queue sorted by name")
 
     def insert_into_queue(self, paths, row):
         items = [{"path": norm(p)} for p in paths if p and (is_url(p) or is_media(p) or
