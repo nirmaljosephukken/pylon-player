@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".mpg", ".mpeg",
-              ".ts", ".m2ts", ".mts", ".3gp", ".ogv", ".vob", ".divx", ".rmvb", ".asf", ".f4v"}
+              ".ts", ".m2ts", ".mts", ".3gp", ".ogv", ".vob", ".divx", ".rmvb", ".asf", ".f4v", ".iso"}
 AUDIO_EXTS = {".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".wma", ".alac", ".aiff",
               ".ape", ".mka", ".dts", ".ac3"}
 SUB_EXTS = {".srt", ".ass", ".ssa", ".vtt", ".sub", ".idx", ".smi", ".txt"}
@@ -64,8 +64,12 @@ def merge_in_name_order(existing: list, new: list, path_of=lambda x: x) -> list:
 
 
 def sort_key_by_name(path: str, title: str = ""):
-    """Name order for a whole queue or playlist: by title for channels, else by file name."""
-    return natural_key(title or display_name(path))
+    """Name order for a whole queue or playlist: by title for channels, else by file name.
+
+    A file sorts by its file name even when the queue shows another title for it. Entries from an
+    .m3u carry the title another player wrote from the file's tags, and sorting by that put a
+    folder in tag order (#58)."""
+    return natural_key(title if is_url(path) and title else display_name(path))
 
 
 def is_url(s: str) -> bool:
@@ -132,6 +136,40 @@ def is_media(path: str) -> bool:
 
 def is_audio(path: str) -> bool:
     return Path(path).suffix.lower() in AUDIO_EXTS
+
+
+def is_dvd_folder(path: str) -> bool:
+    """A copied DVD: a VIDEO_TS folder, or a folder that holds one."""
+    if not path or is_url(path) or not os.path.isdir(path):
+        return False
+    if os.path.basename(os.path.normpath(path)).upper() == "VIDEO_TS":
+        folder = path
+    else:
+        folder = next((os.path.join(path, f) for f in _listdir(path) if f.upper() == "VIDEO_TS"), "")
+    return bool(folder) and any(f.upper() == "VIDEO_TS.IFO" for f in _listdir(folder))
+
+
+def is_disc(path: str) -> bool:
+    """A DVD image (.iso), a DVD folder or a dvd:// link: played with its menus and titles."""
+    if not path:
+        return False
+    if path.lower().startswith("dvd://"):
+        return True
+    return Path(path).suffix.lower() == ".iso" or is_dvd_folder(path)
+
+
+def disc_mrl(path: str) -> str:
+    """How VLC is asked to open a disc. An .iso opens as a file; a folder needs dvd://."""
+    if is_dvd_folder(path):
+        return "dvd:///" + path.replace("\\", "/").lstrip("/")
+    return path
+
+
+def _listdir(folder):
+    try:
+        return os.listdir(folder)
+    except OSError:
+        return []
 
 
 def list_media(folder: str) -> list[str]:

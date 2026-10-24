@@ -34,6 +34,7 @@ DEFAULT_SHORTCUTS = {
     "seek_fwd_long": ("Jump forward 1 min", "Ctrl+Right"),
     "seek_back_long": ("Jump back 1 min", "Ctrl+Left"),
     "frame_next": ("Next frame", "E"),
+    "frame_prev": ("Previous frame", "Shift+E"),
     "vol_up": ("Volume up", "Up"),
     "vol_down": ("Volume down", "Down"),
     "mute": ("Mute", "M"),
@@ -55,6 +56,7 @@ DEFAULT_SHORTCUTS = {
     "cycle_audio": ("Next audio track", "B"),
     "cycle_aspect": ("Next aspect ratio", "A"),       # same keys as VLC (#56)
     "cycle_crop": ("Next crop", "C"),
+    "ab_loop": ("Repeat a part (A–B): set start, end, off", "L"),
     "bookmark": ("Add bookmark", "Ctrl+B"),
     "library": ("Show or hide library panel", "Ctrl+L"),
     "sidebar": ("Show or hide settings panel", "Ctrl+T"),
@@ -113,6 +115,7 @@ DEFAULT_SETTINGS = {
     "vlc_dir": "",
     "desktop_entry": "",
     "seek_previews": True,      # preview pictures when hovering the seek bar
+    "seek_waveform": "audio",   # waveform in the seek bar: "audio" (songs), "all" (videos too) or "off"
     "theme": "dark",            # dark | black | warm | midnight | custom
     "theme_tint": "",           # colour for the custom theme
     "pin_controls": False,      # keep the bars shown (and the video clear of them) outside fullscreen
@@ -156,7 +159,8 @@ class Store(QObject):
             "pinned": [],            # library folders pinned to the top
             "pins": {},              # pinned items in other tabs: streams, playlists, artists, albums (#52)
             "recent": [],            # [{path, t}]
-            "positions": {},         # path -> {pos, len, watched, t}
+            "positions": {},         # path -> {pos, len, watched, t} (+ title for discs)
+            "plays": {},             # path -> {n: times played, t: last time}, for music sorting
             "listen_hidden": {},     # album key or song path -> when it was removed from Continue listening (#55)
             "presets": {},           # name -> settings dict
             "folder_preset": {},     # folder -> preset name
@@ -237,6 +241,18 @@ class Store(QObject):
     def position(self, path: str) -> dict:
         return self.data["positions"].get(path, {})
 
+    def count_play(self, path: str):
+        """One more play of this file (Recently played and Most played in Music)."""
+        if not path or not self.setting("remember_history"):
+            return
+        e = self.data.setdefault("plays", {}).setdefault(path, {"n": 0, "t": 0})
+        e["n"] = int(e.get("n", 0)) + 1
+        e["t"] = time.time()
+        self.save()
+
+    def plays(self, path: str) -> dict:
+        return self.data.get("plays", {}).get(path, {})
+
     def set_watched(self, path: str, watched: bool):
         e = self.data["positions"].setdefault(path, {"pos": 0, "len": 0, "t": time.time()})
         e["watched"] = watched
@@ -263,6 +279,7 @@ class Store(QObject):
     def clear_history(self):
         self.data["recent"] = []
         self.data["positions"] = {}
+        self.data["plays"] = {}
         self.save("recent")
 
     # ---------- bookmarks ----------

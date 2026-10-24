@@ -1,8 +1,8 @@
 #include <winver.h>
 1 ICON "../pylon.ico"
 1 VERSIONINFO
-FILEVERSION 1,5,1,0
-PRODUCTVERSION 1,5,1,0
+FILEVERSION 1,6,0,0
+PRODUCTVERSION 1,6,0,0
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_APP
 BEGIN
@@ -12,11 +12,11 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "Pylon\0"
       VALUE "FileDescription", "Pylon\0"
-      VALUE "FileVersion", "1.5.1\0"
+      VALUE "FileVersion", "1.6.0\0"
       VALUE "InternalName", "Pylon\0"
       VALUE "OriginalFilename", "Pylon.exe\0"
       VALUE "ProductName", "Pylon\0"
-      VALUE "ProductVersion", "1.5.1\0"
+      VALUE "ProductVersion", "1.6.0\0"
     END
   END
   BLOCK "VarFileInfo"

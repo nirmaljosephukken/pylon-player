@@ -673,6 +673,7 @@ class SettingsSidebar(QWidget):
     def _build_playback(self):
         page, lay = scroll_page()
         self.tabs.addTab(page, "Playback")
+        self._build_disc(lay)
         lay.addWidget(section("Speed"))
         self.speed = ValueSlider(25, 400, 5, 100, lambda v: f"{v / 100:g}x", reset=100)
         self.speed.changed.connect(lambda v: self.win.set_rate(v / 100, from_ui=True))
@@ -680,6 +681,24 @@ class SettingsSidebar(QWidget):
         self.speed_chips = ChipGroup([("0.5x", 50), ("0.75x", 75), ("1x", 100), ("1.25x", 125), ("1.5x", 150), ("2x", 200)], cols=3)
         self.speed_chips.picked.connect(lambda v: self.win.set_rate(v / 100))
         lay.addWidget(self.speed_chips)
+
+        lay.addWidget(section("Repeat a part (A–B)"))
+        ab = QHBoxLayout()
+        ab.setSpacing(6)
+        self.ab_start = QPushButton("Start (A)")
+        self.ab_end = QPushButton("End (B)")
+        self.ab_off = QPushButton("Off")
+        for b, fn in ((self.ab_start, lambda: self.win.toast(self.win.set_ab_point("a"))),
+                      (self.ab_end, lambda: self.win.toast(self.win.set_ab_point("b"))),
+                      (self.ab_off, lambda: self.win.toast(self.win.clear_ab()))):
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(fn)
+            ab.addWidget(b)
+        lay.addLayout(ab)
+        self.ab_label = muted("")
+        lay.addWidget(self.ab_label)
+        self.show_ab(None, None)
 
         lay.addWidget(section("Sleep timer"))
         self.sleep = ChipGroup([("Off", 0), ("15 min", 15), ("30 min", 30), ("45 min", 45), ("1 hour", 60),
@@ -716,6 +735,76 @@ class SettingsSidebar(QWidget):
         self.meta.setStyleSheet(f"color: {theme.MUTED}; line-height: 150%;")
         lay.addWidget(self.meta)
         lay.addStretch(1)
+
+    def show_ab(self, a, b):
+        key = self.store.shortcut("ab_loop")
+        if a is None:
+            text = "Mark the start and end of a part to play it again and again" + (f" ({key})." if key else ".")
+        elif b is None:
+            text = f"From {fmt_time(a)}. Now mark the end."
+        else:
+            text = f"Repeating {fmt_time(a)} – {fmt_time(b)}"
+        self.ab_label.setText(text)
+        self.ab_end.setEnabled(a is not None)
+        self.ab_off.setEnabled(a is not None)
+        self.ab_start.setText("Start (A)" if a is None else "Move start (A)")
+
+    # ---------------------------------------------------------------- discs
+    def _build_disc(self, lay):
+        """Titles and menu buttons for a DVD (.iso or a VIDEO_TS folder); hidden for other files."""
+        self.disc_box = QWidget()
+        box = QVBoxLayout(self.disc_box)
+        box.setContentsMargins(0, 0, 0, 6)
+        box.setSpacing(6)
+        box.addWidget(section("Disc"))
+        self.title_combo = QComboBox()
+        self.title_combo.setToolTip("Titles on this disc")
+        self.title_combo.activated.connect(lambda i: self.win.play_title(self.title_combo.itemData(i)))
+        box.addWidget(self.title_combo)
+        pad = QGridLayout()
+        pad.setSpacing(4)
+        from .engine import NAV_ACTIVATE, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP
+        self.disc_buttons = []
+        for label, tip, mode, r, c in (("▲", "Up", NAV_UP, 0, 1), ("◀", "Left", NAV_LEFT, 1, 0),
+                                       ("OK", "Choose (Enter)", NAV_ACTIVATE, 1, 1), ("▶", "Right", NAV_RIGHT, 1, 2),
+                                       ("▼", "Down", NAV_DOWN, 2, 1)):
+            b = QPushButton(label)
+            b.setToolTip(tip)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _=False, m=mode: self.engine.navigate(m))
+            pad.addWidget(b, r, c)
+            self.disc_buttons.append(b)
+        menu = QPushButton("Disc menu")
+        menu.setFocusPolicy(Qt.NoFocus)
+        menu.setCursor(Qt.PointingHandCursor)
+        menu.clicked.connect(self.win.go_disc_menu)
+        self.disc_menu_btn = menu
+        pad.addWidget(menu, 2, 2)
+        box.addLayout(pad)
+        self.disc_hint = muted("In the disc's menu, the arrow keys and Enter work too.")
+        box.addWidget(self.disc_hint)
+        lay.addWidget(self.disc_box)
+        self.disc_box.hide()
+
+    def refresh_disc(self):
+        e = self.engine
+        titles = e.titles()
+        self.disc_box.setVisible(e.is_disc())
+        if not e.is_disc():
+            return
+        self.title_combo.blockSignals(True)
+        self.title_combo.clear()
+        cur = e.title()
+        for i, name, dur, menu in titles:
+            self.title_combo.addItem(f"{name}    {fmt_time(dur)}" if dur and not menu else name, i)
+        k = self.title_combo.findData(cur)
+        if k >= 0:
+            self.title_combo.setCurrentIndex(k)
+        if not titles:
+            self.title_combo.addItem("Reading the disc…", -1)
+        self.title_combo.blockSignals(False)
+        self.disc_menu_btn.setEnabled(any(m for *_x, m in titles))
 
     def set_speed_ui(self, rate):
         self.speed.set_value(int(round(rate * 100)))
@@ -891,6 +980,7 @@ class SettingsSidebar(QWidget):
         self.refresh_chapters()
         self.refresh_meta()
         self.load_cues()
+        self.refresh_disc()
 
     def tick(self):
         """Called a few times per second while the sidebar is open."""
