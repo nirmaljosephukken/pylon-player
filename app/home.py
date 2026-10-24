@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushBu
 
 from . import theme
 from .icons import icon, pixmap
-from .util import display_name, fmt_time, is_audio, is_url, natural_key, pretty_title, to_path, list_media
+from .util import display_name, fmt_time, is_audio, is_disc, is_url, natural_key, pretty_title, to_path, list_media
 from .store import HOME_SECTIONS
 from .widgets import Card, IconButton
 
@@ -150,7 +150,7 @@ class HomePage(QScrollArea):
             for r in recent:
                 p = r["path"]
                 c = Card(pretty_title(p), "Stream" if is_url(p) else _parent(p),
-                         "stream" if is_url(p) else ("music" if is_audio(p) else "video"))
+                         "stream" if is_url(p) else ("music" if is_audio(p) else ("disc" if is_disc(p) else "video")))
                 self._bind_card_menu(c, "media", p)
                 c.setToolTip(p)
                 c.clicked.connect(lambda p=p: self.win.play_from_folder(p))

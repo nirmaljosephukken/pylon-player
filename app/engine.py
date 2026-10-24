@@ -11,7 +11,7 @@ import time
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
-from .util import is_url
+from .util import disc_mrl, is_disc, is_url
 
 def _saved_vlc_dir() -> str:
     """A VLC folder the user picked with "Locate VLC folder..." (stored in data.json)."""
@@ -211,8 +211,13 @@ def _dec(b) -> str:
 MAX_SHARPEN = 1.5  # strongest sharpening the slider offers (#36)
 CUSTOM_EQ = -2     # live["eq"] value for the user's own 10-band curve (#38)
 EQ_RANGE = 20.0    # VLC's equalizer works in -20..+20 dB
-MAX_ZOOM = 8.0
-AUDIO_WARMUP = 0.6     # seconds to wait before the first volume change on Linux (#28)     # interactive zoom limit (#39)
+MAX_ZOOM = 8.0         # interactive zoom limit (#39)
+AUDIO_WARMUP = 0.6     # seconds to wait before the first volume change on Linux (#28)
+
+# DVD menus (libvlc_navigate_mode_t) and the flag VLC puts on a disc's menu title
+NAV_ACTIVATE, NAV_UP, NAV_DOWN, NAV_LEFT, NAV_RIGHT = 0, 1, 2, 3, 4
+TITLE_MENU = 1
+RENDERER_SERVICES = ("microdns_renderer",)   # how VLC 3 finds Chromecasts on the network
 
 DEFAULT_SUB_STYLE = {
     "size_mode": "relative",   # relative | precise
@@ -233,6 +238,7 @@ class Engine(QObject):
     media_changed = Signal(str)
     tracks_changed = Signal()
     vout_changed = Signal(int)
+    renderers_changed = Signal()        # a cast device appeared or went away
 
     def __init__(self, store, parent=None):
         super().__init__(parent)
@@ -259,6 +265,9 @@ class Engine(QObject):
         self._seek_timer = QTimer(self)
         self._seek_timer.setSingleShot(True)
         self._seek_timer.timeout.connect(self._seek_flush)
+        self._discoverers = []           # renderer discoverers while looking for cast devices
+        self._renderers = {}             # item pointer -> {"item", "name", "type"}
+        self.renderer = None             # the cast device in use, or None for this computer
         # The picture filter (brightness, saturation...) only sticks once VLC has
         # made its video output, so apply it again whenever a new one appears.
         self.vout_changed.connect(self._on_vout, Qt.QueuedConnection)
@@ -347,6 +356,8 @@ class Engine(QObject):
             em.event_attach(ev, fn)
         if self.win_id is not None:
             self._attach_window()
+        if self.renderer is not None:       # a new player keeps casting to the same device
+            self.player.set_renderer(self.renderer["item"])
 
     def _attach_window(self):
         if sys.platform == "win32":
@@ -389,11 +400,12 @@ class Engine(QObject):
             target = os.path.normpath(os.path.abspath(target))
         self.current = target
         self.current_title = title
-        if is_url(target):
-            media = self.instance.media_new(target)
+        disc = is_disc(target)
+        if is_url(target) or disc_mrl(target) != target:
+            media = self.instance.media_new(disc_mrl(target))
         else:
             media = self.instance.media_new_path(target)
-        if start_ms > 0:
+        if start_ms > 0 and not disc:     # a disc starts at its menu; the window resumes the title
             media.add_option(f":start-time={start_ms / 1000:.3f}")
         self._held_ms = None
         self._settle = None
@@ -433,6 +445,7 @@ class Engine(QObject):
         subs = list(self.extra_subs)
         sub_id, audio_id = self.current_sub(), self.current_audio()
         vol = self.volume()
+        looking = self._stop_discovery()
         try:
             self.player.stop()
             self.player.release()
@@ -441,6 +454,8 @@ class Engine(QObject):
             pass
         self._build()
         self._queue_audio(volume=vol)
+        if looking:
+            self.start_discovery()
         if target:
             self._live_pending = True     # the new player starts with VLC defaults
             zoom = self.izoom
@@ -465,6 +480,7 @@ class Engine(QObject):
         if vlc is None:
             return
         vol = self.volume()
+        looking = self._stop_discovery()
         try:
             self.player.stop()
             self.player.release()
@@ -473,6 +489,8 @@ class Engine(QObject):
             pass
         self._build()
         self._queue_audio(volume=vol)
+        if looking:
+            self.start_discovery()
 
     def _on_vout(self, _n=0):
         if self.ok and self.live.get("adjust"):
@@ -596,6 +614,25 @@ class Engine(QObject):
     def next_frame(self):
         if self.ok:
             self.player.next_frame()
+
+    def frame_ms(self) -> int:
+        """How long one frame of this video lasts, in ms (25 fps when VLC doesn't say)."""
+        try:
+            fps = float(self.player.get_fps() or 0) if self.ok else 0
+        except Exception:
+            fps = 0
+        return max(1, round(1000 / fps)) if 1 <= fps <= 240 else 40
+
+    def prev_frame(self):
+        """Step back one frame. libVLC can only step forward, so pause and seek one frame back;
+        VLC 3 seeks exactly, so the picture shows the frame before."""
+        if not self.ok or not self.current:
+            return
+        if self.is_playing():
+            self.player.set_pause(1)
+        t = self._seek_target if self._seek_target is not None else self.time()
+        self._seek_timer.stop()
+        self._do_seek(max(0, int(t) - self.frame_ms()))
 
     def is_seekable(self) -> bool:
         return bool(self.ok and self.player.is_seekable())
@@ -957,6 +994,133 @@ class Engine(QObject):
         if self.ok:
             self.player.set_chapter(int(idx))
 
+    # ------------------------------------------------------------------ discs (DVD .iso and folders)
+    def is_disc(self) -> bool:
+        return bool(self.current) and is_disc(self.current)
+
+    def titles(self) -> list[tuple[int, str, int, bool]]:
+        """[(index, name, length_ms, is_menu)] for a disc; empty for anything else."""
+        if not self.ok or not self.is_disc():
+            return []
+        out = []
+        try:
+            for i, t in enumerate(self.player.get_full_title_descriptions() or []):
+                menu = bool(t.flags & TITLE_MENU)
+                out.append((i, _dec(t.name) or ("Disc menu" if menu else f"Title {i}"), int(t.duration or 0), menu))
+        except Exception:
+            pass
+        return out
+
+    def title(self) -> int:
+        try:
+            return int(self.player.get_title()) if self.ok else -1
+        except Exception:
+            return -1
+
+    def set_title(self, idx: int):
+        if self.ok:
+            self.player.set_title(int(idx))
+
+    def in_menu(self) -> bool:
+        """True while a disc shows one of its menus, where the arrow keys move between buttons."""
+        if not self.is_disc():
+            return False
+        cur = self.title()
+        return any(i == cur and menu for i, _n, _d, menu in self.titles())
+
+    def navigate(self, mode: int):
+        if self.ok:
+            self.player.navigate(int(mode))
+
+    def disc_menu(self) -> bool:
+        """Go back to the disc's menu, if it has one."""
+        menu = next((i for i, _n, _d, m in self.titles() if m), None)
+        if menu is None:
+            return False
+        self.set_title(menu)
+        return True
+
+    # ------------------------------------------------------------------ casting (Chromecast)
+    def start_discovery(self):
+        """Look for cast devices on the local network. Only runs once you open the Cast menu."""
+        if not self.ok or self._discoverers:
+            return
+        E = vlc.EventType
+        for name in RENDERER_SERVICES:
+            try:
+                rd = self.instance.renderer_discoverer_new(name)
+            except Exception:
+                rd = None
+            if rd is None:
+                continue
+            em = rd.event_manager()
+            # These run on a VLC thread: only take a reference to the item and signal the GUI.
+            cb_add = lambda e: self._renderer_event(e, True)
+            cb_del = lambda e: self._renderer_event(e, False)
+            em.event_attach(E.RendererDiscovererItemAdded, cb_add)
+            em.event_attach(E.RendererDiscovererItemDeleted, cb_del)
+            try:
+                if rd.start() != 0:
+                    rd.release()
+                    continue
+            except Exception:
+                continue
+            self._discoverers.append((rd, cb_add, cb_del))
+
+    def _renderer_event(self, event, added):
+        try:
+            # python-vlc doesn't describe this event's payload; it is the item pointer
+            ptr = ctypes.c_void_p.from_address(ctypes.addressof(event.u)).value
+        except Exception:
+            return
+        if not ptr:
+            return
+        if added and ptr not in self._renderers:
+            item = vlc._Constructor(vlc.Renderer, ptr)
+            item.hold()
+            self._renderers[ptr] = {"item": item, "name": _dec(item.name()) or "Cast device",
+                                    "type": _dec(item.type()), "key": ptr}
+        elif not added:
+            gone = self._renderers.pop(ptr, None)
+            if gone is not None and (self.renderer is None or self.renderer["key"] != ptr):
+                self._dropped = getattr(self, "_dropped", []) + [gone]   # released on the GUI thread
+        self.renderers_changed.emit()
+
+    def renderers(self) -> list[dict]:
+        for gone in getattr(self, "_dropped", []):
+            try:
+                gone["item"].release()
+            except Exception:
+                pass
+        self._dropped = []
+        return sorted(self._renderers.values(), key=lambda r: r["name"].casefold())
+
+    def looking_for_renderers(self) -> bool:
+        return bool(self._discoverers)
+
+    def _stop_discovery(self) -> bool:
+        was = bool(self._discoverers)
+        for rd, _a, _d in self._discoverers:
+            try:
+                rd.stop()
+                rd.release()
+            except Exception:
+                pass
+        self._discoverers = []
+        return was
+
+    def cast_to(self, renderer: dict | None):
+        """Send playback to a cast device, or back to this computer with None. VLC only uses a new
+        device for the next play, so the current file is opened again at the same point."""
+        if not self.ok:
+            return
+        self.renderer = renderer
+        self.player.set_renderer(renderer["item"] if renderer else None)
+        if self.current:
+            pos, was_playing = self.time(), self.is_playing()
+            self.open(self.current, start_ms=pos, subs=list(self.extra_subs), title=self.current_title,
+                      paused=not was_playing)
+
     # ------------------------------------------------------------------ metadata
     def meta(self) -> dict:
         if not self.ok:
@@ -977,15 +1141,9 @@ class Engine(QObject):
                 out[key] = _dec(v)
         return out
 
-    def video_size(self) -> tuple[int, int]:
-        try:
-            w, h = self.player.video_get_size(0)
-            return int(w), int(h)
-        except Exception:
-            return 0, 0
-
     def shutdown(self):
         if self.ok:
+            self._stop_discovery()
             try:
                 self.player.stop()
                 self.player.release()

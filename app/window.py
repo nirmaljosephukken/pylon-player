@@ -5,188 +5,30 @@ import os
 import sys
 import time
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QActionGroup, QCursor, QGuiApplication, QKeySequence, QShortcut, QRegion
-from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QMainWindow, QMenu,
-                               QMessageBox, QStackedWidget, QWidget)
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, QTimer
+from PySide6.QtGui import QCursor, QGuiApplication, QKeySequence, QShortcut, QRegion
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QStackedWidget, QWidget
 
 from . import APP_NAME, theme
 from .controls import BottomBar, TopBar
-from .dialogs import (PreferencesDialog, ShortcutsDialog, StreamDialog, SubtitleDialog,
-                      WelcomeDialog)
-from . import engine as engine_mod
-from .engine import MAX_SHARPEN, Engine
+from .engine import NAV_ACTIVATE, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP, Engine
 from .home import HomePage, NowPlayingPage
-from .icons import icon
-from .library import LibraryPanel, media_filter
+from .library import LibraryPanel
 from .sidebar import SettingsSidebar
 from .store import DEFAULT_SHORTCUTS, QUEUE_MODES
-from .util import (SUB_EXTS, PLAYLIST_EXTS, display_name, norm, find_subtitle_candidates, fmt_delay,
-                   fmt_time, is_audio, is_media, is_url, list_media, match_subtitle, merge_in_name_order, natural_key,
-                   sort_key_by_name,
-                   parse_m3u, to_path)
+from .util import fmt_delay, fmt_time, is_audio, is_disc, is_url
+from .stage import PAGE_AUDIO, PAGE_HOME, PAGE_VIDEO, VideoSurface  # noqa: F401  (tests import these from here)
 from .thumbs import ThumbnailMaker
 from .updates import UpdateChecker
+from .waveform import WaveformMaker
 from .widgets import IconButton, SeekPreview, Toast
-
-PAGE_HOME, PAGE_VIDEO, PAGE_AUDIO = 0, 1, 2
-
+from .window_menus import MenusMixin
+from .window_playback import PlaybackMixin
+from .window_system import SystemMixin
 
 VSR_FULLSCREEN_RETRIES_MS = (600, 1500)    # extra Super Resolution redraws in full screen (#42)
-VSR_FULLSCREEN_MARGIN = 1                  # pixels kept free at the bottom in full screen with Super Resolution (#42)
 
-class VideoSurface(QFrame):
-    """Native window that VLC draws into. Mouse input is turned off in VLC so
-    clicks and the wheel reach this widget."""
-    action = Signal(str)
-    context = Signal(QPoint)
-    wheel = Signal(int)
-    zoom_wheel = Signal(int, QPointF)    # Ctrl+scroll: delta, position (#39)
-    pan = Signal(QPointF)               # drag while zoomed: movement in pixels
-    resized = Signal()
-
-    def __init__(self, store):
-        super().__init__()
-        self.store = store
-        self._double_release = False
-        self._pending_action = "none"
-        self.zoomed = False                 # set by the window; dragging pans only when zoomed
-        self.pip = False                    # borderless picture in picture: drag moves the window
-        self._drag_from = None
-        self._panned = False
-        self._move_from = None
-        self._moved = False
-        self.setAttribute(Qt.WA_NativeWindow, True)
-        self.setAttribute(Qt.WA_DontCreateNativeAncestors, True)
-        self.setStyleSheet("background: #000;")
-        self.setMouseTracking(True)
-        self._click = QTimer(self)
-        self._click.setSingleShot(True)
-        self._click.setInterval(QApplication.doubleClickInterval() if QApplication.instance() else 250)
-        self._click.timeout.connect(lambda: self._emit_action(self._pending_action))
-
-    def _emit_action(self, action):
-        if (QApplication.activeModalWidget() is None and QApplication.activePopupWidget() is None
-                and action in ("play_pause", "fullscreen", "mute", "next", "prev", "seek_back", "seek_fwd")):
-            self.action.emit(action)
-
-    def cancel_click(self):
-        self._click.stop()
-        self._double_release = False
-
-    def hideEvent(self, e):
-        self.cancel_click()
-        super().hideEvent(e)
-
-    def mousePressEvent(self, e):
-        if e.button() == Qt.LeftButton:
-            self._moved = False              # a system move may have swallowed the last release
-            self._press_pos = e.position()
-        if e.button() == Qt.LeftButton and self.pip:
-            win = self.window()
-            if win.pip_edges(e.globalPosition().toPoint()) and win.pip_grab(e.globalPosition().toPoint(), move=False):
-                self._moved = True           # resizing from an edge is not a click
-                return
-        if e.button() == Qt.LeftButton and self.zoomed:
-            self._drag_from = e.position()
-            self._panned = False
-        elif e.button() == Qt.LeftButton and self.pip:
-            self._move_from = e.position()
-            self._moved = False
-        super().mousePressEvent(e)
-
-    def mouseMoveEvent(self, e):
-        if self.pip and not e.buttons():
-            cur = self.window().edge_cursor(self.window().pip_edges(e.globalPosition().toPoint()))
-            if cur is not None:
-                self.setCursor(cur)
-            else:
-                self.setCursor(Qt.OpenHandCursor if self.zoomed else Qt.ArrowCursor)
-        if self._move_from is not None and e.buttons() & Qt.LeftButton:
-            d = e.position() - self._move_from
-            if abs(d.x()) + abs(d.y()) > 4:
-                self._move_from = None
-                self._moved = True
-                self.cancel_click()
-                self.window().pip_grab(e.globalPosition().toPoint())
-            return
-        if self._drag_from is not None and e.buttons() & Qt.LeftButton:
-            d = e.position() - self._drag_from
-            if self._panned or abs(d.x()) + abs(d.y()) > 4:
-                if not self._panned:
-                    self._panned = True
-                    self.cancel_click()
-                    self.setCursor(Qt.ClosedHandCursor)
-                self._drag_from = e.position()
-                self.pan.emit(d)
-        super().mouseMoveEvent(e)
-
-    def mouseReleaseEvent(self, e):
-        if e.button() == Qt.LeftButton:
-            self._move_from = None
-            press, self._press_pos = getattr(self, "_press_pos", None), None
-            if self._moved:                  # moving or resizing the window is not a click
-                self._moved = False
-                return
-            if self.pip and press is not None and not self.zoomed:
-                d = e.position() - press
-                if abs(d.x()) + abs(d.y()) > 4:
-                    return                   # released somewhere else: a drag, not a click
-        if e.button() == Qt.LeftButton and self._drag_from is not None:
-            self._drag_from = None
-            if self._panned:                 # a drag is not a click
-                self._panned = False
-                self.setCursor(Qt.OpenHandCursor if self.zoomed else Qt.ArrowCursor)
-                return
-        if e.button() == Qt.LeftButton:
-            if self._double_release:
-                self._double_release = False
-                return
-            action = self.store.setting("mouse_single")
-            if self.store.setting("mouse_double") == "none":
-                self._emit_action(action)
-            else:
-                # Preserve the system's double-click interval; shortening it can
-                # execute a single-click action before a valid double-click.
-                self._pending_action = action
-                self._click.start(QApplication.doubleClickInterval())
-        else:
-            key = {Qt.MiddleButton: "mouse_middle", Qt.BackButton: "mouse_back",
-                   Qt.ForwardButton: "mouse_forward"}.get(e.button())
-            if key:
-                self._emit_action(self.store.setting(key))
-
-    def mouseDoubleClickEvent(self, e):
-        if e.button() == Qt.LeftButton:
-            self._click.stop()
-            if self.store.setting("mouse_double") == "none":
-                # Qt still reports a double-click event when no action is bound.
-                self._emit_action(self.store.setting("mouse_single"))
-            else:
-                self._emit_action(self.store.setting("mouse_double"))
-            # Fullscreen can hide/recreate the native surface while dispatching.
-            self._double_release = True
-
-    def contextMenuEvent(self, e):
-        self.context.emit(e.globalPos())
-
-    def wheelEvent(self, e):
-        if e.modifiers() & Qt.ControlModifier:
-            self.zoom_wheel.emit(e.angleDelta().y(), e.position())
-            return
-        self.wheel.emit(e.angleDelta().y())
-
-    def resizeEvent(self, e):
-        super().resizeEvent(e)
-        self.resized.emit()
-
-    def set_zoomed(self, on: bool):
-        self.zoomed = on
-        if not self._panned:
-            self.setCursor(Qt.OpenHandCursor if on else Qt.ArrowCursor)
-
-
-class MainWindow(QMainWindow):
+class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
     def __init__(self, store):
         super().__init__()
         self.store = store
@@ -208,6 +50,8 @@ class MainWindow(QMainWindow):
         self.queue_mode = self.store.setting("queue_mode") if self.store.setting("queue_mode") in QUEUE_MODES else "next"
         self.hide_ui = False
         self._pip = None
+        self._vsr_back_to_full = False     # a panel took full screen into a window (#42)
+        self._vsr_told = False
         self._last_mouse = QPoint()
         self._last_move = 0.0
         self._force_show_until = 0.0
@@ -221,6 +65,9 @@ class MainWindow(QMainWindow):
         self._last_saved = 0.0
         self._overlay_geo = None
         self._bars_visible = False
+        self.ab_loop = [None, None]      # A–B repeat: start and end in ms
+        self._ab_jumped = 0.0
+        self._in_menu = False            # a disc is showing its menu
 
         # ---------------- layout
         central = QWidget()
@@ -246,6 +93,8 @@ class MainWindow(QMainWindow):
         self.osd = Toast(self)
         self.seek_preview = SeekPreview(self)
         self.thumbs = ThumbnailMaker(self)
+        self.waves = WaveformMaker(self)
+        self.waves.ready.connect(self._wave_ready, Qt.QueuedConnection)
         self.updater = UpdateChecker(self.store, self)
         self.updater.found.connect(self._update_found)
         self.updater.none.connect(self._update_none)
@@ -326,6 +175,7 @@ class MainWindow(QMainWindow):
         e.state_changed.connect(self._on_state, Qt.QueuedConnection)
         e.length_changed.connect(lambda _: self.bottom.set_time(e.time(), e.length()), Qt.QueuedConnection)
         e.tracks_changed.connect(self._on_tracks, Qt.QueuedConnection)
+        e.renderers_changed.connect(self._renderers_changed, Qt.QueuedConnection)
 
         self.install_shortcuts()
 
@@ -361,202 +211,6 @@ class MainWindow(QMainWindow):
             if not os.environ.get("PYLON_NO_UPDATE_CHECK"):
                 QTimer.singleShot(8000, self._auto_update_check)
 
-    # ================================================================ updates
-    def _auto_update_check(self):
-        if self.updater.due():
-            self._manual_update_check = False
-            self.updater.check(manual=False)
-
-    def check_for_updates(self, manual=True):
-        self._manual_update_check = manual
-        if manual:
-            self.toast("Checking for updates…")
-        self.updater.check(manual=manual)
-
-    def _update_found(self, release):
-        self._update_release = release
-        tag = (release.get("tag_name") or "").lstrip("vV")
-        if self._manual_update_check or not (self.engine.current and self.engine.is_playing()):
-            self.show_update(release)
-        else:   # don't interrupt a video; the menu offers it
-            self.toast(f"Pylon {tag} is out. Open the menu to update.")
-
-    def _update_none(self):
-        if self._manual_update_check:
-            from . import APP_VERSION
-            QMessageBox.information(self, "No updates", f"You have the latest version of Pylon ({APP_VERSION}).")
-
-    def _update_failed(self, why):
-        if self._manual_update_check:
-            QMessageBox.warning(self, "Couldn't check for updates",
-                                f"Pylon couldn't reach GitHub to check for a new version.\n\n{why}")
-
-    def show_update(self, release=None):
-        from .dialogs import UpdateDialog
-        release = release or self._update_release
-        if release:
-            UpdateDialog(self, release).exec()
-
-    def quit_for_update(self):
-        """Close Pylon so the installer can replace its files."""
-        self._save_position()
-        self.store.save_now()
-        self.close()
-        QApplication.instance().quit()
-
-    def _vlc_missing(self):
-        if sys.platform == "win32":
-            how = "Install VLC 3.0 (64-bit) from videolan.org, then start Pylon again."
-            url = "https://www.videolan.org/vlc/download-windows.html"
-        elif sys.platform == "darwin":
-            how = "Install VLC from videolan.org (drag it into Applications), then start Pylon again."
-            url = "https://www.videolan.org/vlc/download-macosx.html"
-        else:
-            how = ("Install VLC's engine from your package manager, then start Pylon again:\n"
-                   "  Ubuntu / Debian / Mint:  sudo apt install vlc\n"
-                   "  Fedora:  sudo dnf install vlc  (from RPM Fusion)\n"
-                   "  Arch:  sudo pacman -S vlc\n\n"
-                   "The Flatpak and Snap versions of VLC can't be used by other apps.")
-            url = "https://www.videolan.org/vlc/#download"
-        box = QMessageBox(QMessageBox.Critical, "VLC not found",
-                          "Pylon uses the VLC engine to play media, but it couldn't be found.\n\n"
-                          f"{how}\n\nDetails: {engine_mod.VLC_ERROR}", parent=self)
-        get = box.addButton("Get VLC", QMessageBox.AcceptRole)
-        locate = box.addButton("Locate VLC folder…", QMessageBox.ActionRole)
-        box.addButton(QMessageBox.Close)
-        box.exec()
-        if box.clickedButton() is get:
-            from PySide6.QtGui import QDesktopServices
-            QDesktopServices.openUrl(QUrl(url))
-        elif box.clickedButton() is locate:
-            self.locate_vlc()
-
-    # ---------------------------------------------------------------- Linux desktop integration
-    def can_integrate_desktop(self) -> bool:
-        return sys.platform.startswith("linux") and bool(os.environ.get("APPIMAGE"))
-
-    def install_desktop_entry(self, quiet=False):
-        """Add the AppImage to the app menu and 'Open with' (per user, no root)."""
-        from .util import AUDIO_EXTS, VIDEO_EXTS
-        appimage = os.environ.get("APPIMAGE")
-        if not appimage:
-            return
-        home = os.path.expanduser("~")
-        data = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share")
-        apps = os.path.join(data, "applications")
-        icons = os.path.join(data, "icons", "hicolor", "256x256", "apps")
-        os.makedirs(apps, exist_ok=True)
-        os.makedirs(icons, exist_ok=True)
-        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        png = os.path.join(here, "pylon.png")
-        if os.path.isfile(png):
-            import shutil
-            shutil.copyfile(png, os.path.join(icons, "pylon.png"))
-        mimes = sorted({"video/mp4", "video/x-matroska", "video/webm", "video/x-msvideo", "video/quicktime",
-                        "video/x-flv", "video/mpeg", "video/mp2t", "video/x-ms-wmv", "video/3gpp", "video/ogg",
-                        "audio/mpeg", "audio/flac", "audio/x-wav", "audio/mp4", "audio/aac", "audio/ogg",
-                        "audio/x-ms-wma", "audio/x-matroska", "audio/opus", "audio/x-mpegurl", "application/vnd.apple.mpegurl"})
-        entry = ("[Desktop Entry]\nType=Application\nName=Pylon\nGenericName=Media Player\n"
-                 "Comment=Calmer interface for the VLC engine\n"
-                 f"Exec=\"{appimage}\" %F\nIcon=pylon\nTerminal=false\nCategories=AudioVideo;Player;Video;Audio;\n"
-                 f"MimeType={';'.join(mimes)};\nStartupWMClass=Pylon\n")
-        with open(os.path.join(apps, "pylon.desktop"), "w", encoding="utf-8") as f:
-            f.write(entry)
-        for cmd in (["update-desktop-database", apps], ["gtk-update-icon-cache", "-q", os.path.join(data, "icons", "hicolor")]):
-            try:
-                import subprocess
-                subprocess.run(cmd, timeout=10, capture_output=True)
-            except Exception:
-                pass
-        self.store.set_setting("desktop_entry", appimage)
-        if not quiet:
-            QMessageBox.information(self, "Added to your apps",
-                                    "Pylon is now in your applications menu and under \"Open with\" for videos and music.\n\n"
-                                    "If you move the Pylon file, choose this again.")
-
-    def locate_vlc(self):
-        """Let the user point Pylon at a VLC folder (portable VLC, unusual install place)."""
-        if sys.platform == "darwin":
-            folder, _ = QFileDialog.getOpenFileName(self, "Choose VLC.app", "/Applications", "Applications (*.app)")
-            folder = folder or QFileDialog.getExistingDirectory(self, "Choose VLC.app", "/Applications")
-            lib = os.path.join(folder, "Contents", "MacOS", "lib", "libvlc.dylib")
-        else:
-            folder = QFileDialog.getExistingDirectory(self, "Choose the folder that contains VLC")
-            lib = os.path.join(folder, "libvlc.dll" if sys.platform == "win32" else "libvlc.so.5")
-        if not folder:
-            return
-        if not os.path.isfile(lib) and sys.platform != "linux":
-            QMessageBox.warning(self, "That's not VLC",
-                                f"{folder}\ndoesn't contain VLC's engine ({os.path.basename(lib)}). "
-                                "Pick the folder VLC is installed in" + (" (it has vlc.exe in it)." if sys.platform == "win32" else "."))
-            return
-        self.store.set_setting("vlc_dir", folder)
-        self.store.save_now()
-        if not self.engine.ok:
-            if self.engine.start_engine(folder):   # no restart needed
-                QMessageBox.information(self, "VLC found", f"Pylon will use the VLC in\n{folder}")
-                if not self.store.setting("onboarded"):
-                    QTimer.singleShot(300, self._welcome)
-            else:
-                QMessageBox.warning(self, "VLC couldn't start",
-                                    f"Pylon found VLC in\n{folder}\nbut couldn't start it.\n\n"
-                                    f"Details: {engine_mod.VLC_ERROR}")
-            return
-        self.ask_restart("Pylon will use this VLC after it restarts.")
-
-    def ask_restart(self, why: str):
-        box = QMessageBox(QMessageBox.Information, "Restart Pylon", why, parent=self)
-        now = box.addButton("Restart now", QMessageBox.AcceptRole)
-        box.addButton("Later", QMessageBox.RejectRole)
-        box.exec()
-        if box.clickedButton() is now:
-            self.restart_app()
-
-    def restart_app(self):
-        """Start a fresh Pylon and close this one (keeps the current file and position)."""
-        from PySide6.QtCore import QProcess
-        from PySide6.QtNetwork import QLocalServer
-        from PySide6.QtWidgets import QApplication
-        self._save_position()
-        self.store.save_now()
-        app = QApplication.instance()
-        for srv in app.findChildren(QLocalServer):   # let the new Pylon be the only one
-            srv.close()
-        appimage = os.environ.get("APPIMAGE")
-        if appimage:
-            prog, args = appimage, []
-        else:
-            main_py = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main.py")
-            prog, args = sys.executable, [main_py]
-        if self.engine.current:
-            args.append(self.engine.current)
-        if QProcess.startDetached(prog, args):
-            app.quit()
-        else:
-            QMessageBox.warning(self, "Restart Pylon", "Couldn't restart Pylon. Please close it and open it again.")
-
-    def _welcome(self):
-        if self.can_integrate_desktop():
-            self.install_desktop_entry(quiet=True)
-        d = WelcomeDialog(self)
-        if d.exec():
-            if d.color != theme.user_accent():
-                self.store.set_setting("accent", d.color)
-                self.apply_theme()
-        self.store.set_setting("onboarded", True)
-
-    def _dark_titlebar(self):
-        if sys.platform != "win32":
-            return
-        try:
-            import ctypes
-            hwnd = int(self.winId())
-            val = ctypes.c_int(1)
-            for attr in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE (new / old builds)
-                if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(val), ctypes.sizeof(val)) == 0:
-                    break
-        except Exception:
-            pass
 
     def apply_theme(self):
         theme.set_theme(self.store.setting("theme"), self.store.setting("theme_tint"))
@@ -594,7 +248,11 @@ class MainWindow(QMainWindow):
         on = (not self.library.isVisible()) if on is None else on
         if self._pip and on:
             return
+        if on:
+            self._vsr_panel_opening()
         self.library.setVisible(on)
+        if not on:
+            self._vsr_panel_closed()
         self._update_panel_minimum()
         self._vsr_resized()           # the picture may not resize if the panel only covers it
         self.top.btn_library.setChecked(on)
@@ -611,7 +269,11 @@ class MainWindow(QMainWindow):
         on = (not self.sidebar.isVisible()) if on is None else on
         if self._pip and on:
             return
+        if on:
+            self._vsr_panel_opening()
         self.sidebar.setVisible(on)
+        if not on:
+            self._vsr_panel_closed()
         self._update_panel_minimum()
         self._vsr_resized()
         self.bottom.btn_tune.setChecked(on)
@@ -786,6 +448,7 @@ class MainWindow(QMainWindow):
                 self.osd.hide()
             return
         self._place_overlays()
+        self._check_ab()
         now = time.monotonic()
         pos = QCursor.pos()
         if pos != self._last_mouse:
@@ -835,8 +498,7 @@ class MainWindow(QMainWindow):
         super().changeEvent(e)
         self._overlay_geo = None
         if e.type() == e.Type.WindowStateChange:
-            self.top.set_fullscreen(self.isFullScreen())
-            self.fit_vsr_margin()
+            self.top.set_fullscreen(self.isFullScreen() or getattr(self, "_vsr_back_to_full", False))
 
     def toast(self, text: str, key: str = ""):
         if self.stage.currentIndex() == PAGE_HOME or self.isMinimized():
@@ -856,7 +518,7 @@ class MainWindow(QMainWindow):
                 continue
             sc = QShortcut(QKeySequence(seq), self)
             sc.setContext(Qt.WindowShortcut)
-            sc.setAutoRepeat(action in ("seek_fwd", "seek_back", "vol_up", "vol_down", "frame_next",
+            sc.setAutoRepeat(action in ("seek_fwd", "seek_back", "vol_up", "vol_down", "frame_next", "frame_prev",
                                         "sub_delay_plus", "sub_delay_minus", "audio_delay_plus",
                                         "audio_delay_minus", "speed_up", "speed_down"))
             sc.activated.connect(lambda a=action: self.do(a))
@@ -877,9 +539,17 @@ class MainWindow(QMainWindow):
         chips.select(values[i])
         return f"{what}: {chips.group.button(i).text()}"
 
+    # keys that move around a disc menu instead of seeking and changing the volume
+    MENU_KEYS = {"seek_back": NAV_LEFT, "seek_fwd": NAV_RIGHT, "vol_up": NAV_UP, "vol_down": NAV_DOWN,
+                 "play_pause": NAV_ACTIVATE, "fullscreen_enter": NAV_ACTIVATE}
+
     def do(self, action: str, key: bool = True):
         e = self.engine
         msg = None
+        if action in self.MENU_KEYS and e.in_menu() and not self._typing(action):
+            e.navigate(self.MENU_KEYS[action])
+            self._poke(1)
+            return
         if action == "play_pause":
             if not e.current:
                 if self.queue:
@@ -903,6 +573,18 @@ class MainWindow(QMainWindow):
         elif action == "frame_next":
             e.next_frame()
             msg = "Next frame"
+        elif action == "frame_prev":
+            if not e.current:
+                return
+            if e.is_disc():
+                # DVDs can only jump to about every half second, so a frame back isn't possible there
+                msg = "Stepping back a frame doesn't work on DVDs"
+            else:
+                e.prev_frame()
+                self.bottom.set_playing(False)
+                msg = "Previous frame"
+        elif action == "ab_loop":
+            msg = self.ab_step()
         elif action in ("vol_up", "vol_down"):
             v = e.volume() + (5 if action == "vol_up" else -5)
             e.set_volume(v)
@@ -942,7 +624,7 @@ class MainWindow(QMainWindow):
         elif action == "exit_fullscreen":
             if self._pip:
                 self.toggle_pip()
-            elif self.isFullScreen():
+            elif self.isFullScreen() or self._vsr_back_to_full:
                 self.toggle_fullscreen()
             elif self.hide_ui:
                 self.do("hide_ui")
@@ -1038,6 +720,111 @@ class MainWindow(QMainWindow):
             hint = self.store.shortcut(action) if key and self.store.setting("osd_shortcuts") else ""
             self.toast(msg, hint)
 
+    def _typing(self, action) -> bool:
+        """The key belongs to a text box, or Enter to a list item, that has the focus."""
+        from PySide6.QtWidgets import QAbstractItemView, QLineEdit
+        fw = QApplication.focusWidget()
+        if isinstance(fw, QLineEdit) and fw.isVisible():
+            return True
+        return (action == "fullscreen_enter" and isinstance(fw, QAbstractItemView) and fw.isVisible()
+                and fw.currentIndex().isValid())
+
+    # ---------------------------------------------------------------- A–B repeat
+    def ab_step(self) -> str | None:
+        """L: the first press marks the start, the second the end, the third switches the loop off."""
+        a, b = self.ab_loop
+        if not self.engine.current:
+            return None
+        if a is None:
+            return self.set_ab_point("a")
+        if b is None:
+            return self.set_ab_point("b")
+        return self.clear_ab()
+
+    def set_ab_point(self, which: str, ms: int | None = None) -> str:
+        e = self.engine
+        t = e.time() if ms is None else int(ms)
+        a, b = self.ab_loop
+        if which == "a":
+            a = t
+            if b is not None and b <= a + 300:
+                b = None
+        else:
+            if a is None:
+                a = 0
+            if t <= a + 300:
+                return "The end of the part has to come after its start"
+            b = t
+        self.ab_loop = [a, b]
+        self._show_ab()
+        if b is None:
+            key = self.store.shortcut("ab_loop")
+            return f"Repeat from {fmt_time(a)}" + (f". Press {key} at the end of the part" if key else "")
+        return f"Repeating {fmt_time(a)} – {fmt_time(b)}"
+
+    def clear_ab(self) -> str:
+        self.ab_loop = [None, None]
+        self._show_ab()
+        return "Repeat off"
+
+    def _show_ab(self):
+        self.bottom.seek.set_ab(*self.ab_loop)
+        self.sidebar.show_ab(*self.ab_loop)
+
+    def _check_ab(self):
+        a, b = self.ab_loop
+        e = self.engine
+        if b is None or not e.is_playing() or time.monotonic() - self._ab_jumped < 0.6:
+            return
+        if e.time() >= b:
+            self._ab_jumped = time.monotonic()
+            e.seek(a)
+
+    # ---------------------------------------------------------------- waveform
+    def start_waveform(self):
+        e = self.engine
+        mode = self.store.setting("seek_waveform")
+        cur = e.current
+        if (not cur or is_url(cur) or is_disc(cur) or mode == "off"
+                or (mode != "all" and not is_audio(cur))):
+            self.waves.cancel()
+            self.bottom.seek.set_wave([])
+            return
+        self.waves.start(cur)
+
+    def _wave_ready(self, path, peaks):
+        if path == self.engine.current:
+            self.bottom.seek.set_wave(peaks)
+
+    # ---------------------------------------------------------------- discs
+    def _disc_tick(self):
+        """Note when a disc enters or leaves its menu, and say how to use it."""
+        menu = self.engine.in_menu()
+        if menu != self._in_menu:
+            self._in_menu = menu
+            if menu:
+                self.toast("Disc menu: choose with the arrow keys, Enter to play")
+            self.sidebar.refresh_disc()
+
+    def go_disc_menu(self):
+        if self.engine.disc_menu():
+            self.toast("Disc menu")
+
+    def play_title(self, idx):
+        self.engine.set_title(idx)
+        self.sidebar.refresh_disc()
+
+    # ---------------------------------------------------------------- casting
+    def _renderers_changed(self):
+        if getattr(self, "_cast_menu", None) is not None:
+            self._fill_cast_menu(self._cast_menu)
+
+    def cast_to(self, renderer):
+        e = self.engine
+        e.cast_to(renderer)
+        self.top.set_casting(renderer["name"] if renderer else "")
+        self.toast(f"Casting to {renderer['name']}" if renderer else "Playing on this computer")
+
     def _cycle(self, tracks, current, setter, label):
         if not tracks:
             return f"No {label.lower()} tracks"
@@ -1098,10 +885,21 @@ class MainWindow(QMainWindow):
     def toggle_fullscreen(self):
         if self._pip:
             self.toggle_pip()
-        if self.isFullScreen():
+        if self._vsr_back_to_full:          # a panel took us out of full screen (#42): stay out
+            self._vsr_back_to_full = False
+            if not getattr(self, "_was_max", False):
+                self.showNormal()
+        elif self.isFullScreen():
             self.showMaximized() if getattr(self, "_was_max", False) else self.showNormal()
         else:
             self._was_max = self.isMaximized()
+            if self._vsr_on() and not (self.library.isHidden() and self.sidebar.isHidden()):
+                self.library.hide()          # a panel over full screen turns Super Resolution black
+                self.sidebar.hide()
+                self.top.btn_library.setChecked(False)
+                self.bottom.btn_queue.setChecked(False)
+                self.bottom.btn_tune.setChecked(False)
+                self._update_panel_minimum()
             self.showFullScreen()
         self.top.set_fullscreen(self.isFullScreen())
         self._overlay_geo = None
@@ -1148,15 +946,28 @@ class MainWindow(QMainWindow):
         return (sys.platform == "win32" and bool(self.store.setting("rtx_upscale")) and e.ok
                 and bool(e.current) and self.stage.currentIndex() == PAGE_VIDEO and e.has_video())
 
-    def fit_vsr_margin(self):
-        """Full screen with Super Resolution on keeps the picture one pixel short of the bottom edge (#42).
-        A picture covering the whole screen is shown by Windows in a different way than one in a window,
-        and opening a panel switches between the two, which turns Super Resolution black until the panel
-        closes. One pixel short, full screen works like a window, where panels already work. The pixel
-        is in the black bar, so it can't be seen."""
-        on = (sys.platform == "win32" and bool(self.store.setting("rtx_upscale")) and self.isFullScreen())
-        self.stage.setContentsMargins(0, 0, 0, VSR_FULLSCREEN_MARGIN if on else 0)
-        self.stage.setStyleSheet("#Stage { background: #000; }" if on else "")
+    def _vsr_on(self) -> bool:
+        return sys.platform == "win32" and bool(self.store.setting("rtx_upscale"))
+
+    def _vsr_panel_opening(self):
+        """Opening a panel in full screen turns the Super Resolution picture black until the panel closes,
+        whatever Pylon does to redraw it (#42), while panels work fine in a window. So with Super
+        Resolution on, a panel opened in full screen opens in a maximized window instead, and closing
+        the last panel goes back to full screen."""
+        if not (self.isFullScreen() and self._vsr_on()) or self._pip:
+            return
+        self._vsr_back_to_full = True
+        self.showMaximized()
+        if not self._vsr_told:
+            self._vsr_told = True
+            QTimer.singleShot(300, lambda: self.toast("With Super Resolution on, panels open in a window. "
+                                                      "Close the panel to go back to full screen"))
+
+    def _vsr_panel_closed(self):
+        if self._vsr_back_to_full and self.library.isHidden() and self.sidebar.isHidden():
+            self._vsr_back_to_full = False
+            self.showFullScreen()
+            self.top.set_fullscreen(True)
 
     def _vsr_resized(self):
         if hasattr(self, "_vsr_late") and self._vsr_active():
@@ -1242,786 +1053,12 @@ class MainWindow(QMainWindow):
         self.show()
         self.engine.set_window(int(self.video.winId()))
 
-    # ================================================================ menus
-    def _popup_above(self, menu: QMenu, btn):
-        menu.adjustSize()
-        g = btn.mapToGlobal(QPoint(0, 0))
-        menu.exec(QPoint(g.x(), g.y() - menu.sizeHint().height() - 4))
-
-    def _track_actions(self, menu, tracks, current, setter):
-        grp = QActionGroup(menu)
-        for tid, name in tracks:
-            a = menu.addAction(name or f"Track {tid}")
-            a.setCheckable(True)
-            a.setChecked(tid == current)
-            grp.addAction(a)
-            a.triggered.connect(lambda _=False, t=tid: setter(t))
-        if not tracks:
-            a = menu.addAction("None available")
-            a.setEnabled(False)
-
-    def build_subs_menu(self, parent=None) -> QMenu:
-        m = QMenu("Subtitles", parent or self)
-        m.setIcon(icon("subtitles", theme.TEXT, 16))
-        m.addSection("Subtitle track")
-        self._track_actions(m, self.engine.sub_tracks(), self.engine.current_sub(), self.engine.set_sub)
-        m.addSeparator()
-        m.addAction(icon("plus", theme.TEXT, 16), "Add subtitles…", lambda: self.open_subtitle_dialog())
-        m.addAction(icon("tune", theme.TEXT, 16), "Timing and look…", lambda: self.open_sidebar_tab(0))
-        return m
-
-    def build_audio_menu(self, parent=None) -> QMenu:
-        m = QMenu("Audio", parent or self)
-        m.setIcon(icon("audio", theme.TEXT, 16))
-        m.addSection("Audio track")
-        self._track_actions(m, self.engine.audio_tracks(), self.engine.current_audio(), self.engine.set_audio)
-        m.addSection("Play through")
-        devs = self.engine.audio_devices()
-        cur = self.engine.current_device()
-        self._track_actions(m, [(d, desc or d or "Default") for d, desc in devs] or [("", "Default output")],
-                            cur, self.engine.set_device)
-        m.addSeparator()
-        m.addAction(icon("tune", theme.TEXT, 16), "Audio settings…", lambda: self.open_sidebar_tab(1))
-        return m
-
-    def show_subs_menu(self):
-        self._poke(30)
-        self._popup_above(self.build_subs_menu(), self.bottom.btn_subs)
-        self._poke(1)
-
-    def show_audio_menu(self):
-        self._poke(30)
-        self._popup_above(self.build_audio_menu(), self.bottom.btn_audio)
-        self._poke(1)
-
-    def _open_menu(self, parent) -> QMenu:
-        m = QMenu("Open", parent)
-        m.setIcon(icon("folder", theme.TEXT, 16))
-        m.addAction(icon("file", theme.TEXT, 16), "File…\tCtrl+O", self.open_file_dialog)
-        m.addAction(icon("folder", theme.TEXT, 16), "Folder…\tCtrl+F", self.open_folder_dialog)
-        m.addAction(icon("stream", theme.TEXT, 16), "Network stream…\tCtrl+N", self.open_stream_dialog)
-        m.addAction(icon("globe", theme.TEXT, 16), "Link from clipboard", self.open_clipboard)
-        rec = m.addMenu(icon("clock", theme.TEXT, 16), "Recent")
-        for r in self.store.data["recent"][:15]:
-            rec.addAction(display_name(r["path"]), lambda p=r["path"]: self.play_from_folder(p))
-        if not self.store.data["recent"]:
-            rec.addAction("Nothing yet").setEnabled(False)
-        return m
-
-    def show_main_menu(self, anchor):
-        self._poke(30)
-        m = QMenu(self)
-        m.addMenu(self._open_menu(m))
-        m.addSeparator()
-        m.addAction(icon("home", theme.TEXT, 16), "Home", self.show_home)
-        m.addAction(icon("library", theme.TEXT, 16), "Library\tCtrl+L", lambda: self.toggle_library(True))
-        if self.engine.current:
-            m.addSeparator()
-            m.addAction(icon("subtitles", theme.TEXT, 16), "Add subtitles…", lambda: self.open_subtitle_dialog())
-            m.addAction(icon("bookmark_add", theme.TEXT, 16), "Add bookmark\tCtrl+B", lambda: self.do("bookmark", key=False))
-            m.addAction(icon("snapshot", theme.TEXT, 16), "Take a snapshot", lambda: self.do("snapshot", key=False))
-        m.addSeparator()
-        m.addAction(icon("settings", theme.TEXT, 16), "Preferences…", self.show_preferences)
-        if self.can_integrate_desktop():
-            m.addAction(icon("plus", theme.TEXT, 16), "Add Pylon to the applications menu", self.install_desktop_entry)
-        m.addAction(icon("keyboard", theme.TEXT, 16), "Keyboard shortcuts\tF1", self.show_shortcuts)
-        if self._update_release:
-            tag = (self._update_release.get("tag_name") or "").lstrip("vV")
-            m.addAction(icon("arrow_up", theme.accent(), 16), f"Update to Pylon {tag}…", lambda: self.show_update())
-        else:
-            m.addAction(icon("arrow_up", theme.TEXT, 16), "Check for updates…", lambda: self.check_for_updates(True))
-        m.addAction(icon("info", theme.TEXT, 16), "About", self.show_about)
-        m.addSeparator()
-        m.addAction("Quit", self.close)
-        g = anchor.mapToGlobal(QPoint(anchor.width(), anchor.height()))
-        m.exec(QPoint(g.x() - m.sizeHint().width(), g.y() + 4))
-        self._poke(1)
-
-    def show_context_menu(self, gpos):
-        self._poke(30)
-        e = self.engine
-        m = QMenu(self)
-        if e.current:
-            m.addAction(icon("pause" if e.is_playing() else "play", theme.TEXT, 16),
-                        ("Pause" if e.is_playing() else "Play") + "\tSpace", lambda: self.do("play_pause", key=False))
-            m.addAction(icon("stop", theme.TEXT, 16), "Stop", lambda: self.do("stop", key=False))
-            m.addSeparator()
-            m.addMenu(self.build_subs_menu(m))
-            m.addMenu(self.build_audio_menu(m))
-            vm = m.addMenu(icon("video", theme.TEXT, 16), "Video")
-            vm.addSection("Video track")
-            self._track_actions(vm, e.video_tracks(), e.current_video(), e.set_video)
-            vm.addSection("Aspect ratio")
-            grp = QActionGroup(vm)
-            for label, v in (("Auto", ""), ("16:9", "16:9"), ("4:3", "4:3"), ("21:9", "21:9"), ("1:1", "1:1")):
-                a = vm.addAction(label)
-                a.setCheckable(True)
-                a.setChecked(e.live["aspect"] == v)
-                grp.addAction(a)
-                a.triggered.connect(lambda _=False, v=v: (e.set_aspect(v), self.sidebar.aspect.select(v)))
-            vm.addSeparator()
-            vm.addAction("Video settings…", lambda: self.open_sidebar_tab(2))
-            sm = m.addMenu(icon("speed", theme.TEXT, 16), "Speed")
-            grp2 = QActionGroup(sm)
-            for r in (0.5, 0.75, 1.0, 1.25, 1.5, 2.0):
-                a = sm.addAction(f"{r:g}x")
-                a.setCheckable(True)
-                a.setChecked(abs(e.rate() - r) < 1e-3)
-                grp2.addAction(a)
-                a.triggered.connect(lambda _=False, r=r: self.set_rate(r))
-            m.addSeparator()
-            m.addAction(icon("bookmark_add", theme.TEXT, 16), "Add bookmark\tCtrl+B", lambda: self.do("bookmark", key=False))
-            m.addAction(icon("snapshot", theme.TEXT, 16), "Take a snapshot", lambda: self.do("snapshot", key=False))
-            m.addSeparator()
-        m.addAction(icon("sidebar_left", theme.TEXT, 16), "Library and queue\tCtrl+L", lambda: self.toggle_library())
-        m.addAction(icon("sidebar_right", theme.TEXT, 16), "Settings panel\tCtrl+T", lambda: self.toggle_sidebar())
-        m.addAction(icon("eye_off", theme.TEXT, 16),
-                    ("Show the interface" if self.hide_ui else "Hide the interface") + "\tH", lambda: self.do("hide_ui", key=False))
-        m.addAction(icon("exit_fullscreen" if self.isFullScreen() else "fullscreen", theme.TEXT, 16),
-                    ("Leave fullscreen" if self.isFullScreen() else "Fullscreen") + "\tF", self.toggle_fullscreen)
-        m.addAction(icon("pip", theme.TEXT, 16), "Picture in picture\tCtrl+P", self.toggle_pip)
-        m.addSeparator()
-        m.addMenu(self._open_menu(m))
-        m.addAction(icon("settings", theme.TEXT, 16), "Preferences…", self.show_preferences)
-        m.exec(gpos)
-        self._poke(1)
-
-    def show_preferences(self):
-        PreferencesDialog(self).exec()
-
-    def show_shortcuts(self):
-        ShortcutsDialog(self).exec()
-
-    def show_about(self):
-        from . import APP_VERSION
-        QMessageBox.about(self, "About Pylon",
-                          f"<b>Pylon {APP_VERSION}</b><br>A redesigned interface on top of the VLC engine "
-                          "(libVLC). Playback, codecs and streaming are all VLC.<br><br>"
-                          "Interface based on the VLC redesign concept by "
-                          "<a href='https://www.youtube.com/@juxtopposed'>Juxtopposed</a>.<br><br>"
-                          "MIT licence &copy; 2026 Nirmal Joseph Ukken.<br>"
-                          "VLC is a trademark of VideoLAN. Pylon isn't affiliated with VideoLAN.")
-
-    # ================================================================ opening
-    def open_file_dialog(self):
-        files, _ = QFileDialog.getOpenFileNames(self, "Open", "", media_filter())
-        if not files:
-            return
-        if len(files) == 1 and os.path.splitext(files[0])[1].lower() in PLAYLIST_EXTS:
-            self.open_playlist_file(files[0])
-        elif len(files) == 1:
-            self.play_from_folder(files[0])
-        else:
-            files.sort(key=lambda p: natural_key(os.path.basename(p)))
-            self.set_queue([{"path": f} for f in files], 0)
-
-    def open_folder_dialog(self):
-        d = QFileDialog.getExistingDirectory(self, "Open folder")
-        if d:
-            self.play_folder(os.path.normpath(d))
-
-    def open_stream_dialog(self):
-        d = StreamDialog(self)
-        if d.exec() and d.url.text().strip():
-            url = d.url.text().strip()
-            name = d.name.text().strip() or display_name(url)
-            if d.save.isChecked() and url not in [s["url"] for s in self.store.data["streams"]]:
-                self.store.data["streams"].insert(0, {"name": name, "url": url})
-                self.store.save("streams")
-                self.library.refresh_streams()
-            self.open_stream(url, name)
-
-    def open_clipboard(self):
-        text = QGuiApplication.clipboard().text().strip().strip('"')
-        if not text:
-            self.toast("Clipboard is empty")
-        elif os.path.exists(text):
-            self.play_folder(text) if os.path.isdir(text) else self.play_from_folder(text)
-        elif "://" in text:
-            self.open_stream(text)
-        else:
-            QMessageBox.information(self, "Clipboard", "The clipboard doesn't contain a link or a file path.")
-
-    def open_stream(self, url: str, name: str = ""):
-        low = url.lower().split("?")[0]
-        if low.endswith((".m3u", ".m3u8")) and url.startswith("http"):
-            QApplication.setOverrideCursor(Qt.WaitCursor)
-            try:
-                import urllib.request
-                req = urllib.request.Request(url, headers={"User-Agent": "Pylon/1.0"})
-                with urllib.request.urlopen(req, timeout=12) as r:
-                    text = r.read(8_000_000).decode("utf-8", "replace")
-                channels = parse_m3u(text)
-            except Exception:
-                channels = None
-            finally:
-                QApplication.restoreOverrideCursor()
-            if channels:
-                saved = self.library.stream_entry(url)
-                if saved is not None and saved.get("count") != len(channels):
-                    saved["count"] = len(channels)          # show the channel count in Streams (#44)
-                    self.store.save("streams")
-                    self.library.refresh_streams()
-                self.set_queue([{"path": u, "title": n} for n, u in channels], 0)
-                self.toggle_queue(True)
-                self.toast(f"Loaded {len(channels)} channels into the queue")
-                return
-        self.set_queue([{"path": url, "title": name or display_name(url)}], 0)
-
-    def open_playlist_file(self, path):
-        try:
-            with open(path, encoding="utf-8", errors="replace") as f:
-                items = parse_m3u(f.read()) or []
-        except OSError:
-            items = []
-        base = os.path.dirname(path)
-        q = []
-        for n, p in items:
-            if not is_url(p) and not os.path.isabs(p):
-                p = os.path.normpath(os.path.join(base, p))
-            q.append({"path": p, "title": n})
-        if q:
-            self.set_queue(q, 0)
-            if len(q) > 1 and all(is_url(x["path"]) for x in q):
-                self.toggle_queue(True)
-                QTimer.singleShot(400, lambda: self.toast(
-                    f"Loaded {len(q)} channels. To keep them, drop the file on the Streams tab"))
-        else:
-            self.set_queue([{"path": path}], 0)
-
-    def play_saved_stream(self, url):
-        """Play something saved in Streams: a channel list goes into the queue (#44)."""
-        s = self.library.stream_entry(url)
-        if s is None:
-            self.open_stream(url)
-        elif s.get("channels"):
-            self.set_queue([{"path": c["url"], "title": c["name"]} for c in s["channels"]], 0)
-            self.toggle_queue(True)
-            self.toast(f"{s['name']}: {len(s['channels'])} channels")
-        else:
-            self.open_stream(s["url"], s["name"])
-
-    def enqueue_items(self, items):
-        """Add queue entries that keep their names, like channels from a list."""
-        if not items:
-            return
-        self.queue.extend(dict(x) for x in items)
-        self.library.refresh_queue()
-        self.toast(f"Added {len(items)} to the queue")
-        if not self.engine.current:
-            self.play_queue_index(len(self.queue) - len(items))
-
-    def play_folder(self, folder):
-        folder = norm(folder)
-        files = list_media(folder)
-        if not files:
-            self.browse_folder(folder)
-            self.toast("No media files directly in that folder")
-            return
-        self.set_queue([{"path": f} for f in files], 0)
-
-    def play_playlist(self, name):
-        items = self.store.data["playlists"].get(name, [])
-        if not items:
-            return
-        # pick up where you left off: the first item you haven't finished
-        start = next((i for i, p in enumerate(items)
-                      if is_url(p) or not self.store.position(norm(p)).get("watched")), 0)
-        self.set_queue([{"path": p} for p in items], start)
-        self.toggle_queue(True)
-        if start > 0:
-            QTimer.singleShot(500, lambda: self.toast(f"Continuing “{name}” at item {start + 1} of {len(items)}"))
-
-    def play_from_folder(self, path, start_ms=None):
-        """Play a file and queue the rest of its folder so the next episode is ready."""
-        path = norm(path)
-        if is_url(path):
-            self.open_stream(path)
-            return
-        if not os.path.exists(path):
-            QMessageBox.warning(self, "File not found", f"Can't find:\n{path}")
-            return
-        for i, q in enumerate(self.queue):
-            if os.path.normcase(q["path"]) == os.path.normcase(path):
-                self.play_queue_index(i, start_ms=start_ms)
-                return
-        files = list_media(os.path.dirname(path)) if self.store.setting("binge") else [path]
-        if path not in files:
-            files = [path]
-        self.queue = [{"path": f} for f in files]
-        self.library.reset_shuffle()
-        self.qindex = files.index(path)
-        if self.queue_mode == "shuffle":
-            self.library.shuffle_on()
-        self.play_queue_index(self.qindex, start_ms=start_ms)
-
-    # ---------------------------------------------------------------- queue
-    def set_queue(self, items, index, keep_playing=False):
-        self.queue = [{**it, "path": norm(it["path"])} for it in items]
-        self.library.reset_shuffle()
-        self.qindex = index if 0 <= index < len(self.queue) else -1
-        if self.queue_mode == "shuffle":
-            self.library.shuffle_on()
-        self.library.refresh_queue()
-        if not keep_playing and self.qindex >= 0:
-            self.play_queue_index(self.qindex)
-
-    def enqueue(self, paths, play_next=False):
-        items = [{"path": norm(p)} for p in paths if p]
-        if not items:
-            return
-        if play_next and self.qindex >= 0:
-            self.queue[self.qindex + 1:self.qindex + 1] = items
-        else:
-            # an episode joins the others from its folder in name order, not the end of the queue (#57)
-            cur = self.queue[self.qindex] if 0 <= self.qindex < len(self.queue) else None
-            self.queue = merge_in_name_order(self.queue, items, lambda q: q["path"])
-            if cur is not None:
-                self.qindex = next(i for i, q in enumerate(self.queue) if q is cur)
-            if self.library.shuffled:      # so leaving Shuffle puts it in its place too
-                self.library._unshuffled = merge_in_name_order(self.library._unshuffled, items,
-                                                               lambda q: q["path"])
-        self.library.refresh_queue()
-        self.toast(f"Added {len(items)} to the queue" if len(items) > 1 else f"Added “{display_name(items[0]['path'])}” to the queue")
-        if not self.engine.current:
-            self.play_queue_index(max(0, self.qindex + 1) if play_next and self.qindex >= 0
-                                  else next(i for i, q in enumerate(self.queue) if q is items[0]))
-
-    def sort_queue_by_name(self):
-        """Put the whole queue in name order (#57); what's playing keeps playing."""
-        if len(self.queue) < 2:
-            return
-        if self.queue_mode == "shuffle":      # a sorted queue isn't a shuffled one
-            self.set_queue_mode("next", announce=False)
-        cur = self.queue[self.qindex] if 0 <= self.qindex < len(self.queue) else None
-        self.queue.sort(key=lambda q: sort_key_by_name(q["path"], q.get("title", "")))
-        if cur is not None:
-            self.qindex = next(i for i, q in enumerate(self.queue) if q is cur)
-        self.library.refresh_queue()
-        self.toast("Queue sorted by name")
-
-    def insert_into_queue(self, paths, row):
-        items = [{"path": norm(p)} for p in paths if p and (is_url(p) or is_media(p) or
-                                                      os.path.splitext(p)[1].lower() in PLAYLIST_EXTS)]
-        if not items:
-            return
-        row = max(0, min(row, len(self.queue)))
-        self.queue[row:row] = items
-        if self.qindex >= row:
-            self.qindex += len(items)
-        self.library.refresh_queue()
-        if not self.engine.current:
-            self.play_queue_index(row)
-
-    def reorder_queue(self, order):
-        cur = self.queue[self.qindex]["path"] if 0 <= self.qindex < len(self.queue) else None
-        by_path = {}
-        for q in self.queue:
-            by_path.setdefault(q["path"], []).append(q)
-        new = []
-        for p in order:
-            lst = by_path.get(p)
-            if lst:
-                new.append(lst.pop(0))
-        self.queue = new
-        self.qindex = next((i for i, q in enumerate(new) if q["path"] == cur), -1)
-        self.library.refresh_queue()
-
-    def remove_from_queue(self, rows):
-        cur = self.queue[self.qindex] if 0 <= self.qindex < len(self.queue) else None
-        self.queue = [q for i, q in enumerate(self.queue) if i not in set(rows)]
-        self.qindex = next((i for i, q in enumerate(self.queue) if q is cur), -1)
-        self.library.refresh_queue()
-
-    def play_queue_index(self, i, start_ms=None):
-        if not (0 <= i < len(self.queue)):
-            return
-        self.qindex = i
-        item = self.queue[i]
-        self.play_path(item["path"], start_ms=start_ms, title=item.get("title", ""))
-        self.library.refresh_queue()
-
-    def play_next(self, user=False):
-        if self.qindex + 1 < len(self.queue):
-            self.play_queue_index(self.qindex + 1)
-            return True
-        if self.store.setting("repeat_queue") and self.queue:
-            self.play_queue_index(0)
-            return True
-        cur = self.engine.current
-        if cur and not is_url(cur) and (self.store.setting("binge") or user):
-            files = list_media(os.path.dirname(cur))
-            try:
-                idx = files.index(cur)
-            except ValueError:
-                idx = -1
-            if 0 <= idx < len(files) - 1:
-                nxt = files[idx + 1]
-                self.queue.append({"path": nxt})
-                self.play_queue_index(len(self.queue) - 1)
-                return True
-        if user:
-            self.toast("End of the queue")
-        return False
-
-    def play_prev(self):
-        if self.engine.time() > 3000:
-            self.engine.seek(0)
-            self.toast("Back to the start")
-            return
-        if self.qindex > 0:
-            self.play_queue_index(self.qindex - 1)
-            return
-        cur = self.engine.current
-        if cur and not is_url(cur):
-            files = list_media(os.path.dirname(cur))
-            if cur in files and files.index(cur) > 0:
-                prev = files[files.index(cur) - 1]
-                self.queue.insert(0, {"path": prev})
-                self.play_queue_index(0)
-
-    # ---------------------------------------------------------------- playing
-    def play_path(self, path, start_ms=None, title=""):
-        path = norm(path)
-        if not self.engine.ok:
-            self._vlc_missing()
-            return
-        self._save_position()
-        e = self.engine
-        self._resume_until = 0.0
-        self._resume_ms = 0
-        self.bottom.resume.hide()
-        if self.thumbs.path != path:
-            self.thumbs.cancel()
-
-        # where to start
-        if start_ms is None:
-            start_ms = 0
-            pos = self.store.position(path)
-            ln, p = pos.get("len", 0), pos.get("pos", 0)
-            if ln and 10_000 < p < ln * 0.93 and not pos.get("watched"):
-                mode = self.store.setting("resume")
-                if mode == "always":
-                    start_ms = p
-                elif mode == "ask":
-                    self._resume_ms = p
-
-        # per-show preset, or a clean slate for timing
-        folder = None if is_url(path) else os.path.dirname(path)
-        name, preset = self.store.preset_for_folder(folder) if folder else (None, None)
-        e.live["sub_delay"] = 0
-        e.live["audio_delay"] = 0
-        self._track_prefs = ("", "")
-        if preset:
-            self.apply_preset(preset, live=False)
-
-        # subtitles we know about
-        subs = []
-        if not is_url(path):
-            mapped = self.store.data["sub_map"].get(path)
-            if mapped and os.path.exists(mapped):
-                subs.append(mapped)
-            else:
-                level = self.store.setting("sub_match")
-                if level != "off":
-                    best = match_subtitle(path, find_subtitle_candidates(path), level)
-                    # VLC already loads same-name files next to the video by itself
-                    if best and not (os.path.dirname(best) == os.path.dirname(path)
-                                     and os.path.splitext(os.path.basename(best))[0] == os.path.splitext(os.path.basename(path))[0]):
-                        subs.append(best)
-
-        self._prefs_applied = False
-        self._live_applied = False
-        audio = is_audio(path)
-        self.stage.setCurrentIndex(PAGE_AUDIO if audio else PAGE_VIDEO)
-        self._overlay_geo = None
-        e.open(path, start_ms=start_ms, subs=subs, title=title)
-        self.store.add_recent(path)
-
-        shown = title or display_name(path)
-        self.top.set_title(shown)
-        self.setWindowTitle(f"{shown}  ·  {APP_NAME}")
-        self.top.set_folder(os.path.basename(folder) if folder else ("Stream" if is_url(path) else ""))
-        self.bottom.set_time(start_ms, 0)
-        if audio:
-            self.now_playing.load(path, {})
-        if self._resume_ms:
-            self.bottom.resume.setText(f"Continue from {fmt_time(self._resume_ms)}")
-            self._resume_until = time.monotonic() + 8
-            self.bottom.resume.setVisible(self.stage.width() >= 900)
-            self._poke(8)
-            QTimer.singleShot(8000, self.bottom.resume.hide)
-        else:
-            self._poke(2)
-        if preset:
-            QTimer.singleShot(400, lambda: self.toast(f"Preset: {name}"))
-        if self.library.isVisible():
-            self.library.refresh_library()
-
-    def _accept_resume(self):
-        if self._resume_ms:
-            self.engine.seek(self._resume_ms)
-            self.toast(f"Continuing from {fmt_time(self._resume_ms)}")
-        self._resume_until = 0.0
-        self._resume_ms = 0
-        self.bottom.resume.hide()
-
-    def apply_preset(self, p: dict, live: bool):
-        e = self.engine
-        for k in ("sub_delay", "audio_delay", "rate", "eq", "aspect", "crop", "zoom", "adjust", "deinterlace"):
-            if k in p:
-                e.live[k] = p[k]
-        if "eq_custom" in p:
-            e.live["eq_custom"] = e.clean_curve(p["eq_custom"])
-        style = p.get("sub_style")
-        needs_new_player = bool(style) and style != e.sub_style
-        if needs_new_player:
-            e.sub_style = dict(style)
-        # sharpen is a VLC filter, so a change needs a fresh player too
-        if "sharpen" in p:
-            try:
-                sharpen = max(0.0, min(MAX_SHARPEN, float(p.get("sharpen") or 0)))
-            except (TypeError, ValueError):
-                sharpen = 0.0
-            if abs(sharpen - e.sharpen) > 0.01:
-                e.sharpen = sharpen
-                needs_new_player = True
-        self._track_prefs = (p.get("sub_track", ""), p.get("audio_track", ""))
-        self.bottom.set_speed(e.live["rate"])
-        self.sidebar.sync_from_engine()
-        if live:
-            if needs_new_player and e.current:
-                e.rebuild()
-            else:
-                e.apply_live()
-            self._apply_track_prefs()
-        elif needs_new_player:
-            e.recreate()
-
-    def _apply_track_prefs(self):
-        e = self.engine
-        sub_name, audio_name = self._track_prefs
-        sub_lang = self.store.setting("sub_lang") or ""
-        audio_lang = self.store.setting("audio_lang") or ""
-
-        def pick(tracks, exact, lang):
-            real = [(t, n) for t, n in tracks if t != -1]
-            if exact:
-                for t, n in real:
-                    if n == exact:
-                        return t
-            if lang:
-                low = lang.lower()
-                for t, n in real:
-                    if low in n.lower():
-                        return t
-            return None
-
-        if sub_name == "off" or (not sub_name and sub_lang.lower() == "off"):
-            e.set_sub(-1)
-        else:
-            # an external file we added wins over language guessing
-            if not (e.extra_subs and not sub_name):
-                t = pick(e.sub_tracks(), sub_name, sub_lang)
-                if t is not None:
-                    e.set_sub(t)
-        t = pick(e.audio_tracks(), audio_name, audio_lang)
-        if t is not None:
-            e.set_audio(t)
-        self.sidebar.refresh_tracks()
-
-    def _on_tracks(self):
-        if not self._prefs_applied and self.engine.state() == "playing":
-            self._prefs_applied = True
-            QTimer.singleShot(350, self._apply_track_prefs)
-        QTimer.singleShot(120, self._refresh_after_tracks)
-
-    def _refresh_after_tracks(self):
-        if self.sidebar.isVisible():
-            self.sidebar.refresh_tracks()
-
-    def _on_state(self, state):
-        e = self.engine
-        self.bottom.set_playing(state == "playing")
-        if state == "playing":
-            if not self._live_applied:
-                self._live_applied = True
-                e.apply_live()
-                self.sidebar.sync_from_engine()
-                QTimer.singleShot(900, self._after_start)
-            if not self._prefs_applied:
-                self._prefs_applied = True
-                QTimer.singleShot(600, self._apply_track_prefs)
-        elif state == "paused":
-            self._save_position()
-            self._poke(0.5)
-        elif state == "ended":
-            self._on_ended()
-        elif state == "error":
-            if e.current and is_url(e.current):
-                # A dead channel shouldn't jump to the next one (#50): stay put so the
-                # list doesn't move, and let the user pick another stream.
-                self.toast("Couldn't play this stream")
-            else:
-                self.toast("Couldn't play this file")
-                if self.queue_mode in ("next", "shuffle"):
-                    QTimer.singleShot(1500, lambda: self.play_next() if self.qindex + 1 < len(self.queue) else None)
-
-    # ---------------------------------------------------------------- seek previews
-    def start_previews(self, tries=0):
-        e = self.engine
-        if not self.store.setting("seek_previews") or not e.current or is_url(e.current):
-            return
-        if self.thumbs.path == e.current:
-            return
-        if e.length() <= 0 and tries < 5:      # length not known yet
-            QTimer.singleShot(1000, lambda: self.start_previews(tries + 1))
-            return
-        self.thumbs.start(e.current, e.length(), e.video_size())
-
-    def _seek_hover(self, ms, x):
-        seek = self.bottom.seek
-        g = seek.mapToGlobal(QPoint(int(x), 0))
-        img = None
-        if self.store.setting("seek_previews") and self.thumbs.path == self.engine.current:
-            img, captured_ms = self.thumbs.preview_at(ms)
-            if captured_ms is not None:
-                ms = captured_ms
-        left = self.mapToGlobal(QPoint(0, 0)).x()
-        line_top = g.y() + seek.height() - 10     # the visible bar sits at the bottom of the widget
-        self.seek_preview.show_at(g.x(), line_top - 5, ms, img, left + 8, left + self.width() - 8)
-
-    def _after_start(self):
-        e = self.engine
-        if e.current and self.stage.currentIndex() != PAGE_HOME:
-            has_video = e.has_video()
-            if not has_video:
-                self.now_playing.load(e.current, e.meta())
-                self.stage.setCurrentIndex(PAGE_AUDIO)
-            elif self.stage.currentIndex() == PAGE_AUDIO:
-                self.stage.setCurrentIndex(PAGE_VIDEO)
-            if has_video:
-                self.start_previews()
-            meta_title = e.meta().get("now_playing") or ""
-            if meta_title and is_url(e.current):
-                self.top.set_title(f"{e.current_title or display_name(e.current)}  ·  {meta_title}")
-        self.sidebar.refresh_tracks()
-
-    def _on_ended(self):
-        e = self.engine
-        if e.current:
-            ln = e.length()
-            self.store.set_position(e.current, ln, ln)
-            self.store.set_watched(e.current, True)
-        if self._sleep_end_of_file:
-            self._sleep_end_of_file = False
-            self.sidebar.sleep.select(0)
-            self.sidebar.sleep_label.setText("")
-            self.toast("Sleep timer: stopped at the end of the file")
-            return
-        if self.queue_mode == "loop" and e.current:
-            self.play_queue_index(self.qindex) if self.qindex >= 0 else self.play_path(e.current, start_ms=0)
-            return
-        if self.queue_mode == "none" or not self.play_next():
-            self.bottom.set_playing(False)
-            self._poke(4)
-
-    def _save_position(self):
-        e = self.engine
-        if e.current and not is_url(e.current):
-            ln, t = e.length(), e.time()
-            if ln > 0 and t > 0:
-                self.store.set_position(e.current, t, ln)
-
-    def _time_tick(self):
-        e = self.engine
-        if not e.current:
-            return
-        if self._bars_visible or self.stage.currentIndex() == PAGE_AUDIO:
-            self.bottom.set_time(e.time(), e.length())
-        if self.sidebar.isVisible():
-            self.sidebar.tick()
-        now = time.monotonic()
-        if e.is_playing() and now - self._last_saved > 5:
-            self._last_saved = now
-            self._save_position()
-        if self._sleep_deadline:
-            left = self._sleep_deadline - now
-            if left <= 0:
-                self._sleep_deadline = None
-                e.pause()
-                self.sidebar.sleep.select(0)
-                self.sidebar.sleep_label.setText("")
-                self.toast("Sleep timer: paused")
-            else:
-                self.sidebar.sleep_label.setText(f"Pausing in {fmt_time(left * 1000)}")
-
-    # ================================================================ subtitles
-    def open_subtitle_dialog(self, scope=None, folder=None):
-        if scope is None:
-            scope = "file" if self.engine.current and not is_url(self.engine.current) else "folder"
-        SubtitleDialog(self, scope=scope, folder=folder).exec()
-
-    # ================================================================ drag and drop
-    def dragEnterEvent(self, e):
-        if e.mimeData().hasUrls() or e.mimeData().hasText():
-            e.acceptProposedAction()
-
-    def dropEvent(self, e):
-        paths = []
-        for u in e.mimeData().urls():
-            paths.append(u.toLocalFile() if u.isLocalFile() else u.toString())
-        if not paths and e.mimeData().hasText():
-            paths = [e.mimeData().text().strip()]
-        self.open_paths(paths)
-
-    def open_paths(self, paths):
-        paths = [norm(p) for p in paths if p]
-        # only things Pylon can actually play: media, playlists, subtitles, folders, links
-        ok_ext = SUB_EXTS | PLAYLIST_EXTS
-        paths = [p for p in paths if is_url(p) or os.path.isdir(p) or is_media(p)
-                 or os.path.splitext(p)[1].lower() in ok_ext]
-        if not paths:
-            return
-        subs = [p for p in paths if os.path.splitext(p)[1].lower() in SUB_EXTS]
-        if subs and len(subs) == len(paths):
-            if self.engine.current and len(subs) == 1:
-                self.engine.add_subtitle(subs[0])
-                if not is_url(self.engine.current):
-                    self.store.data["sub_map"][self.engine.current] = subs[0]
-                    self.store.save()
-                self.sidebar.load_cues()
-                self.toast(f"Subtitles: {os.path.basename(subs[0])}")
-            else:
-                self.open_subtitle_dialog(scope="folder")
-            return
-        if len(paths) == 1:
-            p = paths[0]
-            if os.path.isdir(p):
-                self.play_folder(p)
-            elif os.path.splitext(p)[1].lower() in PLAYLIST_EXTS:
-                self.open_playlist_file(p)
-            elif is_url(p):
-                self.open_stream(p)
-            else:
-                self.play_from_folder(p)
-            return
-        if not any(is_url(p) for p in paths):
-            # Windows hands dropped or "Open with" files over in selection order,
-            # so episodes could land out of order (#43). Sort them like a folder.
-            paths.sort(key=lambda p: natural_key(os.path.basename(p)))
-        files = []
-        for p in paths:
-            files.extend(list_media(p) if os.path.isdir(p) else [p])
-        files = [f for f in files if is_url(f) or is_media(f)]
-        if self.engine.current and self.engine.is_playing():
-            self.enqueue(files)
-        else:
-            self.set_queue([{"path": f} for f in files], 0)
 
     # ================================================================ closing
     def closeEvent(self, e):
         self.thumbs.cancel()
+        self.waves.cancel()
+        self.waves.cancel()
         self._save_position()
         self.store.data["queue"] = [{k: v for k, v in q.items() if k in ("path", "title")} for q in self.queue][:500]
         self.engine.shutdown()

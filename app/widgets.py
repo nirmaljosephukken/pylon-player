@@ -74,7 +74,8 @@ def hline():
 # ---------------------------------------------------------------- seek bar
 
 class SeekBar(QWidget):
-    """A thick seek bar with hover time, bookmark and chapter markers."""
+    """A thick seek bar with hover time, bookmark and chapter markers, an optional
+    waveform of the sound, and the part an A–B loop repeats."""
     seek_requested = Signal(int)   # ms
     seek_preview = Signal(int)
     hovered = Signal(int, float)   # ms under the mouse, x in this widget
@@ -86,6 +87,8 @@ class SeekBar(QWidget):
         self.position = 0
         self.markers: list[int] = []     # bookmarks (ms)
         self.chapters: list[int] = []    # chapter starts (ms)
+        self.wave: list[float] = []      # loudness bars 0..1 along the bar, or empty for the plain bar
+        self.ab: tuple = (None, None)    # A–B loop start and end (ms), either can be None
         self._hover_x = None
         self._dragging = False
         self._last_sent, self._last_sent_t = None, 0.0
@@ -101,6 +104,14 @@ class SeekBar(QWidget):
 
     def set_length(self, ms):
         self.length = max(0, int(ms))
+        self.update()
+
+    def set_wave(self, peaks):
+        self.wave = list(peaks or [])
+        self.update()
+
+    def set_ab(self, a, b):
+        self.ab = (a, b)
         self.update()
 
     def set_position(self, ms):
@@ -179,6 +190,13 @@ class SeekBar(QWidget):
         top = h - th
         track = QRectF(0, top, w, th)
         p.setPen(Qt.NoPen)
+        if self.length and self.ab[0] is not None:
+            self._paint_ab(p, w, h)
+        if self.wave and self.length:
+            self._paint_wave(p, w, h, hover)
+            self._paint_marks(p, w, 6, h - 6, hover)
+            p.end()
+            return
         p.setBrush(QColor(255, 255, 255, 40))
         p.drawRoundedRect(track, 2, 2)
         if self._hover_x is not None and self.length:
@@ -195,24 +213,58 @@ class SeekBar(QWidget):
                     p.drawRoundedRect(fill.adjusted(-grow, -grow, grow, grow), 2 + grow, 2 + grow)
             p.setBrush(theme.brush(0, w))
             p.drawRoundedRect(fill, 2, 2)
-            # chapter gaps
-            p.setBrush(QColor(0, 0, 0, 170))
-            for c in self.chapters:
-                if 0 < c < self.length:
-                    x = w * c / self.length
-                    p.drawRect(QRectF(x - 1, top, 2, th))
-            # bookmark ticks
-            p.setBrush(QColor("#FFFFFF"))
-            for b in self.markers:
-                if 0 <= b <= self.length:
-                    x = w * b / self.length
-                    p.drawPolygon(QPolygonF([QPointF(x - 4, top - 6), QPointF(x + 4, top - 6), QPointF(x, top - 1)]))
-            # playhead
-            if hover:
-                x = w * frac
-                p.setBrush(QColor("#FFFFFF"))
-                p.drawRoundedRect(QRectF(x - 2, top - 3, 4, th + 3), 1.5, 1.5)
+            self._paint_marks(p, w, top, th, hover)
         p.end()
+
+    def _paint_marks(self, p, w, top, th, hover):
+        """Chapter gaps, bookmark ticks and (while hovering) the playhead."""
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(0, 0, 0, 170))
+        for c in self.chapters:
+            if 0 < c < self.length:
+                x = w * c / self.length
+                p.drawRect(QRectF(x - 1, top, 2, th))
+        p.setBrush(QColor("#FFFFFF"))
+        for b in self.markers:
+            if 0 <= b <= self.length:
+                x = w * b / self.length
+                p.drawPolygon(QPolygonF([QPointF(x - 4, top - 6), QPointF(x + 4, top - 6), QPointF(x, top - 1)]))
+        if hover:
+            x = w * min(1.0, self.position / self.length)
+            p.setBrush(QColor("#FFFFFF"))
+            p.drawRoundedRect(QRectF(x - 2, top - 3, 4, th + 3), 1.5, 1.5)
+
+    def _paint_wave(self, p, w, h, hover):
+        """The sound's loudness as thin bars rising from the bottom edge: played part in the
+        accent colour, the rest faint, and a little brighter up to the mouse."""
+        n = len(self.wave)
+        played_x = w * min(1.0, self.position / self.length)
+        hover_x = self._hover_x if self._hover_x is not None else -1
+        step = 3.0                                     # a 2-pixel bar every 3 pixels
+        played = theme.brush(0, w)
+        rest, near = QColor(255, 255, 255, 70), QColor(255, 255, 255, 120)
+        x = 0.0
+        while x < w:
+            i = min(n - 1, int(x / w * n))
+            v = max(self.wave[i: i + max(1, int(step / w * n) + 1)] or [0])
+            bh = max(2.0, v * (h - 2))
+            p.setBrush(played if x < played_x else (near if x < hover_x else rest))
+            p.drawRect(QRectF(x, h - bh, 2, bh))
+            x += step
+
+    def _paint_ab(self, p, w, h):
+        """The part an A–B loop repeats, as a tinted band behind the bar, with its two ends."""
+        a, b = self.ab
+        xa = w * min(1.0, a / self.length)
+        xb = w * min(1.0, b / self.length) if b is not None else xa
+        tint = QColor(theme.accent())
+        tint.setAlpha(60)
+        p.setBrush(tint)
+        if b is not None:
+            p.drawRect(QRectF(xa, 0, max(2.0, xb - xa), h))
+        p.setBrush(QColor(theme.accent()))
+        for x in (xa, xb) if b is not None else (xa,):
+            p.drawRect(QRectF(x - 1, 0, 2, h))
 
 
 # ---------------------------------------------------------------- cone volume

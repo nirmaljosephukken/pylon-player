@@ -45,11 +45,18 @@ class TopBar(OverlayWindow):
         self.btn_full.clicked.connect(self.fullscreen_clicked)
         self.btn_menu = IconButton("menu", "Menu")
         self.btn_menu.clicked.connect(self.menu_clicked)
+        self.cast_chip = QPushButton("")
+        self.cast_chip.setObjectName("Chip")
+        self.cast_chip.setFocusPolicy(Qt.NoFocus)
+        self.cast_chip.setCursor(Qt.PointingHandCursor)
+        self.cast_chip.clicked.connect(self.menu_clicked)
+        self.cast_chip.hide()
         lay.addWidget(self.btn_library)
         lay.addWidget(self.folder_chip)
         lay.addSpacing(8)
         lay.addWidget(self.title, 1)
         lay.addSpacing(8)
+        lay.addWidget(self.cast_chip)
         lay.addWidget(self.btn_pip)
         lay.addWidget(self.btn_full)
         lay.addWidget(self.btn_menu)
@@ -62,6 +69,14 @@ class TopBar(OverlayWindow):
     def set_folder(self, name: str):
         self.folder_chip.setText(f"{name}  ›" if name else "")
         self.folder_chip.setVisible(bool(name))
+
+    def set_casting(self, name: str):
+        """While casting, a chip says where the video is playing."""
+        from .icons import icon
+        self.cast_chip.setText(f"  {name}" if name else "")
+        self.cast_chip.setIcon(icon("cast", theme.accent(), 14))
+        self.cast_chip.setToolTip(f"Playing on {name}. Open the menu to stop casting" if name else "")
+        self.cast_chip.setVisible(bool(name))
 
     def set_fullscreen(self, on: bool):
         self.btn_full.set_icon("exit_fullscreen" if on else "fullscreen")

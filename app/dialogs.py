@@ -674,6 +674,16 @@ class PreferencesDialog(QDialog):
         cb2.setChecked(bool(self.store.setting("seek_previews")))
         cb2.toggled.connect(self._set_previews)
         f.addWidget(cb2)
+        f.addWidget(info_label("Waveform in the seek bar",
+                               "Draws the sound's loud and quiet parts along the seek bar, so you can find the start "
+                               "of a song or a scene. Pylon reads the sound in the background and keeps the result."))
+        wave = QComboBox()
+        wave.setObjectName("seek_waveform")
+        for label, v in (("For music", "audio"), ("For music and videos", "all"), ("Off", "off")):
+            wave.addItem(label, v)
+        wave.setCurrentIndex(max(0, wave.findData(self.store.setting("seek_waveform"))))
+        wave.currentIndexChanged.connect(lambda i: self._set_waveform(wave.itemData(i)))
+        f.addWidget(wave)
         tabs = QFormLayout()
         for key, label, options in (
                 ("library_startup_tab", "Library tab at startup", (("Library", "library"), ("Music", "music"),
@@ -712,6 +722,10 @@ class PreferencesDialog(QDialog):
             self.win.start_previews()
         else:
             self.win.thumbs.cancel()
+
+    def _set_waveform(self, mode):
+        self.store.set_setting("seek_waveform", mode)
+        self.win.start_waveform()
 
     def _playback(self, f):
         f.addWidget(info_label("When I open something I didn't finish", "Pylon remembers where you stopped in every file."))
@@ -842,8 +856,6 @@ class PreferencesDialog(QDialog):
 
     def _set_rtx_upscale(self, on: bool):
         self.store.set_setting("rtx_upscale", on)
-        if hasattr(self.win, "fit_vsr_margin"):
-            self.win.fit_vsr_margin()
         engine = self.win.engine
         if engine.ok:
             engine.rebuild()            # applies now and continues from the same point
