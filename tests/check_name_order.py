@@ -1,5 +1,6 @@
 """New episodes join their show in name order, in the queue and in playlists (#57),
 and the queue and playlists can be sorted by name on demand."""
+import os
 import sys
 import tempfile
 import unittest
@@ -16,12 +17,13 @@ from app.window import MainWindow
 
 app = QApplication.instance() or QApplication([])
 
-SHOW = "/media/Show"
-OTHER = "/media/Other"
+# made absolute the way Pylon stores paths, so the test also passes on Windows ("E:\\media\\Show")
+SHOW = os.path.abspath("/media/Show")
+OTHER = os.path.abspath("/media/Other")
 
 
 def ep(n, folder=SHOW, name="Show S01E{:02d}.mkv"):
-    return f"{folder}/{name.format(n)}"
+    return os.path.join(folder, name.format(n))
 
 
 def names(paths):
