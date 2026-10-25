@@ -27,6 +27,7 @@ from .window_playback import PlaybackMixin
 from .window_system import SystemMixin
 
 VSR_FULLSCREEN_RETRIES_MS = (600, 1500)    # extra Super Resolution redraws in full screen (#42)
+WINDOW_MOVE_HIDE_S = 0.25                   # floating bars stay hidden this long after the window moves (#59)
 
 class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
     def __init__(self, store):
@@ -377,8 +378,8 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
             else:
                 w.hide()
 
-    def _place_overlays(self):
-        tl = self.stage.mapToGlobal(QPoint(0, 0))
+    def _place_overlays(self, drift: QPoint = QPoint()):
+        tl = self.stage.mapToGlobal(QPoint(0, 0)) + drift
         w, h = self.stage.width(), self.stage.height()
         self.top.folder_chip.setVisible(w >= 480 and bool(self.top.folder_chip.text()))
         self.top.btn_pip.setVisible(w >= 260)
@@ -447,9 +448,15 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
             if self.osd.isVisible() and (self.isMinimized() or not self.isVisible()):
                 self.osd.hide()
             return
-        self._place_overlays()
-        self._check_ab()
         now = time.monotonic()
+        drift = self.video.x11_drift()
+        if drift.manhattanLength() > 2:     # the window is being dragged and Qt hasn't been told (#59)
+            self._moving_until = now + WINDOW_MOVE_HIDE_S
+            self._overlay_geo = None
+        else:
+            drift = QPoint()
+        self._place_overlays(drift)
+        self._check_ab()
         pos = QCursor.pos()
         if pos != self._last_mouse:
             self._last_mouse = pos
@@ -473,6 +480,8 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
                 show = True
             elif inside and active and (now - self._last_move < delay or near_bar):
                 show = True
+        if show and not self._pinned() and now < getattr(self, "_moving_until", 0):
+            show = False                 # the window is being dragged (#59)
         self._set_bars(show)
         self._update_video_cursor(page, inside, show)
 
@@ -489,6 +498,17 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
     def moveEvent(self, e):
         super().moveEvent(e)
         self._overlay_geo = None
+        if not hasattr(self, "_bars_visible") or not self.isVisible():
+            return
+        # The bars are separate windows that the 50 ms tick puts back over the video, so while the
+        # window is dragged they trail behind it, more so when VLC keeps Pylon busy reading from a
+        # network share (#59). Pinned bars are moved straight away; floating bars hide until the
+        # window stops moving.
+        if self._pinned():
+            self._place_overlays()
+        elif not self.windowState() & (Qt.WindowFullScreen | Qt.WindowMaximized | Qt.WindowMinimized):
+            self._moving_until = time.monotonic() + WINDOW_MOVE_HIDE_S
+            self._set_bars(False)
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -980,12 +1000,24 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         if self._vsr_active() and not self.isMinimized():
             self.engine.refresh_upscaler()
 
+    def _set_flag(self, flag, on: bool):
+        """Change a window flag. On Linux, QWidget.setWindowFlag() rebuilds the X11 window when the
+        stay-on-top flag changes, and VLC loses the video window it draws into, so the picture stays
+        black until Pylon restarts (#60). The window itself can take the new flags without that."""
+        handle = self.windowHandle()
+        if sys.platform in ("win32", "darwin") or handle is None:
+            self.setWindowFlag(flag, on)
+            self.show()
+            self.engine.set_window(int(self.video.winId()))
+            return
+        flags = (self.windowFlags() | flag) if on else (self.windowFlags() & ~flag)
+        self.overrideWindowFlags(flags)       # keep Qt's record in step without rebuilding the window
+        handle.setFlags(flags)
+
     def _set_frameless(self, on: bool):
         if bool(self.windowFlags() & Qt.FramelessWindowHint) == on:
             return
-        self.setWindowFlag(Qt.FramelessWindowHint, on)
-        self.show()
-        self.engine.set_window(int(self.video.winId()))
+        self._set_flag(Qt.FramelessWindowHint, on)
 
     def pip_edges(self, gpos: QPoint):
         """Which window edges are under the pointer in borderless picture in picture."""
@@ -1049,9 +1081,8 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
                 return
             except Exception:
                 pass
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, on)
-        self.show()
-        self.engine.set_window(int(self.video.winId()))
+        if bool(self.windowFlags() & Qt.WindowStaysOnTopHint) != on:
+            self._set_flag(Qt.WindowStaysOnTopHint, on)
 
 
     # ================================================================ closing

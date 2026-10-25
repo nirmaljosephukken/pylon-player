@@ -1,4 +1,4 @@
-Pylon 1.6.0
+Pylon 1.6.1
 ==========
 
 Pylon is free and open source under the MIT licence:
