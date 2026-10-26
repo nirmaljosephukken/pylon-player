@@ -13,7 +13,7 @@ import time
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
+from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
                                QPushButton, QSplitter, QStackedWidget, QVBoxLayout, QWidget)
 
@@ -24,7 +24,8 @@ from .util import (display_name, fmt_time, is_audio, is_disc, is_dvd_folder, is_
 from .library_music import MusicMixin
 from .library_queue import QueueMixin
 from .library_widgets import (ROLE_KIND, ROLE_PATH, ChannelListDrop, MediaList, QueueList,  # noqa: F401
-                              TwoLineDelegate, _mtime, media_filter, pick_media, reveal, win_call)
+                              SortControl, TwoLineDelegate, _mtime, media_filter, pick_media, reveal, sort_kind,
+                              win_call)
 from .widgets import IconButton
 
 
@@ -567,30 +568,14 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         count = QLabel("")
         count.setObjectName("Muted")
         row.addWidget(count, 1)
-        choice = QComboBox()
-        choice.setToolTip("Sort this view")
-        if section in ("playlists", "streams"):
-            # these are kept in the order they were made, so offer that order (#37)
-            first = (("Newest first", "newest"), ("Oldest first", "oldest"))
-        else:
-            first = (("Default order", "default"),)
-        for label, value in first + (("Name A–Z", "name"), ("Name Z–A", "reverse")):
-            choice.addItem(label, value)
-        if section in ("playlists", "music"):
-            choice.addItem("Most items", "count")
-        if section == "music":
-            choice.addItem("Date modified (newest)", "date")
-            choice.addItem("Recently played", "played")
-            choice.addItem("Most played", "plays")
-        if section == "playlists":
-            # how much of each playlist you've watched
-            choice.addItem("Least watched first", "unfinished")
-            choice.addItem("Most watched first", "finished")
-        choice.setCurrentIndex(max(0, choice.findData(self._sort_mode(section))))
-        def changed(_):
-            self.store.set_setting(section + "_sort", choice.currentData())
+        choice = SortControl(section, self._sort_mode(section))
+
+        def changed(mode):
+            self.store.set_setting(section + "_sort", mode)
             refresh()
-        choice.currentIndexChanged.connect(changed)
+            if section == "playlists" and self.win.home is not None:
+                self.win.home.refresh()              # Home follows the Playlists tab (#37)
+        choice.changed.connect(changed)
         row.addWidget(choice)
         layout.addLayout(row)
         setattr(self, section + "_count", count)
@@ -605,27 +590,33 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
     def _ordered(self, items, section, name, count=None, modified=None, newest_first=False,
                  played=None, plays=None, done=None):
         """newest_first: the saved list already has the most recent item at the top.
-        played: when an item was last played; plays: how often; done: how much is watched (0..1)."""
+        played: when an item was last played; plays: how often; done: how much is watched (0..1).
+        Each sort has a reversed mode, from the arrow next to it (#63)."""
         mode = self._sort_mode(section)
+        kind, rev = sort_kind(mode)
         items = list(items)
-        if mode == "played" and played:
-            return sorted(items, key=lambda x: (-played(x), natural_key(name(x))))
-        if mode == "plays" and plays:
-            return sorted(items, key=lambda x: (-plays(x), natural_key(name(x))))
-        if mode in ("unfinished", "finished") and done:
-            sign = 1 if mode == "unfinished" else -1
-            return sorted(items, key=lambda x: (sign * done(x), natural_key(name(x))))
-        if mode == "newest":
-            return items if newest_first else items[::-1]
-        if mode == "oldest" and newest_first:
-            return items[::-1]
-        if mode == "count" and count:
-            return sorted(items, key=lambda x: (-count(x), natural_key(name(x))))
-        if mode == "date" and modified:
-            return sorted(items, key=lambda x: (-modified(x), natural_key(name(x))))
-        if mode in ("name", "reverse"):
-            return sorted(items, key=lambda x: natural_key(name(x)), reverse=mode == "reverse")
-        return items
+        if kind == "added":
+            return items if newest_first != rev else items[::-1]
+        if kind == "name":
+            return sorted(items, key=lambda x: natural_key(name(x)), reverse=rev)
+        # largest first, unless reversed; watched goes least watched first
+        value = {"played": played, "plays": plays, "count": count, "date": modified}.get(kind)
+        if kind == "watched" and done:
+            value, rev = done, not rev
+        if not value:
+            return items
+        sign = 1 if rev else -1
+        return sorted(items, key=lambda x: (sign * value(x), natural_key(name(x))))
+
+    def ordered_playlists(self):
+        """(name, entries) in the Playlists tab's order, for the tab and the home page."""
+        return self._ordered(self.store.data["playlists"].items(), "playlists", lambda x: x[0],
+                             lambda x: len(x[1]), played=lambda x: self.last_played_of(x[1]),
+                             done=lambda x: self.playlist_progress(x[1])[2])
+
+    def last_played_of(self, paths):
+        """When anything in this list of files or links last played (Recently played, #63)."""
+        return max((self.store.plays(p if is_url(p) else norm(p)).get("t", 0) for p in paths), default=0)
 
     # ---------------------------------------------------------------- playlists
     def _build_playlists(self):
@@ -699,9 +690,7 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
     def refresh_playlists(self):
         self.pl_list.clear()
         q = self.pl_search.text().strip().casefold()
-        items = [x for x in self._ordered(self.store.data["playlists"].items(), "playlists", lambda x: x[0],
-                                          lambda x: len(x[1]), done=lambda x: self.playlist_progress(x[1])[2])
-                 if q in x[0].casefold()]
+        items = [x for x in self.ordered_playlists() if q in x[0].casefold()]
         first, rest = self.with_pins("playlists", items, lambda x: x[0])
 
         def add(x, pinned):
@@ -898,7 +887,8 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         self.st_list.clear()
         q = self.st_search.text().strip().casefold()
         # new streams are saved at the top of the list, so it is newest first already (#44)
-        items = [s for s in self._ordered(self.store.data["streams"], "streams", lambda x: x["name"], newest_first=True)
+        items = [s for s in self._ordered(self.store.data["streams"], "streams", lambda x: x["name"], newest_first=True,
+                                          played=lambda x: self.last_played_of([x["url"]] + [c["url"] for c in x.get("channels", [])]))
                  if q in (s["name"] + " " + s["url"]).casefold()]
         first, rest = self.with_pins("streams", items, lambda x: x["url"])
 

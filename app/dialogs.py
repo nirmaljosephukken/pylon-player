@@ -14,9 +14,9 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QFra
 from . import theme
 from .colour_dialog import choose_colour
 from .icons import icon, pixmap
-from .store import DEFAULT_SHORTCUTS, HOME_SECTIONS, QUEUE_MODES
+from .store import DEFAULT_SHORTCUTS, HOME_SECTIONS, QUEUE_MODES, RATIOS
 from .util import MATCH_LEVELS, SUB_EXTS, auto_match_folder, display_name, is_url, list_media, subtitle_query
-from .widgets import subtitle_search_menu
+from .widgets import IconButton, subtitle_search_menu
 
 SUB_FILTER = "Subtitles (" + " ".join(f"*{e}" for e in sorted(SUB_EXTS)) + ");;All files (*)"
 
@@ -477,6 +477,46 @@ class HomeSectionList(QWidget):
         return False
 
 
+class RatioPicker(QWidget):
+    """Which aspect ratios and crops the Video tab offers (#62): click an eye to show or hide one."""
+
+    def __init__(self, store, on_change):
+        super().__init__()
+        self.store, self.on_change = store, on_change
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(18)
+        grid.setVerticalSpacing(0)
+        for col, title in ((1, "Aspect ratio"), (2, "Crop")):
+            h = QLabel(title)
+            h.setObjectName("Muted")
+            grid.addWidget(h, 0, col, Qt.AlignCenter)
+        self.buttons = {}
+        for row, key in enumerate(RATIOS, 1):
+            grid.addWidget(QLabel(RATIOS[key][0]), row, 0)
+            for col, kind in ((1, "aspect"), (2, "crop")):
+                b = IconButton("eye", f"Show {RATIOS[key][0]} in the {'aspect ratio' if kind == 'aspect' else 'crop'} row",
+                               size=18, color=lambda k=key, kd=kind: theme.accent() if self.is_shown(kd, k) else theme.FAINT)
+                b.setObjectName(f"ratio_{kind}_{key}")
+                b.clicked.connect(lambda _=False, k=key, kd=kind: self.toggle(kd, k))
+                self.buttons[(kind, key)] = b
+                grid.addWidget(b, row, col, Qt.AlignCenter)
+                self._paint(kind, key)
+        grid.setColumnStretch(3, 1)
+
+    def is_shown(self, kind, key):
+        return key in (self.store.setting(kind + "_choices") or [])
+
+    def toggle(self, kind, key):
+        shown = [k for k in RATIOS if self.is_shown(kind, k) != (k == key)]
+        self.store.set_setting(kind + "_choices", shown)
+        self._paint(kind, key)
+        self.on_change()
+
+    def _paint(self, kind, key):
+        self.buttons[(kind, key)].set_icon("eye" if self.is_shown(kind, key) else "eye_off")
+
+
 class PreferencesDialog(QDialog):
     """Settings grouped in plain words, each with an info icon."""
 
@@ -755,6 +795,19 @@ class PreferencesDialog(QDialog):
         cb.setChecked(bool(self.store.setting("binge")))
         cb.toggled.connect(lambda v: self.store.set_setting("binge", v))
         f.addWidget(cb)
+        prev = QCheckBox("Previous goes back to the start of the file first")
+        prev.setObjectName("prev_restarts")
+        prev.setToolTip("Once a file has played for 3 seconds, the first press of Previous starts it again and "
+                        "the second goes to the previous item, like most players. Turn this off to go straight "
+                        "to the previous item.")
+        prev.setChecked(bool(self.store.setting("prev_restarts")))
+        prev.toggled.connect(lambda v: self.store.set_setting("prev_restarts", v))
+        f.addWidget(prev)
+        f.addWidget(info_label("Aspect ratios and crops to offer",
+                               "Choose which shapes appear in the Video tab of the settings panel, the right-click "
+                               "menu and the A and C keys. Auto and No crop are always there."))
+        self.ratios = RatioPicker(self.store, self.win.sidebar.refresh_ratio_rows)
+        f.addWidget(self.ratios)
 
     def _set_max_volume(self, m: int):
         self.store.set_setting("max_volume", int(m))

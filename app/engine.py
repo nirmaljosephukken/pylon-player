@@ -558,6 +558,18 @@ class Engine(QObject):
         if self.ok:
             self.player.stop()
 
+    def close(self):
+        """Stop and let go of the file, so nothing is loaded any more (#61)."""
+        if self.ok:
+            self.player.stop()
+            self.player.set_media(None)
+        self.current = None
+        self.current_title = ""
+        self.extra_subs = []
+        self.izoom = None
+        self._held_ms = None
+        self._settle = None
+
     def is_playing(self) -> bool:
         return bool(self.ok and self.player.is_playing())
 

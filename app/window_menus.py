@@ -167,6 +167,7 @@ class MenusMixin:
             m.addAction(icon("subtitles", theme.TEXT, 16), "Add subtitles…", lambda: self.open_subtitle_dialog())
             m.addAction(icon("bookmark_add", theme.TEXT, 16), "Add bookmark\tCtrl+B", lambda: self.do("bookmark", key=False))
             m.addAction(icon("snapshot", theme.TEXT, 16), "Take a snapshot", lambda: self.do("snapshot", key=False))
+            m.addAction(icon("close", theme.TEXT, 16), "Close the video\tCtrl+W", self.close_media)
         m.addSeparator()
         m.addAction(icon("settings", theme.TEXT, 16), "Preferences…", self.show_preferences)
         if self.can_integrate_desktop():
@@ -192,6 +193,7 @@ class MenusMixin:
             m.addAction(icon("pause" if e.is_playing() else "play", theme.TEXT, 16),
                         ("Pause" if e.is_playing() else "Play") + "\tSpace", lambda: self.do("play_pause", key=False))
             m.addAction(icon("stop", theme.TEXT, 16), "Stop", lambda: self.do("stop", key=False))
+            m.addAction(icon("close", theme.TEXT, 16), "Close the video\tCtrl+W", self.close_media)
             m.addSeparator()
             if e.is_disc():
                 m.addMenu(self.build_disc_menu(m))
@@ -202,7 +204,7 @@ class MenusMixin:
             self._track_actions(vm, e.video_tracks(), e.current_video(), e.set_video)
             vm.addSection("Aspect ratio")
             grp = QActionGroup(vm)
-            for label, v in (("Auto", ""), ("16:9", "16:9"), ("4:3", "4:3"), ("21:9", "21:9"), ("1:1", "1:1")):
+            for label, v in [("Auto", "")] + self.store.ratio_choices("aspect"):      # as in Preferences (#62)
                 a = vm.addAction(label)
                 a.setCheckable(True)
                 a.setChecked(e.live["aspect"] == v)

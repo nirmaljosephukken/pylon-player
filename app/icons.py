@@ -57,6 +57,7 @@ ICONS = {
     "chevron_left": f'<path {_S} d="M14.5 6l-6 6 6 6"/>',
     "chevron_down": f'<path {_S} d="M6 9.5l6 6 6-6"/>',
     "arrow_up": f'<path {_S} d="M12 19V6M6.5 11.5L12 6l5.5 5.5"/>',
+    "arrow_down": f'<path {_S} d="M12 5v13M6.5 12.5L12 18l5.5-5.5"/>',
     "keyboard": f'<rect {_S} x="2.5" y="6" width="19" height="12" rx="1.5"/><path {_S} d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M8 14.5h8"/>',
     "settings": f'<circle {_S} cx="12" cy="12" r="3"/><path {_S} d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/>',
     "eye_off": f'<path {_S} d="M3 12s3.5-6 9-6c1.5 0 2.8.4 4 1M21 12s-3.5 6-9 6c-1.5 0-2.8-.4-4-1M4 20L20 4"/>',

@@ -153,6 +153,7 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         t.pip_clicked.connect(self.toggle_pip)
         t.fullscreen_clicked.connect(self.toggle_fullscreen)
         t.menu_clicked.connect(lambda: self.show_main_menu(self.top.btn_menu))
+        t.close_clicked.connect(self.close_media)
         b.play_clicked.connect(lambda: self.do("play_pause", key=False))
         b.prev_clicked.connect(lambda: self.do("prev", key=False))
         b.next_clicked.connect(lambda: self.do("next", key=False))
@@ -238,6 +239,33 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         self.home.refresh()
         self.stage.setCurrentIndex(PAGE_HOME)
         self._set_bars(False)
+
+    def close_media(self):
+        """Unload what is playing and go back to the home page, keeping the queue (#61)."""
+        e = self.engine
+        if not e.current:
+            self.show_home()
+            return
+        if self._pip:
+            self.toggle_pip()
+        if self.isFullScreen() or self._vsr_back_to_full:
+            self.toggle_fullscreen()
+        self._save_position()
+        self.thumbs.cancel()
+        self.waves.cancel()
+        self.bottom.seek.set_wave([])
+        self.ab_loop = [None, None]
+        self._show_ab()
+        self.bottom.resume.hide()
+        e.close()
+        self.top.set_title("")
+        self.top.set_folder("")
+        self.bottom.set_playing(False)
+        self.bottom.set_time(0, 0)
+        self.setWindowTitle(APP_NAME)
+        self.library.refresh_queue()
+        self.library.refresh_library()
+        self.show_home()
 
     def show_player(self):
         if not self.engine.current:
@@ -585,6 +613,9 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
             self._save_position()
             e.stop()
             msg = "Stopped"
+        elif action == "close_media":
+            self.close_media()
+            return
         elif action in ("seek_fwd", "seek_back", "seek_fwd_long", "seek_back_long"):
             delta = {"seek_fwd": 10_000, "seek_back": -10_000, "seek_fwd_long": 60_000, "seek_back_long": -60_000}[action]
             e.seek_by(delta)

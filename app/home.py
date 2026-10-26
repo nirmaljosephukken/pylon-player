@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushBu
 
 from . import theme
 from .icons import icon, pixmap
-from .util import display_name, fmt_time, is_audio, is_disc, is_url, natural_key, pretty_title, to_path, list_media
+from .util import display_name, fmt_time, is_audio, is_disc, is_url, pretty_title, to_path, list_media
 from .store import HOME_SECTIONS
 from .widgets import Card, IconButton
 
@@ -179,14 +179,7 @@ class HomePage(QScrollArea):
             lay.addWidget(self._section("Playlists"))
             row = FlowRow()
             positions = self.store.data["positions"]
-            mode = self.store.setting("playlists_sort") or "default"
-            ordered = list(pls.items())                 # kept in the order they were made
-            if mode in ("default", "newest"):           # follow the Playlists tab (#37)
-                ordered.reverse()
-            elif mode in ("name", "reverse"):
-                ordered.sort(key=lambda x: natural_key(x[0]), reverse=mode == "reverse")
-            elif mode == "count":
-                ordered.sort(key=lambda x: (-len(x[1]), natural_key(x[0])))
+            ordered = lib.ordered_playlists()           # follow the Playlists tab (#37, #63)
             first, rest = lib.with_pins("playlists", ordered, lambda x: x[0])     # pinned first (#52)
             for name, items in first + rest:
                 done = sum(1 for p in items if positions.get(p, {}).get("watched"))

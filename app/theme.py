@@ -119,8 +119,8 @@ def css_gradient(vertical=False) -> str:
 
 
 def on_accent() -> str:
-    """Dark or white, whichever reads better on the accent colour."""
-    c = _accent.lstrip("#")
+    """Dark or white, whichever reads better on the accent colour (a neon theme's first colour)."""
+    c = accent().lstrip("#")
     try:
         r, g, b = (int(c[i:i + 2], 16) for i in (0, 2, 4))
     except ValueError:
@@ -171,7 +171,8 @@ def stylesheet() -> str:
     QToolButton#PlayButton:hover {{ background: {ag}; border: none; }}
 
     QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QKeySequenceEdit {{
-        background: {SURFACE}; border: 1px solid {BORDER}; border-radius: {RADIUS}px; padding: 5px 8px; selection-background-color: {a}; }}
+        background: {SURFACE}; border: 1px solid {BORDER}; border-radius: {RADIUS}px; padding: 5px 8px;
+        selection-background-color: {a}; selection-color: {on_accent()}; }}
     QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{ border-color: {a}; }}
     QTextBrowser, QTextEdit {{ background: {SURFACE}; color: {TEXT}; border: 1px solid {BORDER}; border-radius: {RADIUS}px; padding: 8px; }}
     QComboBox::drop-down {{ border: none; width: 18px; }}

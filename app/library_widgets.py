@@ -5,13 +5,111 @@ import sys
 
 from PySide6.QtCore import QMimeData, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QFont
-from PySide6.QtWidgets import QAbstractItemView, QFileDialog, QListWidget, QStyle, QStyledItemDelegate
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QHBoxLayout, QListWidget, QStyle,
+                               QStyledItemDelegate, QWidget)
 
 from . import theme
 from .util import is_url, list_media, natural_key, to_path
 
 ROLE_PATH = Qt.UserRole
 ROLE_KIND = Qt.UserRole + 1   # "folder" | "file" | "root"
+
+# One entry per way of sorting, with an arrow for its direction (#63):
+# kind -> (name, (mode, what it does), (reversed mode, what it does) or None).
+# The modes are the values saved in the <section>_sort settings.
+SORT_KINDS = {
+    "default": ("Default order", ("default", "Default order"), None),
+    "added": ("Date added", ("newest", "Newest first"), ("oldest", "Oldest first")),
+    "name": ("Name", ("name", "A to Z"), ("reverse", "Z to A")),
+    "played": ("Recently played", ("played", "Most recently played first"), ("played_oldest", "Least recently played first")),
+    "count": ("Items", ("count", "Most items first"), ("count_fewest", "Fewest items first")),
+    "watched": ("Watched", ("unfinished", "Least watched first"), ("finished", "Most watched first")),
+    "date": ("Date modified", ("date", "Newest first"), ("date_oldest", "Oldest first")),
+    "plays": ("Times played", ("plays", "Most played first"), ("plays_fewest", "Least played first")),
+}
+SECTION_SORTS = {
+    "playlists": ("added", "name", "played", "count", "watched"),
+    "streams": ("added", "name", "played"),
+    "music": ("default", "name", "count", "date", "played", "plays"),
+}
+
+
+def sort_kind(mode):
+    """(kind, reversed) for a saved sort mode."""
+    for kind, (_name, first, second) in SORT_KINDS.items():
+        if mode == first[0]:
+            return kind, False
+        if second and mode == second[0]:
+            return kind, True
+    return None, False
+
+
+class SortControl(QWidget):
+    """How a library tab is sorted: what by, and an arrow that turns the order round (#63)."""
+    changed = Signal(str)
+
+    def __init__(self, section, mode):
+        super().__init__()
+        from .widgets import IconButton
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(2)
+        self.kinds = SECTION_SORTS[section]
+        self.modes = [m[0] for k in self.kinds for m in SORT_KINDS[k][1:] if m]
+        self.combo = QComboBox()
+        self.combo.setObjectName(section + "_sort_by")
+        self.combo.setToolTip("Sort this view")
+        for k in self.kinds:
+            self.combo.addItem(SORT_KINDS[k][0], k)
+        self.arrow = IconButton("arrow_down", "", size=16)
+        self.arrow.setObjectName(section + "_sort_direction")
+        lay.addWidget(self.combo)
+        lay.addWidget(self.arrow)
+        self._mode = None
+        self.set_mode(mode if mode in self.modes else self.modes[0], quiet=True)
+        self.combo.currentIndexChanged.connect(lambda _: self.set_mode(SORT_KINDS[self.combo.currentData()][1][0]))
+        self.arrow.clicked.connect(self.flip)
+
+    def mode(self):
+        return self._mode
+
+    def set_mode(self, mode, quiet=False):
+        kind, rev = sort_kind(mode)
+        if kind not in self.kinds or mode == self._mode:
+            return
+        self._mode = mode
+        self.combo.blockSignals(True)
+        self.combo.setCurrentIndex(self.combo.findData(kind))
+        self.combo.blockSignals(False)
+        _name, first, second = SORT_KINDS[kind]
+        self.arrow.setEnabled(second is not None)
+        self.arrow.set_icon("arrow_up" if rev else "arrow_down")
+        now = second if rev else first
+        self.arrow.setToolTip(f"{now[1]}. Click to reverse" if second else now[1])
+        if not quiet:
+            self.changed.emit(mode)
+
+    def flip(self):
+        kind, rev = sort_kind(self._mode)
+        second = SORT_KINDS[kind][2]
+        if second:
+            self.set_mode(SORT_KINDS[kind][1 if rev else 2][0])
+
+    def set_kind_enabled(self, kind, on):
+        item = self.combo.model().item(self.combo.findData(kind))
+        if item is not None:
+            item.setEnabled(on)
+
+    # the QComboBox calls the older checks use: one index per mode, both directions
+    def currentData(self):
+        return self._mode
+
+    def findData(self, mode):
+        return self.modes.index(mode) if mode in self.modes else -1
+
+    def setCurrentIndex(self, i):
+        if 0 <= i < len(self.modes):
+            self.set_mode(self.modes[i])
 
 
 class MediaList(QListWidget):

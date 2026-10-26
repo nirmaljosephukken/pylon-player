@@ -172,7 +172,7 @@ class PreferencesLibrary(unittest.TestCase):
         lib._music_mode('albums')
         self.assertTrue(lib.music_list.item(0).text().startswith('Newer'))
         lib._music_mode('songs')
-        self.assertFalse(lib.music_sort.model().item(lib.music_sort.findData('count')).isEnabled())
+        self.assertFalse(lib.music_sort.combo.model().item(lib.music_sort.combo.findData('count')).isEnabled())
         self.assertTrue(lib.music_list.item(0).data(ROLE_PATH).endswith('three.mp3'))
 
 

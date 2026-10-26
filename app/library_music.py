@@ -192,9 +192,9 @@ class MusicMixin:
         scope = "songs" if self.music_trail and self.music_trail[-1][0] == "album" else (
             "albums" if self.music_trail else self.music_mode)
         self.music_search.setPlaceholderText("Search " + scope)
-        count_option = self.music_sort.model().item(self.music_sort.findData("count"))
-        count_option.setEnabled(scope != "songs")
-        self.music_sort.setToolTip("Most items sorts artists/albums by song count. Date modified uses the newest song file in each group.")
+        self.music_sort.set_kind_enabled("count", scope != "songs")
+        self.music_sort.combo.setToolTip("Items sorts artists and albums by their number of songs. "
+                                         "Date modified uses the newest song file in each group.")
         q = self.music_search.text().strip().lower()
         current = self.win.engine.current
         self.music_back.setEnabled(bool(self.music_trail))

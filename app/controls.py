@@ -1,6 +1,6 @@
 """The two auto-hiding bars that float over the video.
 
-Top bar:    [library] [show / folder chip]   title   [PiP] [fullscreen] [menu]
+Top bar:    [library] [show / folder chip]   title   [PiP] [fullscreen] [menu] [close video]
 Bottom bar: [prev][PLAY][next] time   (continue chip)   speed [subs][audio][queue][vol][cone][tune]
             ================ thick seek bar along the bottom edge =================
 """
@@ -19,6 +19,7 @@ class TopBar(OverlayWindow):
     pip_clicked = Signal()
     fullscreen_clicked = Signal()
     menu_clicked = Signal()
+    close_clicked = Signal()
 
     HEIGHT = 48
 
@@ -45,6 +46,8 @@ class TopBar(OverlayWindow):
         self.btn_full.clicked.connect(self.fullscreen_clicked)
         self.btn_menu = IconButton("menu", "Menu")
         self.btn_menu.clicked.connect(self.menu_clicked)
+        self.btn_close = IconButton("close", "Close the video (Ctrl+W)")
+        self.btn_close.clicked.connect(self.close_clicked)
         self.cast_chip = QPushButton("")
         self.cast_chip.setObjectName("Chip")
         self.cast_chip.setFocusPolicy(Qt.NoFocus)
@@ -60,6 +63,7 @@ class TopBar(OverlayWindow):
         lay.addWidget(self.btn_pip)
         lay.addWidget(self.btn_full)
         lay.addWidget(self.btn_menu)
+        lay.addWidget(self.btn_close)
         self._full_title = ""
 
     def set_title(self, text: str):

@@ -27,6 +27,29 @@ HOME_SECTIONS = {
     "streams": ("Streams", "home_streams"),
 }
 
+# Picture shapes for the aspect ratio and crop rows (#62): VLC's classic list plus 21:9,
+# the usual ones first, then wider, square last. key -> (label, VLC value).
+# Preferences > Playback picks which ones the rows show.
+RATIOS = {
+    "16:9": ("16:9", "16:9"),
+    "16:10": ("16:10", "16:10"),
+    "4:3": ("4:3", "4:3"),
+    "5:4": ("5:4", "5:4"),
+    "5:3": ("5:3", "5:3"),
+    "1.85:1": ("1.85:1", "185:100"),
+    "2.21:1": ("2.21:1", "221:100"),
+    "21:9": ("21:9", "21:9"),
+    "2.35:1": ("2.35:1", "235:100"),
+    "2.39:1": ("2.39:1", "239:100"),
+    "1:1": ("1:1", "1:1"),
+}
+
+
+def ratio_label(value: str) -> str:
+    """The name shown for an aspect ratio or crop value, e.g. 2.21:1 for VLC's 221:100."""
+    return next((label for label, v in RATIOS.values() if v == value), value)
+
+
 DEFAULT_SHORTCUTS = {
     "play_pause": ("Play / pause", "Space"),
     "seek_fwd": ("Jump forward 10s", "Right"),
@@ -72,6 +95,7 @@ DEFAULT_SHORTCUTS = {
     "shortcuts": ("Show keyboard shortcuts", "F1"),
     "preferences": ("Open Preferences", "Ctrl+,"),
     "stop": ("Stop", "S"),
+    "close_media": ("Close the video and go home", "Ctrl+W"),   # #61
 }
 
 DEFAULT_SETTINGS = {
@@ -89,6 +113,9 @@ DEFAULT_SETTINGS = {
     "mouse_forward": "none",
     "accent": "#FF8800",
     "sub_match": "episode",
+    "prev_restarts": True,      # Previous first goes back to the start when a file is past 3 s (#64)
+    "aspect_choices": ["16:9", "16:10", "4:3", "21:9", "2.35:1", "1:1"],    # shown in the Video tab (#62)
+    "crop_choices": ["16:9", "16:10", "4:3", "2.21:1", "2.39:1", "1:1"],
     "binge": True,              # play the next file in the folder when one ends
     "resume": "ask",            # ask | always | never
     "osd_shortcuts": True,      # show which key was pressed in on-screen messages
@@ -264,6 +291,11 @@ class Store(QObject):
         """Home section keys in the order you chose; anything new goes at the end."""
         saved = [k for k in (self.setting("home_order") or []) if k in HOME_SECTIONS]
         return list(dict.fromkeys(saved)) + [k for k in HOME_SECTIONS if k not in saved]
+
+    def ratio_choices(self, kind: str) -> list[tuple[str, str]]:
+        """(label, value) for the aspect ratio or crop row (kind "aspect" or "crop"), in RATIOS order (#62)."""
+        shown = set(self.setting(kind + "_choices") or [])
+        return [RATIOS[k] for k in RATIOS if k in shown]
 
     def continue_watching(self, limit=12) -> list[dict]:
         out = []

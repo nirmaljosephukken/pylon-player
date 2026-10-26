@@ -117,7 +117,8 @@ class AspectCrop(Base):
         for _ in range(len(values)):
             w.do("cycle_aspect")
         self.assertEqual(toasts[0], "Aspect ratio: 16:9")
-        self.assertEqual(toasts[3], "Aspect ratio: 2.35:1")
+        self.assertEqual(toasts[1], "Aspect ratio: 16:10")      # added in 1.6.2 (#62)
+        self.assertEqual(toasts[4], "Aspect ratio: 2.35:1")
         self.assertEqual(w.engine.live["aspect"], "")            # back to Auto
         self.assertEqual(toasts[-1], "Aspect ratio: Auto")
         self.assertTrue(w.sidebar.aspect.group.button(0).isChecked())

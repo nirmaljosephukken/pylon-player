@@ -286,20 +286,32 @@ class PlaybackMixin:
         return False
 
     def play_prev(self):
-        if self.engine.time() > 3000:
+        """Past 3 seconds the first press starts the file again, unless Preferences says not to (#64)."""
+        prev = self._previous_item()
+        restart = self.engine.time() > 3000 and self.store.setting("prev_restarts")
+        if restart or (prev is None and self.engine.current):
             self.engine.seek(0)
-            self.toast("Back to the start")
+            self.toast("Back to the start" + ("  ·  press again for the previous item" if restart and prev else ""))
             return
+        if prev is None:
+            return
+        where, target = prev
+        if where == "queue":
+            self.play_queue_index(target)
+        else:
+            self.queue.insert(0, {"path": target})
+            self.play_queue_index(0)
+
+    def _previous_item(self):
+        """("queue", index) or ("folder", path) for what Previous goes to, or None."""
         if self.qindex > 0:
-            self.play_queue_index(self.qindex - 1)
-            return
+            return "queue", self.qindex - 1
         cur = self.engine.current
         if cur and not is_url(cur):
             files = list_media(os.path.dirname(cur))
             if cur in files and files.index(cur) > 0:
-                prev = files[files.index(cur) - 1]
-                self.queue.insert(0, {"path": prev})
-                self.play_queue_index(0)
+                return "folder", files[files.index(cur) - 1]
+        return None
 
     # ---------------------------------------------------------------- playing
     def play_path(self, path, start_ms=None, title=""):

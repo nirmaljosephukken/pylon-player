@@ -17,7 +17,7 @@ from .engine import CUSTOM_EQ, DEFAULT_SUB_STYLE, EQ_RANGE
 from .icons import icon
 from .util import (display_name, subtitle_query, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
                    match_subtitle, parse_subtitles)
-from .store import QUEUE_MODES
+from .store import QUEUE_MODES, ratio_label
 from .widgets import IconButton, SubtitleTimeline, hline, subtitle_search_menu
 
 
@@ -113,26 +113,39 @@ class ChipGroup(QWidget):
     def __init__(self, options: list[tuple[str, object]], cols=3, icon_name: str | None = None,
                  tips: dict | None = None):
         super().__init__()
-        grid = QGridLayout(self)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(6)
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(6)
         self.group = QButtonGroup(self)
         self.group.setExclusive(True)
+        self.cols, self.icon_name, self.tips = cols, icon_name, tips or {}
+        self.values = []
+        self.set_options(options)
+        self.group.idClicked.connect(lambda i: self.picked.emit(self.values[i]))
+
+    def set_options(self, options: list[tuple[str, object]]):
+        """Replace the chips, keeping the one that was selected (the ratio rows change in Preferences, #62)."""
+        b = self.group.checkedButton()
+        keep = self.values[self.group.id(b)] if b else None
+        for old in self.group.buttons():
+            self.group.removeButton(old)
+            old.deleteLater()
         self.values = []
         for i, (label, val) in enumerate(options):
             b = QPushButton(label)
             b.setCheckable(True)
             b.setFocusPolicy(Qt.NoFocus)
-            b.setToolTip((tips or {}).get(val, label))
+            b.setToolTip(self.tips.get(val, label))
             b.setMinimumWidth(0)
             b.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
             b.setCursor(Qt.PointingHandCursor)
-            if icon_name:
-                b.setIcon(icon(icon_name, theme.MUTED, 14))
+            if self.icon_name:
+                b.setIcon(icon(self.icon_name, theme.MUTED, 14))
             self.group.addButton(b, i)
             self.values.append(val)
-            grid.addWidget(b, i // cols, i % cols)
-        self.group.idClicked.connect(lambda i: self.picked.emit(self.values[i]))
+            self.grid.addWidget(b, i // self.cols, i % self.cols)
+        if keep is not None:
+            self.select(keep)
 
     def select(self, val):
         for i, v in enumerate(self.values):
@@ -563,18 +576,17 @@ class SettingsSidebar(QWidget):
         lay.addWidget(self.video_combo)
 
         lay.addWidget(section("Aspect ratio"))
-        self.aspect = ChipGroup([("Auto", ""), ("16:9", "16:9"), ("4:3", "4:3"), ("21:9", "21:9"),
-                                 ("2.35:1", "235:100"), ("1:1", "1:1")], cols=3)
-        self.aspect.picked.connect(lambda v: (self.engine.set_aspect(v), self.win.toast(f"Aspect ratio: {v or 'Auto'}")))
-        self.aspect.select("")
+        self.aspect = ChipGroup([], cols=3)
+        self.aspect.picked.connect(lambda v: (self.engine.set_aspect(v), self.win.toast(f"Aspect ratio: {ratio_label(v) or 'Auto'}")))
         lay.addWidget(self.aspect)
 
         lay.addWidget(section("Crop and zoom"))
-        self.crop = ChipGroup([("No crop", ""), ("16:9", "16:9"), ("21:9", "21:9"), ("4:3", "4:3"),
-                               ("2.39:1", "239:100"), ("1:1", "1:1")], cols=3)
-        self.crop.picked.connect(lambda v: (self.engine.set_crop(v), self.win.toast(f"Crop: {v or 'None'}")))
-        self.crop.select("")
+        self.crop = ChipGroup([], cols=3)
+        self.crop.picked.connect(lambda v: (self.engine.set_crop(v), self.win.toast(f"Crop: {ratio_label(v) or 'None'}")))
         lay.addWidget(self.crop)
+        self.refresh_ratio_rows()
+        self.aspect.select("")
+        self.crop.select("")
         self.zoom = ChipGroup([("Fit", 0.0), ("0.5x", 0.5), ("1x", 1.0), ("2x", 2.0)], cols=4)
         self.zoom.picked.connect(lambda v: (self.engine.set_zoom(v), self.win.toast(f"Zoom: {'Fit' if not v else f'{v:g}x'}")))
         self.zoom.select(0.0)
@@ -1065,6 +1077,11 @@ class SettingsSidebar(QWidget):
         if name:
             self.win.apply_preset(self.store.data["presets"].get(name, {}), live=True)
             self.win.toast(f"Preset: {name}")
+
+    def refresh_ratio_rows(self):
+        """Show the aspect ratios and crops chosen in Preferences > Playback (#62)."""
+        self.aspect.set_options([("Auto", "")] + self.store.ratio_choices("aspect"))
+        self.crop.set_options([("No crop", "")] + self.store.ratio_choices("crop"))
 
     def sync_from_engine(self):
         """Reflect engine.live in the controls (after a preset is applied)."""
