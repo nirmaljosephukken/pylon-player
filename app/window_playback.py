@@ -1,5 +1,6 @@
 """Main window: opening things, the queue, playing a file and what happens when it ends."""
 import os
+import random
 import time
 
 from PySide6.QtCore import QPoint, Qt, QTimer
@@ -120,11 +121,15 @@ class PlaybackMixin:
         """Add queue entries that keep their names, like channels from a list."""
         if not items:
             return
-        self.queue.extend(dict(x) for x in items)
+        items = [dict(x) for x in items]
+        if self.queue_mode == "shuffle":
+            self._shuffle_in(items, ordered=False)
+        else:
+            self.queue.extend(items)
         self.library.refresh_queue()
         self.toast(f"Added {len(items)} to the queue")
         if not self.engine.current:
-            self.play_queue_index(len(self.queue) - len(items))
+            self.play_queue_index(self._first_of(items))
 
     def play_folder(self, folder):
         folder = norm(folder)
@@ -193,6 +198,8 @@ class PlaybackMixin:
             return
         if play_next and self.qindex >= 0:
             self.queue[self.qindex + 1:self.qindex + 1] = items
+        elif self.queue_mode == "shuffle":
+            self._shuffle_in(items)
         else:
             # an episode joins the others from its folder in name order, not the end of the queue (#57)
             cur = self.queue[self.qindex] if 0 <= self.qindex < len(self.queue) else None
@@ -206,7 +213,25 @@ class PlaybackMixin:
         self.toast(f"Added {len(items)} to the queue" if len(items) > 1 else f"Added “{display_name(items[0]['path'])}” to the queue")
         if not self.engine.current:
             self.play_queue_index(max(0, self.qindex + 1) if play_next and self.qindex >= 0
-                                  else next(i for i, q in enumerate(self.queue) if q is items[0]))
+                                  else self._first_of(items))
+
+    def _shuffle_in(self, items, ordered=True):
+        """In Shuffle mode, added items land at random places after what's playing (#65), not in
+        name order at the end. The order from before shuffling learns them too, so leaving Shuffle
+        still puts each one in its place."""
+        lib = self.library
+        if not lib.shuffled:              # e.g. the queue was empty or cleared: start remembering now
+            lib._unshuffled = list(self.queue)
+        lib._unshuffled = (merge_in_name_order(lib._unshuffled, items, lambda q: q["path"]) if ordered
+                           else lib._unshuffled + list(items))
+        start = self.qindex + 1 if 0 <= self.qindex < len(self.queue) else 0
+        for it in items:
+            self.queue.insert(random.randint(start, len(self.queue)), it)
+
+    def _first_of(self, items) -> int:
+        """Where the first of these items now sits in the queue (the earliest one, when shuffled in)."""
+        ids = {id(x) for x in items}
+        return next(i for i, q in enumerate(self.queue) if id(q) in ids)
 
     def sort_queue_by_name(self):
         """Put the whole queue in name order (#57); what's playing keeps playing."""

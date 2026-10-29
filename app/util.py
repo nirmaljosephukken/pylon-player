@@ -2,6 +2,7 @@
 subtitle discovery and subtitle file parsing."""
 import os
 import re
+import sys
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -385,3 +386,22 @@ def subtitle_search_url(site: str, query: str) -> str:
     from urllib.parse import quote
     pattern = next((u for k, _n, u in SUBTITLE_SITES if k == site), SUBTITLE_SITES[0][2])
     return pattern.replace("{q}", quote(query.strip(), safe=""))
+
+
+def win_set_topmost(hwnd: int, on: bool) -> bool:
+    """Put a window above (or back among) other apps' windows on Windows. Returns whether it worked.
+    The argument types matter on 64-bit Windows: without them ctypes passes HWND_TOPMOST (-1) as a
+    32-bit int, which isn't the handle Windows expects (#66)."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+        f = ctypes.windll.user32.SetWindowPos
+        f.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                      wintypes.UINT]
+        f.restype = wintypes.BOOL
+        swp = 0x0001 | 0x0002 | 0x0010            # NOSIZE | NOMOVE | NOACTIVATE
+        return bool(f(wintypes.HWND(hwnd), wintypes.HWND(-1 if on else -2), 0, 0, 0, 0, swp))
+    except Exception:
+        return False

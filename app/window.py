@@ -16,7 +16,7 @@ from .home import HomePage, NowPlayingPage
 from .library import LibraryPanel
 from .sidebar import SettingsSidebar
 from .store import DEFAULT_SHORTCUTS, QUEUE_MODES
-from .util import fmt_delay, fmt_time, is_audio, is_disc, is_url
+from .util import fmt_delay, fmt_time, is_audio, is_disc, is_url, win_set_topmost
 from .stage import PAGE_AUDIO, PAGE_HOME, PAGE_VIDEO, VideoSurface  # noqa: F401  (tests import these from here)
 from .thumbs import ThumbnailMaker
 from .updates import UpdateChecker
@@ -27,6 +27,7 @@ from .window_playback import PlaybackMixin
 from .window_system import SystemMixin
 
 VSR_FULLSCREEN_RETRIES_MS = (600, 1500)    # extra Super Resolution redraws in full screen (#42)
+VSR_STATE_RESTART_MS = 900                # after full screen <-> window with Super Resolution, rebuild the picture (#42)
 WINDOW_MOVE_HIDE_S = 0.25                   # floating bars stay hidden this long after the window moves (#59)
 
 class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
@@ -53,6 +54,7 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         self._pip = None
         self._vsr_back_to_full = False     # a panel took full screen into a window (#42)
         self._vsr_told = False
+        self._vsr_switching = False        # a panel is switching full screen and a window (#42)
         self._last_mouse = QPoint()
         self._last_move = 0.0
         self._force_show_until = 0.0
@@ -139,7 +141,14 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
             t.setInterval(ms)
             t.timeout.connect(self._vsr_refresh)
             self._vsr_late.append(t)
+        # Leaving full screen for a maximized window (a panel opened, #42) animates for a moment, and
+        # redraws during that leave the picture black. Once it has settled, rebuild the video output.
+        self._vsr_restart = QTimer(self)
+        self._vsr_restart.setSingleShot(True)
+        self._vsr_restart.setInterval(VSR_STATE_RESTART_MS)
+        self._vsr_restart.timeout.connect(self._vsr_rebuild)
         self.video.resized.connect(self._vsr_resized)
+        QGuiApplication.instance().applicationStateChanged.connect(self._pip_app_state)
         self.video.pan.connect(self._pan_video)
         # a new file starts unzoomed; the sidebar's crop and zoom choices end interactive zoom
         self.engine.media_changed.connect(
@@ -547,6 +556,10 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         self._overlay_geo = None
         if e.type() == e.Type.WindowStateChange:
             self.top.set_fullscreen(self.isFullScreen() or getattr(self, "_vsr_back_to_full", False))
+            if hasattr(self, "_vsr_restart") and self._vsr_switching:
+                self._vsr_switching = False
+                self._vsr_resized()
+                self._vsr_restart.start()
 
     def toast(self, text: str, key: str = ""):
         if self.stage.currentIndex() == PAGE_HOME or self.isMinimized():
@@ -1008,6 +1021,7 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         if not (self.isFullScreen() and self._vsr_on()) or self._pip:
             return
         self._vsr_back_to_full = True
+        self._vsr_switching = True
         self.showMaximized()
         if not self._vsr_told:
             self._vsr_told = True
@@ -1017,15 +1031,20 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
     def _vsr_panel_closed(self):
         if self._vsr_back_to_full and self.library.isHidden() and self.sidebar.isHidden():
             self._vsr_back_to_full = False
+            self._vsr_switching = True
             self.showFullScreen()
             self.top.set_fullscreen(True)
 
     def _vsr_resized(self):
         if hasattr(self, "_vsr_late") and self._vsr_active():
             self._vsr_timer.start()
-            if self.isFullScreen():
+            if self.isFullScreen() or self._vsr_back_to_full:   # a window that came from full screen too (#42)
                 for t in self._vsr_late:
                     t.start()
+
+    def _vsr_rebuild(self):
+        if self._vsr_active() and not self.isMinimized() and self.engine.restart_video_output():
+            self._vsr_resized()            # and redraw at the right size once it's back
 
     def _vsr_refresh(self):
         if self._vsr_active() and not self.isMinimized():
@@ -1102,19 +1121,26 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         return super().eventFilter(obj, e)
 
     def _topmost(self, on: bool):
+        """Keep picture in picture above other apps (#66). On Windows Pylon used to set this only through
+        the Windows API, so Qt still thought the window was an ordinary one, and the API call could quietly
+        fail. Now Qt is told too, without rebuilding the window (VLC keeps the window it draws into), and
+        the API call has proper argument types and is checked."""
         if sys.platform == "win32":
-            try:
-                import ctypes
-                HWND_TOPMOST, HWND_NOTOPMOST = -1, -2
-                flags = 0x0001 | 0x0002 | 0x0010  # NOSIZE | NOMOVE | NOACTIVATE
-                ctypes.windll.user32.SetWindowPos(int(self.winId()), HWND_TOPMOST if on else HWND_NOTOPMOST,
-                                                  0, 0, 0, 0, flags)
+            handle = self.windowHandle()
+            if handle is not None:
+                flags = (self.windowFlags() | Qt.WindowStaysOnTopHint) if on else \
+                    (self.windowFlags() & ~Qt.WindowStaysOnTopHint)
+                self.overrideWindowFlags(flags)
+                handle.setFlags(flags)
+            if win_set_topmost(int(self.winId()), on) or handle is not None:
                 return
-            except Exception:
-                pass
         if bool(self.windowFlags() & Qt.WindowStaysOnTopHint) != on:
             self._set_flag(Qt.WindowStaysOnTopHint, on)
 
+    def _pip_app_state(self, state):
+        """Switching to another app must not push picture in picture behind it (#66): say so again."""
+        if self._pip and state != Qt.ApplicationActive and sys.platform == "win32":
+            win_set_topmost(int(self.winId()), True)
 
     # ================================================================ closing
     def closeEvent(self, e):

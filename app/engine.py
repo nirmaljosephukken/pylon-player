@@ -916,6 +916,20 @@ class Engine(QObject):
         self.player.video_set_crop_geometry("0+0+0+2")
         QTimer.singleShot(80, self._apply_crop)
 
+    def restart_video_output(self):
+        """Turn the video track off and straight back on, so VLC builds its video output again at the
+        window's current size. Heavier than refresh_upscaler(): used after Pylon switches between full
+        screen and a window with Super Resolution on, where the crop nudge alone can leave it black (#42).
+        Only while playing: a paused picture would stay black until playback goes on."""
+        if not (self.ok and self.is_playing()):
+            return False
+        tid = self.player.video_get_track()
+        if tid is None or tid < 0:
+            return False
+        self.player.video_set_track(-1)
+        QTimer.singleShot(60, lambda: self.ok and self.player.video_set_track(tid))
+        return True
+
     def zoom_level(self) -> float:
         return self.izoom["z"] if self.izoom else 1.0
 
