@@ -1,10 +1,10 @@
 # Pylon
 
-**A media player inspired by Juxtopposed's VLC redesign, grown into its own app.** Free and open source, for Windows, Linux and (experimentally) macOS. Pylon runs on VLC's engine, so it plays everything VLC plays, with a calmer interface and features of its own on top.
+**A media player inspired by Juxtopposed's VLC redesign, grown into its own app.** Free and open source, for Windows, Linux and macOS. Pylon runs on VLC's engine, so it plays everything VLC plays, with a calmer interface and features of its own on top.
 
 ### [⬇ Download page: nirmaljosephukken.github.io/pylon-player](https://nirmaljosephukken.github.io/pylon-player/)
 
-**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.6.3.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.6.3-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.6.3-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
+**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.6.3.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.6.3-x86_64.AppImage) · [macOS](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.6.3-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
 
 **New to Pylon?** The [user guide](https://nirmaljosephukken.github.io/pylon-player/guide.html) shows every screen, panel and setting with pictures and step-by-step how-tos. It's also available as a [PDF](https://nirmaljosephukken.github.io/pylon-player/guide/Pylon-User-Guide.pdf).
@@ -13,7 +13,7 @@ You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#ins
 
 Pylon puts a new interface on top of libVLC, the engine inside VLC media player. VLC still does all the playback, decoding, subtitles and streaming, so Pylon plays everything VLC plays. The interface is built around the way people actually watch: quiet bars that get out of the way, a thick seek bar, subtitle timing you can see, per-show presets, and a library and queue you can reach without leaving the video.
 
-> **Beta.** Tested on Windows 10/11 and Ubuntu; the macOS build hasn't been tried on a real Mac yet. Bug reports are very welcome.
+> **Beta.** Runs on Windows 10/11, Linux and macOS. Bug reports are very welcome.
 
 ![Pylon playing a video](docs/player.png)
 
@@ -85,7 +85,7 @@ Pylon is **not affiliated with, sponsored or endorsed by VideoLAN**. VLC and the
 
 Pylon plays everything through **VLC**, which you install yourself (Pylon never includes it). Then grab the Pylon download for your system from [Releases](../../releases).
 
-| | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ (experimental) |
+| | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ |
 | --- | --- | --- | --- |
 | **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
 | **2. Pylon** | `Pylon-Setup-1.6.3.exe` | `Pylon-1.6.3-x86_64.AppImage` | `Pylon-1.6.3-macOS.zip` |
@@ -97,7 +97,7 @@ Nothing else is needed: each download carries its own Python and Qt.
 
 **Linux.** Needs glibc 2.34 or newer (Ubuntu 22.04+, Debian 12+, Fedora 35+). The first launch adds Pylon to your applications menu and "Open with". On Wayland it runs through XWayland, because VLC draws video into an X11 window. The **Flatpak and Snap versions of VLC can't be used** by other apps, so install VLC from your distribution's packages.
 
-**macOS (experimental).** It hasn't been tested on a real Mac yet: reports are very welcome. Pylon isn't signed by Apple, so the first launch is blocked. Open **System Settings > Privacy & Security**, scroll down and click **Open Anyway** next to Pylon, then confirm. Pylon works on Apple Silicon and Intel Macs.
+**macOS.** Pylon isn't signed by Apple, so the first launch is blocked. Open **System Settings > Privacy & Security**, scroll down and click **Open Anyway** next to Pylon, then confirm. Pylon works on Apple Silicon and Intel Macs.
 
 ### "Windows protected your PC"
 
