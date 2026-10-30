@@ -494,7 +494,7 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         for r in self.store.data["recent"]:
             p = r["path"]
             it = QListWidgetItem(icon("stream" if is_url(p) else ("music" if is_audio(p) else ("disc" if is_disc(p) else "video")),
-                                      theme.MUTED, 18), display_name(p))
+                                      theme.MUTED, 18), self.store.recent_title(r))
             it.setToolTip(f"{p}\n{time.strftime('%d %b, %H:%M', time.localtime(r['t']))}")
             it.setData(ROLE_PATH, p)
             it.setData(ROLE_KIND, "file")

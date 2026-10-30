@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QMenu, QMessageBox
 from . import theme
 from .dialogs import PreferencesDialog, ShortcutsDialog
 from .icons import icon
-from .util import display_name, fmt_time
+from .util import fmt_time
 
 
 class MenusMixin:
@@ -146,7 +146,7 @@ class MenusMixin:
         m.addAction(icon("globe", theme.TEXT, 16), "Link from clipboard", self.open_clipboard)
         rec = m.addMenu(icon("clock", theme.TEXT, 16), "Recent")
         for r in self.store.data["recent"][:15]:
-            rec.addAction(display_name(r["path"]), lambda p=r["path"]: self.play_from_folder(p))
+            rec.addAction(self.store.recent_title(r), lambda p=r["path"]: self.play_from_folder(p))
         if not self.store.data["recent"]:
             rec.addAction("Nothing yet").setEnabled(False)
         return m

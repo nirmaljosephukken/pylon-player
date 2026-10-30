@@ -149,7 +149,7 @@ class HomePage(QScrollArea):
             row = FlowRow()
             for r in recent:
                 p = r["path"]
-                c = Card(pretty_title(p), "Stream" if is_url(p) else _parent(p),
+                c = Card(self.store.recent_title(r, pretty_title), "Stream" if is_url(p) else _parent(p),
                          "stream" if is_url(p) else ("music" if is_audio(p) else ("disc" if is_disc(p) else "video")))
                 self._bind_card_menu(c, "media", p)
                 c.setToolTip(p)
