@@ -409,7 +409,7 @@ class PlaybackMixin:
         self.stage.setCurrentIndex(PAGE_AUDIO if audio else PAGE_VIDEO)
         self._overlay_geo = None
         e.open(path, start_ms=start_ms, subs=subs, title=title)
-        self.store.add_recent(path)
+        self.store.add_recent(path, title)
         self.store.count_play(path)
         self._in_menu = False
 
