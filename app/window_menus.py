@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QMenu, QMessageBox
 from . import theme
 from .dialogs import PreferencesDialog, ShortcutsDialog
 from .icons import icon
+from .stage import PAGE_AUDIO
 from .util import fmt_time
 
 
@@ -193,25 +194,29 @@ class MenusMixin:
             m.addAction(icon("pause" if e.is_playing() else "play", theme.TEXT, 16),
                         ("Pause" if e.is_playing() else "Play") + "\tSpace", lambda: self.do("play_pause", key=False))
             m.addAction(icon("stop", theme.TEXT, 16), "Stop", lambda: self.do("stop", key=False))
-            m.addAction(icon("close", theme.TEXT, 16), "Close the video\tCtrl+W", self.close_media)
+            video = self.stage.currentIndex() != PAGE_AUDIO     # music has its own page (#74)
+            m.addAction(icon("close", theme.TEXT, 16), ("Close the video" if video else "Close") + "\tCtrl+W",
+                        self.close_media)
             m.addSeparator()
             if e.is_disc():
                 m.addMenu(self.build_disc_menu(m))
-            m.addMenu(self.build_subs_menu(m))
+            if video:
+                m.addMenu(self.build_subs_menu(m))
             m.addMenu(self.build_audio_menu(m))
-            vm = m.addMenu(icon("video", theme.TEXT, 16), "Video")
-            vm.addSection("Video track")
-            self._track_actions(vm, e.video_tracks(), e.current_video(), e.set_video)
-            vm.addSection("Aspect ratio")
-            grp = QActionGroup(vm)
-            for label, v in [("Auto", "")] + self.store.ratio_choices("aspect"):      # as in Preferences (#62)
-                a = vm.addAction(label)
-                a.setCheckable(True)
-                a.setChecked(e.live["aspect"] == v)
-                grp.addAction(a)
-                a.triggered.connect(lambda _=False, v=v: (e.set_aspect(v), self.sidebar.aspect.select(v)))
-            vm.addSeparator()
-            vm.addAction("Video settings…", lambda: self.open_sidebar_tab(2))
+            if video:
+                vm = m.addMenu(icon("video", theme.TEXT, 16), "Video")
+                vm.addSection("Video track")
+                self._track_actions(vm, e.video_tracks(), e.current_video(), e.set_video)
+                vm.addSection("Aspect ratio")
+                grp = QActionGroup(vm)
+                for label, v in [("Auto", "")] + self.store.ratio_choices("aspect"):      # as in Preferences (#62)
+                    a = vm.addAction(label)
+                    a.setCheckable(True)
+                    a.setChecked(e.live["aspect"] == v)
+                    grp.addAction(a)
+                    a.triggered.connect(lambda _=False, v=v: (e.set_aspect(v), self.sidebar.aspect.select(v)))
+                vm.addSeparator()
+                vm.addAction("Video settings…", lambda: self.open_sidebar_tab(2))
             sm = m.addMenu(icon("speed", theme.TEXT, 16), "Speed")
             grp2 = QActionGroup(sm)
             for r in (0.5, 0.75, 1.0, 1.25, 1.5, 2.0):
@@ -224,7 +229,8 @@ class MenusMixin:
             m.addMenu(self.build_cast_menu(m))
             m.addSeparator()
             m.addAction(icon("bookmark_add", theme.TEXT, 16), "Add bookmark\tCtrl+B", lambda: self.do("bookmark", key=False))
-            m.addAction(icon("snapshot", theme.TEXT, 16), "Take a snapshot", lambda: self.do("snapshot", key=False))
+            if video:
+                m.addAction(icon("snapshot", theme.TEXT, 16), "Take a snapshot", lambda: self.do("snapshot", key=False))
             m.addSeparator()
         m.addAction(icon("sidebar_left", theme.TEXT, 16), "Library and queue\tCtrl+L", lambda: self.toggle_library())
         m.addAction(icon("sidebar_right", theme.TEXT, 16), "Settings panel\tCtrl+T", lambda: self.toggle_sidebar())

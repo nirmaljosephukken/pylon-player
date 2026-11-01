@@ -54,7 +54,7 @@ class OrderStreamsEq(unittest.TestCase):
         names = ["S03E01", "S03E02", "S03E05", "S03E03", "S03E10", "S03E04", "S03E06"]   # selection order
         paths = [str(self.show / f"House of the Dragon {n}.mkv") for n in names]
         got = []
-        with patch.object(MainWindow, "set_queue", lambda self, items, i: got.extend(x["path"] for x in items)):
+        with patch.object(MainWindow, "set_queue", lambda self, items, i, **kw: got.extend(x["path"] for x in items)):
             self.win.open_paths(paths)
         self.assertEqual([Path(p).stem[-6:] for p in got],
                          ["S03E01", "S03E02", "S03E03", "S03E04", "S03E05", "S03E06", "S03E10"])

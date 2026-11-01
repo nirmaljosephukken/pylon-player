@@ -405,3 +405,35 @@ def win_set_topmost(hwnd: int, on: bool) -> bool:
         return bool(f(wintypes.HWND(hwnd), wintypes.HWND(-1 if on else -2), 0, 0, 0, 0, swp))
     except Exception:
         return False
+
+
+def win_enable_close(hwnd: int) -> bool:
+    """Turn the title bar's close button (X) back on for a window on Windows. Leaving borderless
+    picture in picture could leave it greyed out (#71): the button follows the Close item of the
+    window's system menu, which Windows keeps across frame changes. Returns whether it worked."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+        u = ctypes.windll.user32
+        u.GetSystemMenu.argtypes = [wintypes.HWND, wintypes.BOOL]
+        u.GetSystemMenu.restype = wintypes.HMENU
+        u.EnableMenuItem.argtypes = [wintypes.HMENU, wintypes.UINT, wintypes.UINT]
+        u.EnableMenuItem.restype = wintypes.BOOL
+        u.DrawMenuBar.argtypes = [wintypes.HWND]
+        u.DrawMenuBar.restype = wintypes.BOOL
+        u.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                   ctypes.c_int, wintypes.UINT]
+        u.SetWindowPos.restype = wintypes.BOOL
+        menu = u.GetSystemMenu(wintypes.HWND(hwnd), False)
+        if not menu:
+            return False
+        sc_close, mf_bycommand, mf_enabled = 0xF060, 0x0000, 0x0000
+        u.EnableMenuItem(menu, sc_close, mf_bycommand | mf_enabled)
+        u.DrawMenuBar(wintypes.HWND(hwnd))
+        # NOSIZE | NOMOVE | NOZORDER | NOACTIVATE | FRAMECHANGED: redraw the title bar
+        u.SetWindowPos(wintypes.HWND(hwnd), None, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020)
+        return True
+    except Exception:
+        return False

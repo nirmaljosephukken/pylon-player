@@ -4,7 +4,7 @@
 
 ### [⬇ Download page: nirmaljosephukken.github.io/pylon-player](https://nirmaljosephukken.github.io/pylon-player/)
 
-**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.6.3.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.6.3-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.6.3-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
+**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.6.4.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.6.4-x86_64.AppImage) · [macOS (experimental)](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.6.4-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
 
 **New to Pylon?** The [user guide](https://nirmaljosephukken.github.io/pylon-player/guide.html) shows every screen, panel and setting with pictures and step-by-step how-tos. It's also available as a [PDF](https://nirmaljosephukken.github.io/pylon-player/guide/Pylon-User-Guide.pdf).
@@ -20,6 +20,8 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 ![Library, queue and settings sidebar](docs/panels.png)
 
 ## What's new
+
+**1.6.4:** Fixes: the window's close button works again after picture in picture, the seek bar stops following the pointer once you switch away from Pylon, **Repeat a part** keeps repeating while Pylon is minimized, and music has the right-click menu too. Picture in picture can be moved and resized while music plays with the interface hidden, **Play** on a folder, album or artist in **Shuffle** starts on a random song instead of always the first, and **Recently played** shows a stream's saved name instead of its address.
 
 **1.6.3:** In **Shuffle**, what you add to the queue now lands at random places after what's playing instead of in order at the end. **Picture in picture** stays on top of other apps on Windows. With **Super Resolution** on, opening a side panel in full screen rebuilds the picture once the window has settled, so it shouldn't stay black.
 
@@ -88,7 +90,7 @@ Pylon plays everything through **VLC**, which you install yourself (Pylon never 
 | | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ (experimental) |
 | --- | --- | --- | --- |
 | **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
-| **2. Pylon** | `Pylon-Setup-1.6.3.exe` | `Pylon-1.6.3-x86_64.AppImage` | `Pylon-1.6.3-macOS.zip` |
+| **2. Pylon** | `Pylon-Setup-1.6.4.exe` | `Pylon-1.6.4-x86_64.AppImage` | `Pylon-1.6.4-macOS.zip` |
 | **3. Run** | Run the setup. No admin rights needed. | `chmod +x Pylon-*.AppImage`, then double-click it | Unzip, move **Pylon** to Applications, see the first-launch note below |
 
 Nothing else is needed: each download carries its own Python and Qt.

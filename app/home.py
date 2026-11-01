@@ -411,6 +411,30 @@ class NowPlayingPage(QWidget):
         lay.addWidget(self.sub)
         lay.addStretch(1)
         self._pix = None
+        self.setMouseTracking(True)
+
+    # Right-click opens the same menu as on a video (#74). In picture in picture, dragging moves the
+    # window and the edges resize it, like on a video, so it works with the interface hidden (#75).
+    def contextMenuEvent(self, e):
+        self.win.show_context_menu(e.globalPos())
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton and getattr(self.win, "_pip", None):
+            if self.win.pip_grab(e.globalPosition().toPoint()):
+                return
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if getattr(self.win, "_pip", None) and not e.buttons():
+            cur = self.win.edge_cursor(self.win.pip_edges(e.globalPosition().toPoint()))
+            self.setCursor(cur) if cur is not None else self.setCursor(Qt.OpenHandCursor)
+        elif self.cursor().shape() != Qt.ArrowCursor and not getattr(self.win, "_pip", None):
+            self.unsetCursor()
+        super().mouseMoveEvent(e)
+
+    def leaveEvent(self, e):
+        self.unsetCursor()
+        super().leaveEvent(e)
 
     def load(self, path: str, meta: dict):
         self.title.setText(meta.get("title") or display_name(path))
