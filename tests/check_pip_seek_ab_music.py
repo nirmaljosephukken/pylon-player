@@ -77,7 +77,7 @@ class CloseButtonAfterPip(Base):                       # #71
             w.toggle_pip()
             self.assertEqual(calls, [int(w.winId())])
             wait(300)                                     # once more after the window settles
-            self.assertEqual(len(calls), 2)
+            self.assertEqual(calls, [int(w.winId())] * 2)
         flags = w.windowFlags()
         self.assertTrue(flags & Qt.WindowCloseButtonHint)
         self.assertFalse(flags & (Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint))
@@ -89,7 +89,9 @@ class CloseButtonAfterPip(Base):                       # #71
         w.show()
         wait()
         broken = (w.windowFlags() & ~Qt.WindowCloseButtonHint) | Qt.WindowStaysOnTopHint
-        w._restore_frame(broken)
+        with patch.object(window_mod, "win_enable_close", lambda h: True):
+            w._restore_frame(broken)
+            wait(300)                                     # let the later call run here, not in another test
         self.assertTrue(w.windowFlags() & Qt.WindowCloseButtonHint)
         self.assertFalse(w.windowFlags() & Qt.WindowStaysOnTopHint)
 
@@ -234,7 +236,8 @@ class MusicPage(Base):
 
 class ShuffleFirstSong(Base):                            # #76
     def files(self, n):
-        return [f"/music/album/{i:02d} song.flac" for i in range(n)]
+        # as the queue stores them (on Windows with a drive letter and backslashes)
+        return [util.norm(f"/music/album/{i:02d} song.flac") for i in range(n)]
 
     def test_play_folder_starts_on_a_random_song_in_shuffle(self):
         w = self.win
