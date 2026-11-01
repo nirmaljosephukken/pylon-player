@@ -29,7 +29,7 @@ class PlaybackMixin:
             self.play_from_folder(files[0])
         else:
             files.sort(key=lambda p: natural_key(os.path.basename(p)))
-            self.set_queue([{"path": f} for f in files], 0)
+            self.set_queue([{"path": f} for f in files], 0, any_start=True)
 
     def open_folder_dialog(self):
         d = QFileDialog.getExistingDirectory(self, "Open folder")
@@ -141,7 +141,7 @@ class PlaybackMixin:
             self.browse_folder(folder)
             self.toast("No media files directly in that folder")
             return
-        self.set_queue([{"path": f} for f in files], 0)
+        self.set_queue([{"path": f} for f in files], 0, any_start=True)
 
     def play_playlist(self, name):
         items = self.store.data["playlists"].get(name, [])
@@ -182,10 +182,15 @@ class PlaybackMixin:
         self.play_queue_index(self.qindex, start_ms=start_ms)
 
     # ---------------------------------------------------------------- queue
-    def set_queue(self, items, index, keep_playing=False):
+    def set_queue(self, items, index, keep_playing=False, any_start=False):
+        """Make these items the queue and play the one at index. any_start: nobody picked where to
+        start (Play folder, Play an album or artist), so in Shuffle mode the first one is random
+        too, instead of always the first song (#76)."""
         self.queue = [{**it, "path": norm(it["path"])} for it in items]
         self.library.reset_shuffle()
         self.qindex = index if 0 <= index < len(self.queue) else -1
+        if any_start and self.queue_mode == "shuffle" and len(self.queue) > 1:
+            self.qindex = random.randrange(len(self.queue))
         if self.queue_mode == "shuffle":
             self.library.shuffle_on()
         self.library.refresh_queue()
@@ -409,7 +414,7 @@ class PlaybackMixin:
         self.stage.setCurrentIndex(PAGE_AUDIO if audio else PAGE_VIDEO)
         self._overlay_geo = None
         e.open(path, start_ms=start_ms, subs=subs, title=title)
-        self.store.add_recent(path)
+        self.store.add_recent(path, title)
         self.store.count_play(path)
         self._in_menu = False
 
@@ -716,4 +721,4 @@ class PlaybackMixin:
         if self.engine.current and self.engine.is_playing():
             self.enqueue(files)
         else:
-            self.set_queue([{"path": f} for f in files], 0)
+            self.set_queue([{"path": f} for f in files], 0, any_start=True)

@@ -6,7 +6,7 @@ import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from .util import is_audio
+from .util import display_name, is_audio, is_url
 
 # What the queue does when an item ends (#48), in the order the queue button cycles through them:
 # key -> (short name, what it does, icon)
@@ -249,13 +249,34 @@ class Store(QObject):
         return default
 
     # ---------- history ----------
-    def add_recent(self, path: str):
+    def add_recent(self, path: str, title: str = ""):
         if not self.setting("remember_history"):
             return
         rec = [r for r in self.data["recent"] if r["path"] != path]
-        rec.insert(0, {"path": path, "t": time.time()})
+        entry = {"path": path, "t": time.time()}
+        if title and is_url(path):
+            entry["title"] = title   # the name it was played under, for streams that aren't saved (#67)
+        rec.insert(0, entry)
         self.data["recent"] = rec[:60]
         self.save("recent")
+
+    def stream_name(self, url: str) -> str:
+        """The name the user gave a saved stream, or a channel in a saved channel list (#67)."""
+        for s in self.data["streams"]:
+            if s["url"] == url and not s.get("channels"):
+                return s.get("name") or ""
+            for c in s.get("channels") or ():
+                if c["url"] == url:
+                    return c.get("name") or ""
+        return ""
+
+    def recent_title(self, r: dict, fallback=display_name) -> str:
+        """Label for a Recently played entry: a stream's saved name, then the name it was played under,
+        then the label made from the path or address (#67)."""
+        p = r["path"]
+        if is_url(p):
+            return self.stream_name(p) or r.get("title") or fallback(p)
+        return fallback(p)
 
     def set_position(self, path: str, pos: int, length: int):
         if not path or not self.setting("remember_history"):

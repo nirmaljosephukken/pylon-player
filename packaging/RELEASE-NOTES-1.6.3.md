@@ -10,7 +10,7 @@
 |---|---|
 | Windows 10/11 (64-bit) | `Pylon-Setup-1.6.3.exe` (installs over earlier versions, settings kept) |
 | Linux x86-64 | `Pylon-1.6.3-x86_64.AppImage` |
-| macOS 14+ (experimental) | `Pylon-1.6.3-macOS.zip` |
+| macOS 14+ | `Pylon-1.6.3-macOS.zip` |
 
 Install VLC separately. Checksums are in `SHA256SUMS.txt`. Not affiliated with VideoLAN.
 

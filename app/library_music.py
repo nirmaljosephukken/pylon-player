@@ -357,9 +357,11 @@ class MusicMixin:
     def _artist_tracks(self, name):
         return [p for a in dict(self.music.artists()).get(name, []) for p in a["tracks"]]
 
-    def play_songs(self, paths, index=0):
+    def play_songs(self, paths, index=None):
+        """Play these songs from index, or, when no song was picked, from the first one (a random
+        one in Shuffle mode, #76)."""
         if paths:
-            self.win.set_queue(self._queue_items(paths), index)
+            self.win.set_queue(self._queue_items(paths), index or 0, any_start=index is None)
 
     def _music_activate(self, it):
         kind, val = it.data(ROLE_KIND), it.data(ROLE_PATH)

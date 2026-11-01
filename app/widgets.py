@@ -2,7 +2,7 @@
 floating overlay windows, the on-screen toast and the subtitle timeline."""
 import time
 
-from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (QBrush, QColor, QCursor, QFont, QFontMetrics, QLinearGradient,
                            QPainter, QPainterPath, QPen, QPixmap, QPolygonF)
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QSizePolicy, QToolButton, QToolTip,
@@ -160,6 +160,8 @@ class SeekBar(QWidget):
             self.update()
 
     def mouseMoveEvent(self, e):
+        if self._dragging and not e.buttons() & Qt.LeftButton:
+            self.end_drag()               # the button went up somewhere we weren't told about (#72)
         self._hover_x = e.position().x()
         ms = self._ms_at(self._hover_x)
         if self.length:
@@ -170,11 +172,28 @@ class SeekBar(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, e):
+        self.end_drag()
+
+    def end_drag(self):
+        """Stop following the pointer, staying where the drag got to."""
         if self._dragging:
             self._dragging = False
             self._drag_timer.stop()
             self._pending = None
             self._send(self.position, force=True)   # skipped if it's where we already went
+            self.update()
+
+    def event(self, e):
+        # Alt+Tab or releasing the button outside Pylon: Windows never sends the release, so
+        # the bar kept following the pointer (#72). Losing the window ends the drag.
+        if e.type() in (QEvent.WindowDeactivate, QEvent.UngrabMouse) or (
+                e.type() == QEvent.ActivationChange and not self.isActiveWindow()):
+            self.end_drag()
+        return super().event(e)
+
+    def hideEvent(self, e):
+        self.end_drag()                   # the bars hid under the pointer
+        super().hideEvent(e)
 
     def leaveEvent(self, e):
         self._hover_x = None

@@ -37,7 +37,7 @@ Licence texts go in a `licenses/` folder in each download, next to `LICENSE` and
 
 Uses the system's `libvlc.so.5` (install the `vlc` package).
 
-## macOS: `Pylon-<version>-macOS.zip` (experimental)
+## macOS: `Pylon-<version>-macOS.zip`
 
 1. Pythons: python-build-standalone `aarch64-apple-darwin` and `x86_64-apple-darwin` 3.14.8 become
    `Pylon.app/Contents/Resources/python-arm64` and `python-x86_64`.

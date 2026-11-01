@@ -16,7 +16,7 @@ from .home import HomePage, NowPlayingPage
 from .library import LibraryPanel
 from .sidebar import SettingsSidebar
 from .store import DEFAULT_SHORTCUTS, QUEUE_MODES
-from .util import fmt_delay, fmt_time, is_audio, is_disc, is_url, win_set_topmost
+from .util import fmt_delay, fmt_time, is_audio, is_disc, is_url, win_enable_close, win_set_topmost
 from .stage import PAGE_AUDIO, PAGE_HOME, PAGE_VIDEO, VideoSurface  # noqa: F401  (tests import these from here)
 from .thumbs import ThumbnailMaker
 from .updates import UpdateChecker
@@ -479,6 +479,7 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
     def _ui_tick(self):
         page = self.stage.currentIndex()
         self._apply_pin()
+        self._check_ab()                 # Repeat a part keeps going while minimized or hidden (#73)
         if page == PAGE_HOME or self.isMinimized() or not self.isVisible():
             self.video.unsetCursor()
             self._set_bars(False)
@@ -493,7 +494,6 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         else:
             drift = QPoint()
         self._place_overlays(drift)
-        self._check_ab()
         pos = QCursor.pos()
         if pos != self._last_mouse:
             self._last_mouse = pos
@@ -973,7 +973,8 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
             if self.isFullScreen():
                 self.showNormal()
             self._pip = {"geo": self.saveGeometry(), "lib": self.library.isVisible(),
-                         "side": self.sidebar.isVisible(), "max": self.isMaximized()}
+                         "side": self.sidebar.isVisible(), "max": self.isMaximized(),
+                         "flags": self.windowFlags()}
             self.library.hide()
             self.sidebar.hide()
             if self.isMaximized():
@@ -997,6 +998,7 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
             self._set_frameless(False)
             self.setMinimumSize(640, 400)
             self._topmost(False)
+            self._restore_frame(st["flags"])
             self.restoreGeometry(st["geo"])
             if st["max"]:
                 self.showMaximized()
@@ -1004,6 +1006,21 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
             self.sidebar.setVisible(st["side"])
             self.top.btn_pip.setChecked(False)
         self._overlay_geo = None
+
+    def _restore_frame(self, flags):
+        """Give the window back exactly the frame it had before picture in picture, close button
+        included (#71). On Windows the X could stay greyed out after the borderless window got its
+        frame back, so Pylon also turns it on again directly, and once more after the window settles."""
+        flags = Qt.WindowFlags(flags) & ~(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        flags |= Qt.WindowCloseButtonHint
+        handle = self.windowHandle()
+        if self.windowFlags() != flags or (handle is not None and handle.flags() != flags):
+            self.overrideWindowFlags(flags)   # no rebuild: VLC keeps the window it draws into
+            if handle is not None:
+                handle.setFlags(flags)
+        if sys.platform == "win32":
+            win_enable_close(int(self.winId()))
+            QTimer.singleShot(250, lambda: self._pip is None and win_enable_close(int(self.winId())))
 
     def _vsr_active(self) -> bool:
         e = self.engine
@@ -1138,7 +1155,10 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
             self._set_flag(Qt.WindowStaysOnTopHint, on)
 
     def _pip_app_state(self, state):
-        """Switching to another app must not push picture in picture behind it (#66): say so again."""
+        """Switching to another app must not push picture in picture behind it (#66): say so again.
+        It also ends a drag on the seek bar, which Windows never tells us ended (#72)."""
+        if state != Qt.ApplicationActive:
+            self.bottom.seek.end_drag()
         if self._pip and state != Qt.ApplicationActive and sys.platform == "win32":
             win_set_topmost(int(self.winId()), True)
 
