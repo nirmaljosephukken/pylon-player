@@ -5,7 +5,7 @@ Unicode true
 !include "FileFunc.nsh"
 
 !define APP "Pylon"
-!define VERSION "1.6.4"
+!define VERSION "1.6.5"
 !ifndef SRC
   !define SRC "Pylon"
 !endif

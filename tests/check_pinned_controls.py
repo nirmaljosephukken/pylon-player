@@ -1,5 +1,6 @@
 """Keep the controls visible when not in fullscreen (#68): the video sits between the bars instead
-of under them, and the resize redraws a Super Resolution picture (#42)."""
+of under them, and the resize redraws a Super Resolution picture (#42). (Since 1.6.5 a panel no
+longer swaps full screen for a maximized window with Super Resolution on, so that case is gone.)"""
 import sys
 import tempfile
 import unittest
@@ -68,14 +69,6 @@ class Pinned(unittest.TestCase):
         self.tick()
         w.isFullScreen = lambda: True
         self.tick()
-        self.assertEqual(w.video.geometry(), w.stage.rect())
-
-    def test_super_resolution_window_for_a_panel_counts_as_full_screen(self):
-        w = self.win
-        self.store.set_setting("pin_controls", True)
-        w._vsr_back_to_full = True                 # a panel opened in full screen with VSR on (#42)
-        self.tick()
-        self.assertFalse(w._pinned())
         self.assertEqual(w.video.geometry(), w.stage.rect())
 
     def test_pinning_redraws_super_resolution(self):

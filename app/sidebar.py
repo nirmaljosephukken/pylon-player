@@ -46,6 +46,37 @@ def scroll_page():
     return sc, lay
 
 
+class KeySlider(QSlider):
+    """A slider that the arrow keys move one step at a time once it has been clicked (#79).
+    Left and Right normally jump the video, so they only go to the slider while it has the focus;
+    clicking the video, pressing Esc or closing the panel gives them back (see MainWindow.do)."""
+
+    STEP_KEYS = (Qt.Key_Left, Qt.Key_Right)
+
+    def __init__(self, orientation=Qt.Horizontal):
+        super().__init__(orientation)
+        self.setFocusPolicy(Qt.ClickFocus)
+
+    def _own(self, e) -> bool:
+        return e.key() in self.STEP_KEYS and not (e.modifiers() & ~Qt.KeypadModifier)
+
+    def event(self, e):
+        # Window shortcuts (seek on Left/Right) win unless the focused widget claims the key first.
+        if e.type() == QEvent.ShortcutOverride and self._own(e):
+            e.accept()
+            return True
+        return super().event(e)
+
+    def keyPressEvent(self, e):
+        if self._own(e):
+            # Left always goes down and Right up, for vertical sliders too
+            self.triggerAction(QSlider.SliderSingleStepAdd if e.key() == Qt.Key_Right
+                               else QSlider.SliderSingleStepSub)
+            e.accept()
+            return
+        super().keyPressEvent(e)
+
+
 class ValueSlider(QWidget):
     """Slider with a live value label and optional -/+ nudge buttons."""
     changed = Signal(int)
@@ -56,12 +87,11 @@ class ValueSlider(QWidget):
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(4)
-        self.slider = QSlider(Qt.Horizontal)
+        self.slider = KeySlider(Qt.Horizontal)
         self.slider.setRange(lo, hi)
         self.slider.setSingleStep(step)
         self.slider.setPageStep(step * 5)
         self.slider.setValue(value)
-        self.slider.setFocusPolicy(Qt.NoFocus)
         self.label = QLabel(fmt(value))
         self.label.setObjectName("Value")
         self.label.setMinimumWidth(56)
@@ -220,11 +250,10 @@ class EqualizerPanel(QWidget):
             val = QLabel("0")
             val.setAlignment(Qt.AlignCenter)
             val.setStyleSheet(f"color: {theme.MUTED}; font-size: 10px;")
-            sl = QSlider(Qt.Vertical)
+            sl = KeySlider(Qt.Vertical)
             sl.setRange(-steps, steps)
             sl.setPageStep(4)
             sl.setFixedHeight(120)
-            sl.setFocusPolicy(Qt.NoFocus)
             sl.setToolTip(f"{_freq_label(hz)}Hz. Double-click to reset to 0 dB")
             sl.installEventFilter(self)
             sl.valueChanged.connect(lambda v, lab=val: (lab.setText(f"{v / 2:+g}" if v else "0"), self._emit()))

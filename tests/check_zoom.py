@@ -62,6 +62,7 @@ class Zoom(unittest.TestCase):
         sent = []
         class Player:
             def video_set_scale(self, s): pass
+            def video_set_aspect_ratio(self, a): pass
             def video_set_crop_geometry(self, g): sent.append(g)
         e.player = Player()
         e.zoom_at(2.0, 0.75, 0.25)

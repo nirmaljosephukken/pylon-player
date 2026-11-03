@@ -1,7 +1,7 @@
 """Full screen with Super Resolution (#42). 1.5.1 kept the picture one pixel short of the bottom edge,
-which turned it black as soon as full screen started, so that's gone. Instead, a panel opened in full
-screen with Super Resolution on opens in a maximized window, where panels work, and closing it goes
-back to full screen."""
+which turned it black as soon as full screen started, so that's gone. 1.6.0 to 1.6.4 opened panels in a
+maximized window instead; since 1.6.5 the video area is sized to the picture (check_vsr_fit.py), so
+panels open in full screen like they do without Super Resolution."""
 import sys
 import tempfile
 import unittest
@@ -50,38 +50,34 @@ class Panels(unittest.TestCase):
         self.assertEqual(self.win.stage.contentsMargins().bottom(), 0)
         self.assertFalse(hasattr(window_mod, "VSR_FULLSCREEN_MARGIN"))
 
-    def test_panel_opens_in_a_window_and_closing_returns_to_full_screen(self):
+    def test_panels_stay_in_full_screen_with_super_resolution(self):
         w = self.win
         self.store.set_setting("rtx_upscale", True)
         w.toggle_fullscreen()
         w.toggle_library(True)
-        self.assertEqual(self.state, "max")
-        self.assertTrue(w.library.isVisibleTo(w))
-        w.toggle_sidebar(True)                 # a second panel: still a window
-        self.assertEqual(self.state, "max")
+        self.assertEqual(self.state, "full")
+        w.toggle_sidebar(True)
+        self.assertEqual(self.state, "full")
         w.toggle_library(False)
-        self.assertEqual(self.state, "max")    # one panel still open
         w.toggle_sidebar(False)
         self.assertEqual(self.state, "full")
-        self.assertFalse(w._vsr_back_to_full)
+        self.assertFalse(hasattr(w, "_vsr_back_to_full"))
 
-    def test_leaving_full_screen_while_a_panel_is_open_stays_in_a_window(self):
+    def test_entering_full_screen_keeps_open_panels(self):
+        w = self.win
+        self.store.set_setting("rtx_upscale", True)
+        w.toggle_library(True)
+        w.toggle_fullscreen()
+        self.assertEqual(self.state, "full")
+        self.assertTrue(w.library.isVisibleTo(w))
+
+    def test_esc_leaves_full_screen_with_a_panel_open(self):
         w = self.win
         self.store.set_setting("rtx_upscale", True)
         w.toggle_fullscreen()
         w.toggle_sidebar(True)
         w.do("exit_fullscreen")                # Esc
-        self.assertFalse(w._vsr_back_to_full)
-        w.toggle_sidebar(False)
-        self.assertNotEqual(self.state, "full")
-
-    def test_entering_full_screen_closes_open_panels(self):
-        w = self.win
-        self.store.set_setting("rtx_upscale", True)
-        w.toggle_library(True)
-        w.toggle_fullscreen()
-        self.assertEqual(self.state, "full")
-        self.assertFalse(w.library.isVisibleTo(w))
+        self.assertEqual(self.state, "normal")
 
     def test_without_super_resolution_panels_stay_in_full_screen(self):
         w = self.win
