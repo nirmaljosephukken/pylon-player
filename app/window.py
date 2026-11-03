@@ -461,8 +461,11 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         return moved
 
     def _pinned(self) -> bool:
-        """Controls stay put (and opaque) in a normal window when the user asked for it."""
+        """Controls stay put (and opaque) in a normal window when the user asked for it. The maximized
+        window that stands in for full screen while a panel is open with Super Resolution on (#42)
+        counts as full screen, so the picture isn't resized once more on its way back."""
         return (bool(self.store.setting("pin_controls")) and not self.isFullScreen() and not self._pip
+                and not getattr(self, "_vsr_back_to_full", False)
                 and self.stage.currentIndex() != PAGE_HOME)
 
     def _apply_pin(self):
@@ -470,7 +473,10 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         if pinned != getattr(self, "_pin_state", None):
             self._pin_state = pinned
             m = (0, TopBar.HEIGHT, 0, BottomBar.HEIGHT) if pinned else (0, 0, 0, 0)
-            self.stage.layout().setContentsMargins(*m)    # the video sits between the bars
+            # The margins go on the stage itself: its QStackedLayout ignores its own margins, so
+            # setting them there left the video under the bars (#68). Shrinking the video emits
+            # VideoSurface.resized, which redraws a Super Resolution picture at the new size (#42).
+            self.stage.setContentsMargins(*m)
             for bar in (self.top, self.bottom):
                 bar.solid = pinned
                 bar.update()
