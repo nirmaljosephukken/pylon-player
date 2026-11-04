@@ -18,8 +18,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QEvent, QEventLoop, QPoint, QPointF, QRect, Qt, QTimer
-from PySide6.QtGui import QKeyEvent, QShowEvent, QWheelEvent
-from PySide6.QtTest import QTest
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QShowEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication
 from app import engine
 engine.vlc = None
@@ -37,6 +36,13 @@ def wait(ms=50):
     loop = QEventLoop()
     QTimer.singleShot(ms, loop.quit)
     loop.exec()
+
+
+def left_click(widget, pos):
+    # Not QTest: the Python that ships with Pylon leaves out PySide6.QtTest, and the checks run on it.
+    local, screen = QPointF(pos), QPointF(widget.mapToGlobal(pos))
+    for kind, held in ((QEvent.MouseButtonPress, Qt.LeftButton), (QEvent.MouseButtonRelease, Qt.NoButton)):
+        QApplication.sendEvent(widget, QMouseEvent(kind, local, screen, Qt.LeftButton, held, Qt.NoModifier))
 
 
 def fake_player(size=(1920, 1080)):
@@ -242,7 +248,7 @@ class CanvasInput(Base):
         v.action.connect(got.append)
         v.wheel.connect(lambda d: got.append(("wheel", d)))
         self.store.set_setting("mouse_double", "none")
-        QTest.mouseClick(v.canvas, Qt.LeftButton, pos=QPoint(10, 10))
+        left_click(v.canvas, QPoint(10, 10))
         ev = QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(), QPoint(0, 120), Qt.NoButton, Qt.NoModifier,
                          Qt.NoScrollPhase, False)
         QApplication.sendEvent(v.canvas, ev)
