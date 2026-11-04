@@ -5,13 +5,63 @@ directly. libVLC events arrive on a VLC thread; they are re-emitted as Qt
 signals, which Qt delivers on the GUI thread.
 """
 import ctypes
+import math
 import os
 import sys
 import time
+from fractions import Fraction
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
 from .util import disc_mrl, is_disc, is_url
+
+
+def _video_track(track):
+    """The video details of a libvlc media track. In C they are a union (audio, video or subtitle at
+    the same place), but python-vlc lists them one after another, so its .video reads past the pointer
+    and crashes. Read the pointer where the union really is."""
+    try:
+        off = type(track).audio.offset
+        ptr = ctypes.c_void_p.from_address(ctypes.addressof(track) + off).value
+        return ctypes.cast(ptr, ctypes.POINTER(vlc.VideoTrack)).contents if ptr else None
+    except Exception:
+        return None
+
+
+def vlc_place(src: tuple[int, int], sar: tuple[int, int], area: tuple[int, int]):
+    """The picture size VLC 3 fits into a video area (vout_display_PlacePicture, display.c), with its
+    integer maths: src is the (cropped) picture in pixels, sar its sample aspect ratio. None when VLC's
+    32-bit sums would overflow and give nonsense."""
+    (w, h), (sn, sd), (aw, ah) = src, sar, area
+    g = math.gcd(sn, sd) or 1
+    sn, sd = sn // g, sd // g
+    if not (w and h and sn and sd and aw and ah) or max(w * sn, h * sd) >= 2 ** 32:
+        return None
+    scaled_h = h * aw * sd // (w * sn)
+    scaled_w = w * ah * sn // (h * sd)
+    return (scaled_w, ah) if scaled_w <= aw else (aw, scaled_h)
+
+
+def fill_aspects(area: tuple[int, int], crop: tuple[int, int], src: tuple[int, int], count: int = 2):
+    """Aspect ratios a:b to give VLC so that the cropped picture (crop, in pixels of the src picture)
+    fills the area exactly, with no black bar even one pixel wide (#42). VLC turns a:b into a sample
+    aspect ratio of a*src_h : b*src_w, so without a crop the result doesn't depend on the source size at
+    all. The simplest ratios come first; a second one lets Pylon make VLC redraw without letterboxing."""
+    (aw, ah), (cw, ch), (sw, sh) = area, crop, src
+    if not (aw and ah and cw and ch and sw and sh):
+        return []
+    lo = Fraction(aw * ch * sw, ah * cw * sh)          # a/b may be up to a pixel wider than the area
+    hi = Fraction((aw + 1) * ch * sw, ah * cw * sh)
+    out = []
+    for b in range(1, 4 * max(aw, ah) + 1):
+        a = math.ceil(lo * b)
+        if a >= hi * b or math.gcd(a, b) != 1 or a * sh >= 2 ** 32 or b * sw >= 2 ** 32:
+            continue
+        if vlc_place((cw, ch), (a * sh, b * sw), (aw, ah)) == (aw, ah):
+            out.append((a, b))
+            if len(out) >= count:
+                break
+    return out
 
 def _saved_vlc_dir() -> str:
     """A VLC folder the user picked with "Locate VLC folder..." (stored in data.json)."""
@@ -238,6 +288,7 @@ class Engine(QObject):
     media_changed = Signal(str)
     tracks_changed = Signal()
     vout_changed = Signal(int)
+    picture_changed = Signal()          # the picture's shape may have changed (aspect, crop, new video)
     renderers_changed = Signal()        # a cast device appeared or went away
 
     def __init__(self, store, parent=None):
@@ -260,6 +311,8 @@ class Engine(QObject):
         self._held_ms = None           # position shown while a media is opened paused
         self._settle = None            # reopening paused: where to return once it plays (#36)
         self.izoom = None              # interactive zoom (#39): {"z", "x", "y", "w", "h"} in video pixels
+        self.fit = None                # (w, h) device pixels of a video area sized to the picture (#42)
+        self._fit_turn = 0             # which of the equivalent fill ratios is in use
         self._last_seek_t = 0.0
         self._seek_target = None
         self._seek_timer = QTimer(self)
@@ -495,6 +548,9 @@ class Engine(QObject):
     def _on_vout(self, _n=0):
         if self.ok and self.live.get("adjust"):
             QTimer.singleShot(150, self._reapply_picture)
+        self.picture_changed.emit()       # the video size is known now, or soon (a TS stream tells later)
+        for ms in (400, 1500):
+            QTimer.singleShot(ms, self.picture_changed.emit)
 
     def _reapply_picture(self):
         if not self.ok:
@@ -502,7 +558,6 @@ class Engine(QObject):
         L = self.live
         if L.get("adjust"):
             self.set_adjust(L["adjust"], force=True)
-        self.player.video_set_aspect_ratio(L["aspect"] or None)
         self._apply_crop()
 
     def _on_state_internal(self, state):
@@ -531,7 +586,6 @@ class Engine(QObject):
         self.player.video_set_spu_delay(int(L["sub_delay"] * 1000))
         self.player.audio_set_delay(int(L["audio_delay"] * 1000))
         self.set_eq(L["eq"])
-        self.player.video_set_aspect_ratio(L["aspect"] or None)
         self._apply_crop()
         self.player.video_set_deinterlace(L["deinterlace"] or None)
         if L["adjust"]:
@@ -862,19 +916,22 @@ class Engine(QObject):
     def set_aspect(self, a: str):
         self.live["aspect"] = a
         if self.ok:
-            self.player.video_set_aspect_ratio(a or None)
+            self._apply_crop()
+        self.picture_changed.emit()
 
     def set_crop(self, c: str):
         self.live["crop"] = c
         self.izoom = None
         if self.ok:
             self._apply_crop()
+        self.picture_changed.emit()
 
     def set_zoom(self, z: float):
         self.live["zoom"] = float(z)
         self.izoom = None
         if self.ok:
             self._apply_crop()
+        self.picture_changed.emit()
 
     # ------------------------------------------------------------------ interactive zoom (#39)
     def video_size(self) -> tuple[int, int]:
@@ -886,10 +943,112 @@ class Engine(QObject):
         except Exception:
             return 0, 0
 
+    # ------------------------------------------------------------------ picture fitted to its area (#42)
+    def _source_sar(self, vw: int, vh: int) -> Fraction:
+        """The shape of one source pixel: from the aspect ratio the user picked, else the video's own."""
+        a = self.live["aspect"]
+        if a and ":" in a:
+            try:
+                num, den = (int(x) for x in a.split(":"))
+                if num > 0 and den > 0:
+                    return Fraction(num * vh, den * vw)
+            except ValueError:
+                pass
+        try:
+            tid = self.player.video_get_track()
+            for t in self.player.get_media().tracks_get() or ():
+                if t.type == vlc.TrackType.video and (t.id == tid or tid is None or tid < 0):
+                    v = _video_track(t)
+                    if v is not None and v.sar_num and v.sar_den:
+                        return Fraction(v.sar_num, v.sar_den)
+                    break
+        except Exception:
+            pass
+        return Fraction(1)
+
+    def _crop_borders(self, vw: int, vh: int, sar: Fraction):
+        """(left, top, right, bottom) in video pixels for the crop or interactive zoom, (0, 0, 0, 0) for
+        none, or None for a crop Pylon can't work out. A ratio is cut the way VLC does (VoutDisplayCropRatio)."""
+        z = self.izoom
+        if z:
+            left, top = round(z["x"]), round(z["y"])
+            return (left, top, max(0, vw - left - round(z["w"])), max(0, vh - top - round(z["h"])))
+        c = self.live["crop"]
+        if not c:
+            return 0, 0, 0, 0
+        try:
+            num, den = (int(x) for x in c.split(":"))
+        except ValueError:
+            return None
+        if num <= 0 or den <= 0:
+            return None
+        scaled_w = vh * num * sar.denominator // den // sar.numerator
+        scaled_h = vw * den * sar.numerator // num // sar.denominator
+        if scaled_w < vw:
+            left = (vw - scaled_w) // 2
+            return left, 0, vw - left - scaled_w, 0
+        top = (vh - scaled_h) // 2
+        return 0, top, 0, max(0, vh - top - scaled_h)
+
+    def picture_shape(self):
+        """How the picture will look, for sizing the video area to it: {"aspect": width / height as shown,
+        "src", "crop": (l, t, r, b)}. None when VLC sizes the picture itself (a fixed zoom such as 1x),
+        when the size isn't known yet, or for a turned picture with a crop."""
+        if not self.ok or self.live["zoom"]:
+            return None
+        vw, vh = self.video_size()
+        if vw <= 0 or vh <= 0:
+            return None
+        sar = self._source_sar(vw, vh)
+        crop = self._crop_borders(vw, vh, sar)
+        turned = self.transform in ("90", "270", "transpose", "antitranspose")
+        if crop is None or (turned and any(crop)):
+            return None
+        cw, ch = vw - crop[0] - crop[2], vh - crop[1] - crop[3]
+        if cw <= 0 or ch <= 0:
+            return None
+        aspect = Fraction(cw) * sar / ch
+        return {"aspect": 1 / aspect if turned else aspect, "src": (vw, vh), "crop": crop}
+
+    def set_fit(self, size):
+        """With Super Resolution on, the window sizes VLC's video area to the picture and tells us its size
+        in device pixels (None to stop). VLC is then given an aspect ratio that fills it to the pixel (#42)."""
+        size = tuple(size) if size else None
+        if size != self.fit:
+            self.fit = size
+            if self.ok:
+                self._apply_crop()
+
+    def _fit_plan(self):
+        """(aspect "a:b", crop string or None) that fills self.fit exactly, or None."""
+        shape = self.fit and self.picture_shape()
+        if not shape:
+            return None
+        (vw, vh), borders = shape["src"], shape["crop"]
+        left, top, right, bottom = borders
+        crop = (vw - left - right, vh - top - bottom)
+        if self.transform in ("90", "270", "transpose", "antitranspose"):
+            vw, vh = vh, vw                 # VLC sees the turned picture (never cropped here)
+            crop = (vw, vh)
+        ratios = fill_aspects(self.fit, crop, (vw, vh))
+        if not ratios:
+            return None
+        num, den = ratios[self._fit_turn % len(ratios)]
+        return f"{num}:{den}", ("+".join(map(str, borders)) if any(borders) else None)
+
     def _apply_crop(self):
-        """Interactive zoom is a moving crop window; without it, the sidebar's crop and zoom apply."""
+        """Interactive zoom is a moving crop window; without it, the sidebar's crop and zoom apply.
+        The aspect ratio goes with it, since a video area sized to the picture needs both (#42)."""
         if not self.ok:
             return
+        plan = self._fit_plan()
+        if plan:
+            aspect, crop = plan
+            self.player.video_set_scale(0)
+            self.player.video_set_crop_geometry(crop)
+            self.player.video_set_aspect_ratio(aspect)
+            return
+        self.player.video_set_aspect_ratio(self.live["aspect"] or None)
         z = self.izoom
         if z:
             # Use VLC's border form "left+top+right+bottom". VLC 3 reads the window
@@ -910,25 +1069,17 @@ class Engine(QObject):
         makes it redraw at the current size without restarting playback."""
         if not self.ok:
             return
+        if self._fit_plan():
+            # The picture fills its area: switch to the other ratio that fills it just as exactly.
+            # VLC sees a change and redraws, and there's never a letterbox, even for a moment.
+            self._fit_turn += 1
+            self._apply_crop()
+            return
         vw, vh = self.video_size()
         if not vw or vh < 4:
             return
         self.player.video_set_crop_geometry("0+0+0+2")
         QTimer.singleShot(80, self._apply_crop)
-
-    def restart_video_output(self):
-        """Turn the video track off and straight back on, so VLC builds its video output again at the
-        window's current size. Heavier than refresh_upscaler(): used after Pylon switches between full
-        screen and a window with Super Resolution on, where the crop nudge alone can leave it black (#42).
-        Only while playing: a paused picture would stay black until playback goes on."""
-        if not (self.ok and self.is_playing()):
-            return False
-        tid = self.player.video_get_track()
-        if tid is None or tid < 0:
-            return False
-        self.player.video_set_track(-1)
-        QTimer.singleShot(60, lambda: self.ok and self.player.video_set_track(tid))
-        return True
 
     def zoom_level(self) -> float:
         return self.izoom["z"] if self.izoom else 1.0

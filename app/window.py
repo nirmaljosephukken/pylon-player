@@ -27,7 +27,6 @@ from .window_playback import PlaybackMixin
 from .window_system import SystemMixin
 
 VSR_FULLSCREEN_RETRIES_MS = (600, 1500)    # extra Super Resolution redraws in full screen (#42)
-VSR_STATE_RESTART_MS = 900                # after full screen <-> window with Super Resolution, rebuild the picture (#42)
 WINDOW_MOVE_HIDE_S = 0.25                   # floating bars stay hidden this long after the window moves (#59)
 
 class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
@@ -52,9 +51,6 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         self.queue_mode = self.store.setting("queue_mode") if self.store.setting("queue_mode") in QUEUE_MODES else "next"
         self.hide_ui = False
         self._pip = None
-        self._vsr_back_to_full = False     # a panel took full screen into a window (#42)
-        self._vsr_told = False
-        self._vsr_switching = False        # a panel is switching full screen and a window (#42)
         self._last_mouse = QPoint()
         self._last_move = 0.0
         self._force_show_until = 0.0
@@ -121,6 +117,7 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
 
         # ---------------- wiring
         self.video.action.connect(lambda action: self.do(action, key=False))
+        self.video.pressed.connect(self._drop_slider_focus)
         self.video.context.connect(self.show_context_menu)
         self.video.wheel.connect(lambda d: self.do("vol_up" if d > 0 else "vol_down", key=False))
         self.video.zoom_wheel.connect(self._zoom_wheel)
@@ -141,12 +138,11 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
             t.setInterval(ms)
             t.timeout.connect(self._vsr_refresh)
             self._vsr_late.append(t)
-        # Leaving full screen for a maximized window (a panel opened, #42) animates for a moment, and
-        # redraws during that leave the picture black. Once it has settled, rebuild the video output.
-        self._vsr_restart = QTimer(self)
-        self._vsr_restart.setSingleShot(True)
-        self._vsr_restart.setInterval(VSR_STATE_RESTART_MS)
-        self._vsr_restart.timeout.connect(self._vsr_rebuild)
+        # Super Resolution goes black whenever VLC has to letterbox the picture in its video area (#42),
+        # so with it on, Pylon draws the black bars itself and sizes VLC's area to the picture.
+        self.video.resized.connect(self._fit_video)
+        self.engine.picture_changed.connect(self._fit_video)
+        self.stage.currentChanged.connect(lambda _i: self._fit_video())
         self.video.resized.connect(self._vsr_resized)
         QGuiApplication.instance().applicationStateChanged.connect(self._pip_app_state)
         self.video.pan.connect(self._pan_video)
@@ -212,7 +208,7 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         if not getattr(self, "_shown_once", False):
             self._shown_once = True
             self._dark_titlebar()
-            self.engine.set_window(int(self.video.winId()))
+            self.engine.set_window(int(self.video.canvas.winId()))
             if self.can_integrate_desktop() and self.store.setting("desktop_entry") not in (None, "", os.environ.get("APPIMAGE")):
                 self.install_desktop_entry(quiet=True)   # the AppImage was moved or updated
             if not self.engine.ok:
@@ -257,7 +253,7 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
             return
         if self._pip:
             self.toggle_pip()
-        if self.isFullScreen() or self._vsr_back_to_full:
+        if self.isFullScreen():
             self.toggle_fullscreen()
         self._save_position()
         self.thumbs.cancel()
@@ -286,11 +282,7 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         on = (not self.library.isVisible()) if on is None else on
         if self._pip and on:
             return
-        if on:
-            self._vsr_panel_opening()
         self.library.setVisible(on)
-        if not on:
-            self._vsr_panel_closed()
         self._update_panel_minimum()
         self._vsr_resized()           # the picture may not resize if the panel only covers it
         self.top.btn_library.setChecked(on)
@@ -307,11 +299,7 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         on = (not self.sidebar.isVisible()) if on is None else on
         if self._pip and on:
             return
-        if on:
-            self._vsr_panel_opening()
         self.sidebar.setVisible(on)
-        if not on:
-            self._vsr_panel_closed()
         self._update_panel_minimum()
         self._vsr_resized()
         self.bottom.btn_tune.setChecked(on)
@@ -470,7 +458,10 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         if pinned != getattr(self, "_pin_state", None):
             self._pin_state = pinned
             m = (0, TopBar.HEIGHT, 0, BottomBar.HEIGHT) if pinned else (0, 0, 0, 0)
-            self.stage.layout().setContentsMargins(*m)    # the video sits between the bars
+            # The margins go on the stage itself: its QStackedLayout ignores its own margins, so
+            # setting them there left the video under the bars (#68). Shrinking the video emits
+            # VideoSurface.resized, which redraws a Super Resolution picture at the new size (#42).
+            self.stage.setContentsMargins(*m)
             for bar in (self.top, self.bottom):
                 bar.solid = pinned
                 bar.update()
@@ -555,11 +546,7 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         super().changeEvent(e)
         self._overlay_geo = None
         if e.type() == e.Type.WindowStateChange:
-            self.top.set_fullscreen(self.isFullScreen() or getattr(self, "_vsr_back_to_full", False))
-            if hasattr(self, "_vsr_restart") and self._vsr_switching:
-                self._vsr_switching = False
-                self._vsr_resized()
-                self._vsr_restart.start()
+            self.top.set_fullscreen(self.isFullScreen())
 
     def toast(self, text: str, key: str = ""):
         if self.stage.currentIndex() == PAGE_HOME or self.isMinimized():
@@ -686,9 +673,10 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
             self.toggle_fullscreen()
             return
         elif action == "exit_fullscreen":
+            self._drop_slider_focus()          # Esc gives the arrow keys back to the video too (#79)
             if self._pip:
                 self.toggle_pip()
-            elif self.isFullScreen() or self._vsr_back_to_full:
+            elif self.isFullScreen():
                 self.toggle_fullscreen()
             elif self.hide_ui:
                 self.do("hide_ui")
@@ -783,6 +771,16 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         if msg:
             hint = self.store.shortcut(action) if key and self.store.setting("osd_shortcuts") else ""
             self.toast(msg, hint)
+
+    def _drop_slider_focus(self) -> bool:
+        """A settings slider that was clicked keeps Left and Right (#79). Let go of them."""
+        from .sidebar import KeySlider
+        fw = QApplication.focusWidget()
+        if isinstance(fw, KeySlider):
+            fw.clearFocus()
+            self.setFocus(Qt.OtherFocusReason)
+            return True
+        return False
 
     def _typing(self, action) -> bool:
         """The key belongs to a text box, or Enter to a list item, that has the focus."""
@@ -949,21 +947,10 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
     def toggle_fullscreen(self):
         if self._pip:
             self.toggle_pip()
-        if self._vsr_back_to_full:          # a panel took us out of full screen (#42): stay out
-            self._vsr_back_to_full = False
-            if not getattr(self, "_was_max", False):
-                self.showNormal()
-        elif self.isFullScreen():
+        if self.isFullScreen():
             self.showMaximized() if getattr(self, "_was_max", False) else self.showNormal()
         else:
             self._was_max = self.isMaximized()
-            if self._vsr_on() and not (self.library.isHidden() and self.sidebar.isHidden()):
-                self.library.hide()          # a panel over full screen turns Super Resolution black
-                self.sidebar.hide()
-                self.top.btn_library.setChecked(False)
-                self.bottom.btn_queue.setChecked(False)
-                self.bottom.btn_tune.setChecked(False)
-                self._update_panel_minimum()
             self.showFullScreen()
         self.top.set_fullscreen(self.isFullScreen())
         self._overlay_geo = None
@@ -1030,38 +1017,35 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
     def _vsr_on(self) -> bool:
         return sys.platform == "win32" and bool(self.store.setting("rtx_upscale"))
 
-    def _vsr_panel_opening(self):
-        """Opening a panel in full screen turns the Super Resolution picture black until the panel closes,
-        whatever Pylon does to redraw it (#42), while panels work fine in a window. So with Super
-        Resolution on, a panel opened in full screen opens in a maximized window instead, and closing
-        the last panel goes back to full screen."""
-        if not (self.isFullScreen() and self._vsr_on()) or self._pip:
+    def _fit_video(self):
+        """With Super Resolution on, size VLC's video area to the picture, centred, with Pylon's own black
+        bars around it (#42). VLC goes black as soon as it has to letterbox an upscaled picture, even by
+        one pixel: in full screen with a panel open, in a maximized window, or with an aspect ratio
+        that doesn't match the screen. The engine then picks an aspect ratio that fills the area to the
+        pixel. Without Super Resolution, VLC's area fills the page as before."""
+        if not hasattr(self, "video"):
             return
-        self._vsr_back_to_full = True
-        self._vsr_switching = True
-        self.showMaximized()
-        if not self._vsr_told:
-            self._vsr_told = True
-            QTimer.singleShot(300, lambda: self.toast("With Super Resolution on, panels open in a window. "
-                                                      "Close the panel to go back to full screen"))
-
-    def _vsr_panel_closed(self):
-        if self._vsr_back_to_full and self.library.isHidden() and self.sidebar.isHidden():
-            self._vsr_back_to_full = False
-            self._vsr_switching = True
-            self.showFullScreen()
-            self.top.set_fullscreen(True)
+        v, e = self.video, self.engine
+        shape = e.picture_shape() if self._vsr_active() else None
+        sw, sh = v.width(), v.height()
+        if shape is None or sw <= 0 or sh <= 0:
+            v.fit_canvas(None)
+            e.set_fit(None)
+            return
+        k = float(shape["aspect"])
+        if sw / sh > k:
+            w, h = max(1, min(sw, round(sh * k))), sh
+        else:
+            w, h = sw, max(1, min(sh, round(sw / k)))
+        v.fit_canvas(QRect((sw - w) // 2, (sh - h) // 2, w, h))
+        e.set_fit(v.canvas.device_size())
 
     def _vsr_resized(self):
         if hasattr(self, "_vsr_late") and self._vsr_active():
             self._vsr_timer.start()
-            if self.isFullScreen() or self._vsr_back_to_full:   # a window that came from full screen too (#42)
+            if self.isFullScreen():
                 for t in self._vsr_late:
                     t.start()
-
-    def _vsr_rebuild(self):
-        if self._vsr_active() and not self.isMinimized() and self.engine.restart_video_output():
-            self._vsr_resized()            # and redraw at the right size once it's back
 
     def _vsr_refresh(self):
         if self._vsr_active() and not self.isMinimized():
@@ -1075,7 +1059,7 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         if sys.platform in ("win32", "darwin") or handle is None:
             self.setWindowFlag(flag, on)
             self.show()
-            self.engine.set_window(int(self.video.winId()))
+            self.engine.set_window(int(self.video.canvas.winId()))
             return
         flags = (self.windowFlags() | flag) if on else (self.windowFlags() & ~flag)
         self.overrideWindowFlags(flags)       # keep Qt's record in step without rebuilding the window

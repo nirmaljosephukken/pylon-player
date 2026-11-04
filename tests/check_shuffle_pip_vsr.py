@@ -3,8 +3,7 @@
      them in name order; Play next and the other modes are unchanged.
 #66: picture in picture tells Qt it stays on top as well as Windows, the Windows call has proper argument
      types, and switching to another app says it again.
-#42: with Super Resolution on, a panel switching full screen and a window rebuilds the picture once the
-     window has settled, and a window that came from full screen gets the later redraws too."""
+(The #42 rebuild checks went in 1.6.5, when the rebuild was replaced: see check_vsr_fit.py.)"""
 import ctypes
 import ctypes.wintypes
 import random
@@ -16,7 +15,6 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QEventLoop, Qt, QTimer
-from PySide6.QtGui import QWindowStateChangeEvent
 from PySide6.QtWidgets import QApplication
 from app import engine, util
 engine.vlc = None
@@ -144,61 +142,6 @@ class PipOnTop(Base):
             fn.return_value = 0
             self.assertFalse(util.win_set_topmost(1234, True))   # a failed call is reported
         self.assertFalse(util.win_set_topmost(1234, True))       # and does nothing off Windows
-
-
-class VsrRebuild(Base):
-    def setUp(self):
-        super().setUp()
-        self.state = "normal"
-        w = self.win
-        for name, st in (("showFullScreen", "full"), ("showMaximized", "max"), ("showNormal", "normal")):
-            setattr(w, name, lambda st=st: setattr(self, "state", st))
-        w.isFullScreen = lambda: self.state == "full"
-        w.isMaximized = lambda: self.state == "max"
-        w._vsr_active = lambda: True
-        w.engine.restart_video_output = MagicMock(return_value=True)
-        self.platform = patch.object(window_mod.sys, "platform", "win32")
-        self.platform.start()
-        self.store.set_setting("rtx_upscale", True)
-
-    def tearDown(self):
-        self.platform.stop()
-        super().tearDown()
-
-    def settle(self):
-        self.win.changeEvent(QWindowStateChangeEvent(Qt.WindowNoState))
-
-    def test_opening_a_panel_in_full_screen_rebuilds_the_picture_once_settled(self):
-        w = self.win
-        w.toggle_fullscreen()
-        w.toggle_library(True)
-        self.assertEqual(self.state, "max")
-        self.settle()
-        self.assertTrue(w._vsr_restart.isActive())
-        self.assertTrue(all(t.isActive() for t in w._vsr_late))   # a window from full screen gets them too
-        w._vsr_restart.timeout.emit()
-        w.engine.restart_video_output.assert_called_once()
-
-    def test_closing_the_panel_rebuilds_it_again(self):
-        w = self.win
-        w.toggle_fullscreen()
-        w.toggle_sidebar(True)
-        self.settle()
-        w._vsr_restart.stop()
-        w.toggle_sidebar(False)
-        self.assertEqual(self.state, "full")
-        self.settle()
-        self.assertTrue(w._vsr_restart.isActive())
-
-    def test_ordinary_state_changes_dont_rebuild(self):
-        w = self.win
-        w.toggle_fullscreen()          # entering full screen worked already in 1.6.2: leave it be
-        self.settle()
-        self.assertFalse(w._vsr_restart.isActive())
-
-    def test_restart_does_nothing_without_a_playing_video(self):
-        self.assertFalse(self.win.engine.ok)                 # no VLC here
-        self.assertFalse(engine.Engine.restart_video_output(self.win.engine))
 
 
 if __name__ == "__main__":

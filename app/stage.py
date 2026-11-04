@@ -2,9 +2,11 @@
 import ctypes
 import ctypes.util
 
-from PySide6.QtCore import QPoint, QPointF, Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QApplication, QFrame
+import sys
+
+from PySide6.QtCore import QPoint, QPointF, QRect, Qt, QTimer, Signal
+from PySide6.QtGui import QGuiApplication, QWheelEvent
+from PySide6.QtWidgets import QApplication, QFrame, QWidget
 
 
 PAGE_HOME, PAGE_VIDEO, PAGE_AUDIO = 0, 1, 2
@@ -34,8 +36,48 @@ def _x11():
     return _X11["lib"], _X11["dpy"]
 
 
+class VideoCanvas(QWidget):
+    """The native window VLC draws into. It fills the surface, except with Super Resolution on, where
+    the window sizes it to the picture (#42). Mouse events aren't handled here, so they go on to the
+    surface around it."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_NativeWindow, True)
+        self.setAttribute(Qt.WA_DontCreateNativeAncestors, True)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet("background: #000;")
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setMouseTracking(True)
+
+    def wheelEvent(self, e):
+        # Qt passes clicks on to the surface by itself, but only some wheel events
+        p = QPointF(self.pos()) + e.position()
+        self.parentWidget().wheelEvent(QWheelEvent(p, e.globalPosition(), e.pixelDelta(), e.angleDelta(),
+                                                   e.buttons(), e.modifiers(), e.phase(), e.inverted()))
+        e.accept()
+
+    def device_size(self) -> tuple[int, int]:
+        """The size in device pixels, which is what VLC sees. On Windows ask Windows itself, so that
+        rounding at display scales such as 125% can't leave VLC a pixel to letterbox."""
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                from ctypes import wintypes
+                r = wintypes.RECT()
+                u = ctypes.windll.user32
+                u.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+                u.GetClientRect.restype = wintypes.BOOL
+                if u.GetClientRect(int(self.winId()), ctypes.byref(r)) and r.right > 0 and r.bottom > 0:
+                    return r.right - r.left, r.bottom - r.top
+            except Exception:
+                pass
+        dpr = self.devicePixelRatioF() or 1.0
+        return round(self.width() * dpr), round(self.height() * dpr)
+
+
 class VideoSurface(QFrame):
-    """Native window that VLC draws into. Mouse input is turned off in VLC so
+    """The video page. VLC draws into its canvas; mouse input is turned off in VLC so
     clicks and the wheel reach this widget."""
     action = Signal(str)
     context = Signal(QPoint)
@@ -43,6 +85,7 @@ class VideoSurface(QFrame):
     zoom_wheel = Signal(int, QPointF)    # Ctrl+scroll: delta, position (#39)
     pan = Signal(QPointF)               # drag while zoomed: movement in pixels
     resized = Signal()
+    pressed = Signal()                  # any click on the video (#79)
 
     def __init__(self, store):
         super().__init__()
@@ -64,6 +107,8 @@ class VideoSurface(QFrame):
         self._click.setSingleShot(True)
         self._click.setInterval(QApplication.doubleClickInterval() if QApplication.instance() else 250)
         self._click.timeout.connect(lambda: self._emit_action(self._pending_action))
+        self.canvas = VideoCanvas(self)
+        self.fit_rect = None                # where the canvas sits when sized to the picture (#42)
 
     def _emit_action(self, action):
         if (QApplication.activeModalWidget() is None and QApplication.activePopupWidget() is None
@@ -100,6 +145,7 @@ class VideoSurface(QFrame):
         super().hideEvent(e)
 
     def mousePressEvent(self, e):
+        self.pressed.emit()
         if e.button() == Qt.LeftButton:
             self._moved = False              # a system move may have swallowed the last release
             self._press_pos = e.position()
@@ -199,7 +245,16 @@ class VideoSurface(QFrame):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
+        if self.fit_rect is None:
+            self.canvas.setGeometry(self.rect())
         self.resized.emit()
+
+    def fit_canvas(self, rect: QRect | None):
+        """Put the canvas at rect (the picture's place), or let it fill the surface with None."""
+        self.fit_rect = QRect(rect) if rect is not None else None
+        target = self.fit_rect if self.fit_rect is not None else self.rect()
+        if self.canvas.geometry() != target:
+            self.canvas.setGeometry(target)
 
     def set_zoomed(self, on: bool):
         self.zoomed = on
