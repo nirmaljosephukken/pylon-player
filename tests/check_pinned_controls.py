@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QEventLoop, QTimer
+from PySide6.QtCore import QEventLoop, QPoint, QTimer
 from PySide6.QtWidgets import QApplication
 from app import engine
 engine.vlc = None
@@ -53,12 +53,15 @@ class Pinned(unittest.TestCase):
         w = self.win
         self.tick()
         self.assertEqual(w.video.geometry(), w.stage.rect())        # off: the bars float over the video
+        self.assertTrue(w.top.isWindow())
         self.store.set_setting("pin_controls", True)
         self.tick()
-        v, s = w.video.geometry(), w.stage.rect()
-        self.assertEqual(v.top(), TopBar.HEIGHT)
-        self.assertEqual(v.height(), s.height() - TopBar.HEIGHT - BottomBar.HEIGHT)
-        self.assertEqual(v.width(), s.width())
+        top = w.top.mapTo(w, QPoint(0, 0)).y()
+        self.assertFalse(w.top.isWindow())                     # part of the window since 1.6.6 (#81)
+        self.assertEqual(w.video.mapTo(w, QPoint(0, 0)).y(), top + TopBar.HEIGHT)
+        self.assertEqual(w.bottom.mapTo(w, QPoint(0, 0)).y(), top + TopBar.HEIGHT + w.video.height())
+        self.assertEqual(w.video.height(), w.middle.height() - TopBar.HEIGHT - BottomBar.HEIGHT)
+        self.assertEqual(w.video.width(), w.middle.width())
         self.store.set_setting("pin_controls", False)
         self.tick()
         self.assertEqual(w.video.geometry(), w.stage.rect())

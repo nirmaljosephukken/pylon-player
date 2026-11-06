@@ -313,6 +313,7 @@ class Engine(QObject):
         self.izoom = None              # interactive zoom (#39): {"z", "x", "y", "w", "h"} in video pixels
         self.fit = None                # (w, h) device pixels of a video area sized to the picture (#42)
         self._fit_turn = 0             # which of the equivalent fill ratios is in use
+        self.vsr_paused = False        # Super Resolution set aside while the picture can't fill the screen (#42)
         self._last_seek_t = 0.0
         self._seek_target = None
         self._seek_timer = QTimer(self)
@@ -338,7 +339,7 @@ class Engine(QObject):
             # playback starts (#28). Prefer VLC's PulseAudio output, which PipeWire also
             # serves on modern desktops, then ALSA, then whatever else is installed.
             args.append("--aout=pulse,alsa,any")
-        if sys.platform == "win32" and self.store.setting("rtx_upscale"):
+        if sys.platform == "win32" and self.store.setting("rtx_upscale") and not self.vsr_paused:
             # Lets NVIDIA RTX / Intel Video Super Resolution sharpen upscaled video (#42).
             # VLC falls back to its normal scaler on graphics that can't do it.
             args.append("--d3d11-upscale-mode=super")
@@ -526,6 +527,18 @@ class Engine(QObject):
                 QTimer.singleShot(wait, reopen)
             else:
                 reopen()
+
+    def set_vsr_paused(self, on: bool) -> bool:
+        """Set Super Resolution aside, or bring it back (#42). VLC reads its upscaling mode only when the
+        player is made, so this rebuilds the player and continues from the same point. Returns True if
+        anything changed."""
+        on = bool(on)
+        if on == self.vsr_paused:
+            return False
+        self.vsr_paused = on
+        if self.ok:
+            self.rebuild()
+        return True
 
     def recreate(self):
         """Rebuild the VLC instance without reopening anything (used when a

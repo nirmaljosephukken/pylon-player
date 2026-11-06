@@ -456,7 +456,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
 
 <section id="settings" data-title="The settings panel">
 <h2>The settings panel</h2>
-<p>Press <kbd>Ctrl</kbd>+<kbd>T</kbd> or click the sliders button at the bottom right. The panel opens on the right, so you can adjust things while the video plays. Click a slider and <kbd>&larr;</kbd> <kbd>&rarr;</kbd> move it one step at a time; click the video or press <kbd>Esc</kbd> and the arrows jump through the video again.</p>
+<p>Press <kbd>Ctrl</kbd>+<kbd>T</kbd> or click the sliders button at the bottom right. The panel slides in on the right, so you can adjust things while the video plays. Click a slider and <kbd>&larr;</kbd> <kbd>&rarr;</kbd> move it one step at a time; click the video or press <kbd>Esc</kbd> and the arrows jump through the video again.</p>
 <h3 id="presets">Presets: settings for a show</h3>
 <p>A preset keeps subtitle timing and look, audio and subtitle tracks, speed and picture settings for a show. Set things up once, then click the save button next to <b>Preset</b> and give it a name. Every file in that folder uses it automatically from then on. Pick another preset from the list, or <b>No preset</b>, at any time.</p>
 
@@ -616,7 +616,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
 <section id="trouble" data-title="Troubleshooting">
 <h2>Troubleshooting</h2>
 <details class="howto"><summary>Pylon says it can't find VLC</summary><p>Install VLC 3 (64-bit on Windows). For a portable VLC, click <b>Locate VLC folder…</b> in the message, or use <b>Preferences > Performance > Use VLC from a folder…</b>. On Linux, use VLC from your distribution, not the Flatpak or Snap version.</p></details>
-<details class="howto"><summary>Green frames, glitches or a black picture</summary><p>Turn off <b>hardware decoding</b> in <b>Preferences > Performance</b>. If you use RTX Video Super Resolution and the picture still goes black (with a panel open, or with a different aspect ratio or crop), turn that option off and tell us on GitHub.</p></details>
+<details class="howto"><summary>Green frames, glitches or a black picture</summary><p>Turn off <b>hardware decoding</b> in <b>Preferences > Performance</b>. Super Resolution only shows a picture while the video covers the whole screen, so in full screen Pylon floats the panels over the video, and when an aspect ratio, crop or fixed zoom leaves black bars it sets Super Resolution aside until the picture fills the screen again. If the picture still goes black, turn the option off and tell us on GitHub.</p></details>
 <details class="howto"><summary>No sound, or Pylon closes at start on Linux</summary><p>Pylon uses VLC's PulseAudio output, which PipeWire also serves. To try another output, start Pylon with <code>PYLON_VLC_ARGS=--aout=pipewire</code> (or <code>alsa</code>).</p></details>
 <details class="howto"><summary>Subtitles aren't found automatically</summary><p>Put them next to the video, or in a <code>Subs</code> or <code>Subtitles</code> folder, with the same name or episode number. Or use <b>Add subtitles…</b> and fix the pairing by hand. <b>Preferences > Subtitles</b> sets how closely names must match.</p></details>
 <details class="howto"><summary>The subtitle look or rotation restarted the video</summary><p>That's expected: VLC reads those settings when its engine starts, so Pylon restarts the video at the same spot.</p></details>

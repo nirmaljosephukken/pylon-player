@@ -267,12 +267,16 @@ class PinnedControls(Base):
         w._pin_state = None
         w._apply_pin()
         wait(50)
-        self.assertEqual(w.video.height(), w.stage.height() - TopBar.HEIGHT - BottomBar.HEIGHT)
-        self.assertEqual(w.video.y(), TopBar.HEIGHT)
+        top = w.top.mapTo(w, QPoint(0, 0)).y()
+        self.assertFalse(w.top.isWindow())                     # part of the window since 1.6.6 (#81)
+        self.assertEqual(w.video.mapTo(w, QPoint(0, 0)).y(), top + TopBar.HEIGHT)
+        self.assertEqual(w.bottom.mapTo(w, QPoint(0, 0)).y(), top + TopBar.HEIGHT + w.video.height())
+        self.assertEqual(w.video.height(), w.middle.height() - TopBar.HEIGHT - BottomBar.HEIGHT)
         self.store.set_setting("pin_controls", False)
         w._apply_pin()
         wait(50)
-        self.assertEqual(w.video.height(), w.stage.height())
+        self.assertEqual(w.video.height(), w.middle.height())
+        self.assertTrue(w.top.isWindow())
 
 
 class ArrowKeySliders(Base):

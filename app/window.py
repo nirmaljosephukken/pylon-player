@@ -7,9 +7,9 @@ import time
 
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QCursor, QGuiApplication, QKeySequence, QShortcut, QRegion
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QStackedWidget, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout, QWidget
 
-from . import APP_NAME, theme
+from . import APP_NAME, overlay, theme
 from .controls import BottomBar, TopBar
 from .engine import NAV_ACTIVATE, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP, Engine
 from .home import HomePage, NowPlayingPage
@@ -23,13 +23,14 @@ from .updates import UpdateChecker
 from .waveform import WaveformMaker
 from .widgets import IconButton, SeekPreview, Toast
 from .window_menus import MenusMixin
+from .window_panels import PanelsMixin
 from .window_playback import PlaybackMixin
 from .window_system import SystemMixin
 
 VSR_FULLSCREEN_RETRIES_MS = (600, 1500)    # extra Super Resolution redraws in full screen (#42)
 WINDOW_MOVE_HIDE_S = 0.25                   # floating bars stay hidden this long after the window moves (#59)
 
-class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
+class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindow):
     def __init__(self, store):
         super().__init__()
         self.store = store
@@ -102,18 +103,24 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         self._manual_update_check = False
 
         self.library = LibraryPanel(self)
-        self.library.hide()
         self.home = HomePage(self)
         self.stage.addWidget(self.home)
         self.stage.addWidget(self.video)
         self.stage.addWidget(self.now_playing)
         self.sidebar = SettingsSidebar(self)
-        self.sidebar.hide()
+        self._make_panel_slots()          # the panels slide in their slots (#54, #63)
         self.library.show_queue_mode(self.queue_mode)
 
-        lay.addWidget(self.library)
-        lay.addWidget(self.stage, 1)
-        lay.addWidget(self.sidebar)
+        # The stage sits in a column of its own. Pinned bars are laid out above and below it there,
+        # as ordinary parts of the window, instead of floating over the video (#81).
+        self.middle = QWidget()
+        self.middle_lay = QVBoxLayout(self.middle)
+        self.middle_lay.setContentsMargins(0, 0, 0, 0)
+        self.middle_lay.setSpacing(0)
+        self.middle_lay.addWidget(self.stage, 1)
+        lay.addWidget(self.lib_slot)
+        lay.addWidget(self.middle, 1)
+        lay.addWidget(self.side_slot)
 
         # ---------------- wiring
         self.video.action.connect(lambda action: self.do(action, key=False))
@@ -142,6 +149,13 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         # so with it on, Pylon draws the black bars itself and sizes VLC's area to the picture.
         self.video.resized.connect(self._fit_video)
         self.engine.picture_changed.connect(self._fit_video)
+        # ...and in full screen it needs the picture to cover the whole screen, or it's set aside.
+        self._vsr_policy_timer = QTimer(self)
+        self._vsr_policy_timer.setSingleShot(True)
+        self._vsr_policy_timer.setInterval(500)
+        self._vsr_policy_timer.timeout.connect(self._vsr_policy)
+        for sig in (self.video.resized, self.engine.picture_changed, self.stage.currentChanged):
+            sig.connect(lambda *_: self._vsr_policy_timer.start())
         self.stage.currentChanged.connect(lambda _i: self._fit_video())
         self.video.resized.connect(self._vsr_resized)
         QGuiApplication.instance().applicationStateChanged.connect(self._pip_app_state)
@@ -278,34 +292,6 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         self.stage.setCurrentIndex(PAGE_VIDEO if self.engine.has_video() or not is_audio(self.engine.current) else PAGE_AUDIO)
         self._poke()
 
-    def toggle_library(self, on=None):
-        on = (not self.library.isVisible()) if on is None else on
-        if self._pip and on:
-            return
-        self.library.setVisible(on)
-        self._update_panel_minimum()
-        self._vsr_resized()           # the picture may not resize if the panel only covers it
-        self.top.btn_library.setChecked(on)
-        if on:
-            self.library.refresh_library()
-            self.library.refresh_queue()
-
-    def toggle_queue(self, on=None):
-        on = (not self.library.isVisible()) if on is None else on
-        self.toggle_library(on)
-        self.bottom.btn_queue.setChecked(on)
-
-    def toggle_sidebar(self, on=None):
-        on = (not self.sidebar.isVisible()) if on is None else on
-        if self._pip and on:
-            return
-        self.sidebar.setVisible(on)
-        self._update_panel_minimum()
-        self._vsr_resized()
-        self.bottom.btn_tune.setChecked(on)
-        if on:
-            self.sidebar.refresh_tracks()
-
     # ---------------------------------------------------------------- interactive zoom (#39)
     def _picture_rect(self):
         """Where the (cropped) picture sits inside the video surface, letterboxed."""
@@ -349,27 +335,6 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         if r is not None and r.width() and r.height():
             self.engine.pan_by(d.x() / r.width(), d.y() / r.height())
 
-    def toggle_panels(self):
-        """Library and settings together (#34): hide both if either is open, else show both."""
-        on = self.library.isHidden() and self.sidebar.isHidden()
-        if self._pip and on:
-            return
-        self.toggle_library(on)
-        if not on:
-            self.bottom.btn_queue.setChecked(False)
-        self.toggle_sidebar(on)
-
-    def open_sidebar_tab(self, idx):
-        self.toggle_sidebar(True)
-        self.sidebar.tabs.setCurrentIndex(idx)
-
-    def _update_panel_minimum(self):
-        """Keep both side panels and the compact player inside the window."""
-        panel_width = (0 if self.library.isHidden() else self.library.WIDTH)
-        panel_width += (0 if self.sidebar.isHidden() else self.sidebar.WIDTH)
-        self.setMinimumWidth(max(640, panel_width + self.stage.minimumWidth()))
-        self._overlay_geo = None
-
     def browse_folder(self, folder):
         if not folder:
             self.toggle_library(True)
@@ -394,6 +359,7 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
             return
         self._bars_visible = visible
         self._overlay_fixes = 0          # each show may be moved again (#40)
+        self._overlay_checks = 0         # and checked again against where the window manager put it (#81)
         if not visible:
             self.seek_preview.hide()
         for w in (self.top, self.bottom):
@@ -403,9 +369,37 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
             else:
                 w.hide()
 
+    def _overlay_mode_changed(self):
+        """The floating windows switched to bypassing the window manager (#81): rebuild them."""
+        for w in (self.top, self.bottom, self.osd, self.seek_preview):
+            w.follow_mode()
+        self._bars_visible = None        # shown again on the next tick
+        self._overlay_geo = None
+
+    def _check_overlay_placement(self, tl: QPoint, h: int):
+        """Floating bars must be where Pylon put them. Some window managers place such windows
+        themselves and ignore later moves (COSMIC on Wayland, #81). Ask the X server where the bars
+        really are, a couple of times after they're shown, and stop asking the window manager if it
+        moved them."""
+        if (not self._bars_visible or self.top.docked or overlay.bypass()
+                or getattr(self, "_overlay_checks", 0) >= 3):
+            return
+        self._overlay_checks = getattr(self, "_overlay_checks", 0) + 1
+        dpr = self.devicePixelRatioF() or 1.0
+        want = {self.top: tl, self.bottom: QPoint(tl.x(), tl.y() + h - BottomBar.HEIGHT)}
+        for bar, p in want.items():
+            real = overlay.real_position(bar)
+            if real is None:
+                return
+            if abs(real[0] / dpr - p.x()) > 2 or abs(real[1] / dpr - p.y()) > 2:
+                if self._overlay_checks >= 2 and overlay.switch_to_bypass("the window manager moved the bars"):
+                    self._overlay_mode_changed()
+                return
+
     def _place_overlays(self, drift: QPoint = QPoint()):
-        tl = self.stage.mapToGlobal(QPoint(0, 0)) + drift
-        w, h = self.stage.width(), self.stage.height()
+        left, right = self._panel_cover()        # panels floating over the video (#42)
+        tl = self.stage.mapToGlobal(QPoint(left, 0)) + drift
+        w, h = max(1, self.stage.width() - left - right), self.stage.height()
         self.top.folder_chip.setVisible(w >= 480 and bool(self.top.folder_chip.text()))
         self.top.btn_pip.setVisible(w >= 260)
         self.top.title.setVisible(w >= 340)
@@ -417,7 +411,12 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         self.bottom.speed.setVisible(w >= 760 and abs(self.engine.live["rate"] - 1.0) > 1e-3)
         for bar in (self.top, self.bottom):
             bar.layout().activate()
-            bar.setMinimumWidth(bar.layout().minimumSize().width())
+            bar.setMinimumWidth(0 if bar.docked else bar.layout().minimumSize().width())
+        self.osd.anchor = QPoint(tl.x() + 20, tl.y() + TopBar.HEIGHT + 10)
+        if self.top.docked:              # pinned: the layout places the bars (#81)
+            self._overlay_geo = None
+            return
+        self._check_overlay_placement(tl, h)
         geo = (tl.x(), tl.y(), w, h)
         if geo == self._overlay_geo and not self._bars_moved(tl, h):
             return
@@ -430,7 +429,6 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         # Clip the actual native windows as well as setting their geometry.
         self.top.setMask(QRegion(0, 0, w, TopBar.HEIGHT))
         self.bottom.setMask(QRegion(0, 0, w, BottomBar.HEIGHT))
-        self.osd.anchor = QPoint(tl.x() + 20, tl.y() + TopBar.HEIGHT + 10)
         if self.osd.isVisible():
             self.osd.move(self.osd.anchor)
 
@@ -440,7 +438,7 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         macOS keeps a window out of the menu bar strip when it is shown, even in full
         screen, which left a gap above the top bar (#40). Put it back, but give up after
         a few tries so a system that insists doesn't cost a move on every tick."""
-        if not self._bars_visible or getattr(self, "_overlay_fixes", 0) >= 5:
+        if not self._bars_visible or self.top.docked or getattr(self, "_overlay_fixes", 0) >= 5:
             return False
         moved = (self.top.pos() != tl or
                  self.bottom.pos() != QPoint(tl.x(), tl.y() + h - BottomBar.HEIGHT))
@@ -457,14 +455,23 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         pinned = self._pinned()
         if pinned != getattr(self, "_pin_state", None):
             self._pin_state = pinned
-            m = (0, TopBar.HEIGHT, 0, BottomBar.HEIGHT) if pinned else (0, 0, 0, 0)
-            # The margins go on the stage itself: its QStackedLayout ignores its own margins, so
-            # setting them there left the video under the bars (#68). Shrinking the video emits
-            # VideoSurface.resized, which redraws a Super Resolution picture at the new size (#42).
-            self.stage.setContentsMargins(*m)
+            # Pinned bars are laid out above and below the video as ordinary parts of the window, so the
+            # video sits between them (#68) and no window manager can put them anywhere else (#81).
+            # Shrinking the video emits VideoSurface.resized, which redraws a Super Resolution picture
+            # at the new size (#42).
+            if pinned:
+                self.top.dock(self.middle)
+                self.bottom.dock(self.middle)
+                self.middle_lay.insertWidget(0, self.top)
+                self.middle_lay.addWidget(self.bottom)
+            else:
+                for bar in (self.top, self.bottom):
+                    self.middle_lay.removeWidget(bar)
+                    bar.undock()
             for bar in (self.top, self.bottom):
                 bar.solid = pinned
                 bar.update()
+            self._bars_visible = None        # shown or hidden again by this tick
             self._overlay_geo = None
 
     def _ui_tick(self):
@@ -510,8 +517,16 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
                 show = True
         if show and not self._pinned() and now < getattr(self, "_moving_until", 0):
             show = False                 # the window is being dragged (#59)
+        if show and not self._pinned() and overlay.bypass() and not self._app_active():
+            show = False                 # bars that bypass the window manager would float over other apps (#81)
         self._set_bars(show)
+        if overlay.bypass() and not self._app_active():
+            self.osd.hide()
+            self.seek_preview.hide()
         self._update_video_cursor(page, inside, show)
+
+    def _app_active(self) -> bool:
+        return QGuiApplication.applicationState() == Qt.ApplicationActive
 
     def _update_video_cursor(self, page, inside, show):
         # hide the pointer over the video in fullscreen when bars are gone
@@ -541,12 +556,14 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self._overlay_geo = None
+        self._place_floating_panels()
 
     def changeEvent(self, e):
         super().changeEvent(e)
         self._overlay_geo = None
         if e.type() == e.Type.WindowStateChange:
             self.top.set_fullscreen(self.isFullScreen())
+            self._sync_panel_mode()
 
     def toast(self, text: str, key: str = ""):
         if self.stage.currentIndex() == PAGE_HOME or self.isMinimized():
@@ -959,11 +976,11 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
         if self._pip is None:
             if self.isFullScreen():
                 self.showNormal()
-            self._pip = {"geo": self.saveGeometry(), "lib": self.library.isVisible(),
-                         "side": self.sidebar.isVisible(), "max": self.isMaximized(),
+            self._pip = {"geo": self.saveGeometry(), "lib": self.lib_slot.is_open,
+                         "side": self.side_slot.is_open, "max": self.isMaximized(),
                          "flags": self.windowFlags()}
-            self.library.hide()
-            self.sidebar.hide()
+            self.lib_slot.set_open(False, False)
+            self.side_slot.set_open(False, False)
             if self.isMaximized():
                 self.showNormal()
             scr = (self.screen() or QGuiApplication.primaryScreen()).availableGeometry()
@@ -989,8 +1006,8 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
             self.restoreGeometry(st["geo"])
             if st["max"]:
                 self.showMaximized()
-            self.library.setVisible(st["lib"])
-            self.sidebar.setVisible(st["side"])
+            self.lib_slot.set_open(st["lib"], False)
+            self.side_slot.set_open(st["side"], False)
             self.top.btn_pip.setChecked(False)
         self._overlay_geo = None
 
@@ -1011,11 +1028,44 @@ class MainWindow(SystemMixin, MenusMixin, PlaybackMixin, QMainWindow):
 
     def _vsr_active(self) -> bool:
         e = self.engine
-        return (sys.platform == "win32" and bool(self.store.setting("rtx_upscale")) and e.ok
+        return (sys.platform == "win32" and bool(self.store.setting("rtx_upscale")) and e.ok and not e.vsr_paused
                 and bool(e.current) and self.stage.currentIndex() == PAGE_VIDEO and e.has_video())
 
     def _vsr_on(self) -> bool:
         return sys.platform == "win32" and bool(self.store.setting("rtx_upscale"))
+
+    def _picture_fills_screen(self):
+        """True if the picture, fitted to the video page, covers it to the pixel; None if not known yet."""
+        e, v = self.engine, self.video
+        sw, sh = v.width(), v.height()
+        if sw <= 0 or sh <= 0 or not e.ok:
+            return None
+        if e.live["zoom"]:
+            return False                 # a fixed zoom such as 1x: VLC sizes the picture itself
+        shape = e.picture_shape()
+        if shape is None:
+            return None
+        k = float(shape["aspect"])
+        w, h = (round(sh * k), sh) if sw / sh > k else (sw, round(sw / k))
+        return abs(w - sw) <= 2 and abs(h - sh) <= 2
+
+    def _vsr_policy(self):
+        """RTX Super Resolution shows a picture only while VLC's video covers the whole screen (#42: in full
+        screen, a panel, a 4:3 aspect or a crop that leaves bars all go black, even with no bars inside
+        VLC's own area). Panels float over the video for that reason. When the picture itself can't cover
+        the screen, Super Resolution is set aside so the picture shows with normal scaling, and it comes
+        back in full screen once the picture covers the screen again. Windowed playback is left as it is:
+        Super Resolution doesn't engage there and the picture shows."""
+        e = self.engine
+        if not self._vsr_on() or not e.ok or not e.current or self.stage.currentIndex() != PAGE_VIDEO \
+                or not e.has_video() or not self.isFullScreen() or self._pip:
+            return
+        fills = self._picture_fills_screen()
+        if fills is None:
+            return
+        if e.set_vsr_paused(not fills):
+            self.toast("Super Resolution is back" if fills else
+                       "Super Resolution paused: it only works when the picture fills the screen")
 
     def _fit_video(self):
         """With Super Resolution on, size VLC's video area to the picture, centred, with Pylon's own black

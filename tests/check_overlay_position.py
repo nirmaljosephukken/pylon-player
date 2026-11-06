@@ -10,6 +10,7 @@ from PySide6.QtCore import QEventLoop, QPoint, QTimer
 from PySide6.QtWidgets import QApplication
 from app import engine
 engine.vlc = None
+from app import overlay
 from app.store import Store
 from app.window import MainWindow
 
@@ -51,7 +52,10 @@ class OverlayPosition(unittest.TestCase):
         self.assertEqual(w.top.pos(), tl)
 
     def test_gives_up_if_the_system_insists(self):
+        """macOS (#40). On X11 a window manager that insists makes the bars bypass it instead (#81),
+        which check_overlays_panels_vsr.py covers, so that check is left out here."""
         w = self.win
+        w._check_overlay_placement = lambda *a: None
         w._set_bars(True)
         w._place_overlays()
         tl = w.stage.mapToGlobal(QPoint(0, 0))
