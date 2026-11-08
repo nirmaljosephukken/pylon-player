@@ -862,8 +862,7 @@ class Engine(QObject):
     def set_volume(self, v: int):
         v = max(0, min(self.max_volume(), int(v)))
         self._queue_audio(volume=v)
-        self.store.data["settings"]["volume"] = v
-        self.store.save()
+        self.store.set_setting("volume", v)
 
     def is_muted(self) -> bool:
         if self.ok and "mute" in self._audio_pending:

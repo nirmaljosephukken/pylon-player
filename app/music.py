@@ -101,6 +101,7 @@ class MusicLibrary(QObject, BackgroundJob):
         self.store = store
         self.path = os.path.join(data_dir(), "music.json")
         self.songs: dict[str, dict] = {}
+        self._present_cache = None     # (songs key, when, set of paths), see _present
         BackgroundJob.__init__(self)
         self.scanning = False
         self._load()
@@ -181,6 +182,7 @@ class MusicLibrary(QObject, BackgroundJob):
                 except Exception:
                     pass
         self.songs = songs
+        self.forget_presence()
         self._save(songs)
         self.progress.emit(total, total)
 
@@ -224,11 +226,29 @@ class MusicLibrary(QObject, BackgroundJob):
     def album_of(p, s):
         return s.get("album") or os.path.basename(os.path.dirname(p)) or "Unknown album"
 
+    EXISTS_TTL_S = 2.0      # how long a check that the song files still exist is reused
+
+    def _present(self) -> set:
+        """Songs whose file is still there. Checking every file costs a disk access each, and one refresh
+        of the Music tab or Home asks several times, so the answer is reused for a moment (M28)."""
+        key = (id(self.songs), len(self.songs))
+        cached = self._present_cache
+        if cached and cached[0] == key and time.monotonic() - cached[1] < self.EXISTS_TTL_S:
+            return cached[2]
+        present = {p for p in self.songs if os.path.exists(p)}
+        self._present_cache = (key, time.monotonic(), present)
+        return present
+
+    def forget_presence(self):
+        """Check the files again next time (after a scan, or when files were removed)."""
+        self._present_cache = None
+
     def albums(self):
         """[{key, artist, album, year, art, tracks:[path]}] sorted by artist then year."""
         groups = {}
+        present = self._present()
         for p, s in self.songs.items():
-            if not os.path.exists(p):
+            if p not in present:
                 continue
             artist, album = self.artist_of(s), self.album_of(p, s)
             key = f"{artist.lower()}\x00{album.lower()}"
@@ -244,8 +264,9 @@ class MusicLibrary(QObject, BackgroundJob):
 
     def artists(self):
         """Track artists with their album appearances; album grouping stays intact."""
+        present = self._present()
         credits = [s.get("artist") or s.get("album_artist") or UNKNOWN_ARTIST
-                   for p, s in self.songs.items() if os.path.exists(p)]
+                   for p, s in self.songs.items() if p in present]
         known = {c.strip() for c in credits
                  if not _STRONG_CREDIT.search(c) and not _SOFT_CREDIT.search(c)}
         # Repeated names inside a credit (e.g. A, B, A) establish A as a person

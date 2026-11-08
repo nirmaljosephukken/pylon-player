@@ -158,9 +158,10 @@ class PanelsMixin:
             self.bottom.btn_queue.setChecked(False)
         self.toggle_sidebar(on)
 
-    def open_sidebar_tab(self, idx):
+    def open_sidebar_tab(self, tab):
+        """Open the settings panel on a tab: a name from Sidebar.TABS ("subtitles", "audio"...) or its index."""
         self.toggle_sidebar(True)
-        self.sidebar.tabs.setCurrentIndex(idx)
+        self.sidebar.tabs.setCurrentIndex(self.sidebar.TABS.index(tab) if isinstance(tab, str) else tab)
 
     def _update_panel_minimum(self):
         """Keep both side panels and the compact player inside the window."""

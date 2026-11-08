@@ -49,17 +49,35 @@ class HomePage(QScrollArea):
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # The store says when something Home shows has changed (M7); several changes in a row rebuild
+        # the page once, after the current event (M26). A direct refresh() cancels a pending one.
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(0)
+        self._refresh_timer.timeout.connect(self.refresh)
+        self.store.changed.connect(self._store_changed)
         self.refresh()
+
+    SHOWS = {"recent", "library", "playlists", "streams"}   # store sections the page shows
+
+    def _store_changed(self, section):
+        if section in self.SHOWS:
+            self.refresh_soon()
+
+    def refresh_soon(self):
+        """Rebuild the page once the current event is handled."""
+        self._refresh_timer.start()
 
     def _mark_watched(self, path):
         self.store.set_watched(path, True)
         title = pretty_title(path)
         self.win.toast(f"Marked “{title}” as watched")
-        QTimer.singleShot(0, self.refresh)     # rebuilding the page from inside a click
+        self.refresh_soon()                    # rebuilding the page from inside a click
         if self.win.library.isVisible():
             self.win.library.refresh_queue()
 
     def refresh(self):
+        self._refresh_timer.stop()
         inner = QWidget()
         inner.setObjectName("Home")
         lay = QVBoxLayout(inner)

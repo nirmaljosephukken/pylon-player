@@ -129,7 +129,7 @@ class MusicMixin:
     def _music_done(self):
         n = len(self.music.songs)
         self.music_status.setText(f"{n} song{'s' if n != 1 else ''}" if n else "")
-        if self.stack.currentIndex() == 4:
+        if self.current_section() == "music":
             self.refresh_music()
         self.win.home.refresh()                  # the home screen's Music section (#53)
 

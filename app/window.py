@@ -186,7 +186,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         b.sidebar_clicked.connect(lambda: self.toggle_sidebar())
         b.mute_clicked.connect(lambda: self.do("mute", key=False))
         b.resume_clicked.connect(self._accept_resume)
-        b.speed_clicked.connect(lambda: self.open_sidebar_tab(3))
+        b.speed_clicked.connect(lambda: self.open_sidebar_tab("playback"))
         b.seek.seek_requested.connect(self.engine.seek)
         b.seek.hovered.connect(self._seek_hover)
         b.seek.hover_left.connect(self.seek_preview.defer_hide)
@@ -254,7 +254,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         self.bottom.apply_glow()
         self.top.update()
         self.osd.update()
-        if self.library.stack.currentIndex() == 4:
+        if self.library.current_section() == "music":
             self.library.refresh_music()
 
     # ================================================================ pages / panels

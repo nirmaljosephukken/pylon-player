@@ -215,7 +215,8 @@ def _same_type(default, value) -> bool:
 
 
 class Store(QObject):
-    changed = Signal(str)  # section name
+    changed = Signal(str)                   # a section of data.json changed: "settings", "recent", "library"...
+    setting_changed = Signal(str, object)   # one setting changed: key, new value (M27)
 
     def __init__(self, path: str | None = None):
         super().__init__()
@@ -340,8 +341,10 @@ class Store(QObject):
         return self.data["settings"].get(key, DEFAULT_SETTINGS.get(key))
 
     def set_setting(self, key, value):
+        """Change a setting, save it and tell everyone showing it. All setting changes go through here."""
         self.data["settings"][key] = value
         self.save("settings")
+        self.setting_changed.emit(key, value)
 
     def shortcut(self, action: str) -> str:
         sc = self.data["shortcuts"]

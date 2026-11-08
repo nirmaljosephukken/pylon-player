@@ -37,7 +37,7 @@ class MenusMixin:
         self._track_actions(m, self.engine.sub_tracks(), self.engine.current_sub(), self.engine.set_sub)
         m.addSeparator()
         m.addAction(icon("plus", theme.TEXT, 16), "Add subtitles…", lambda: self.open_subtitle_dialog())
-        m.addAction(icon("tune", theme.TEXT, 16), "Timing and look…", lambda: self.open_sidebar_tab(0))
+        m.addAction(icon("tune", theme.TEXT, 16), "Timing and look…", lambda: self.open_sidebar_tab("subtitles"))
         return m
 
     def build_audio_menu(self, parent=None) -> QMenu:
@@ -51,7 +51,7 @@ class MenusMixin:
         self._track_actions(m, [(d, desc or d or "Default") for d, desc in devs] or [("", "Default output")],
                             cur, self.engine.set_device)
         m.addSeparator()
-        m.addAction(icon("tune", theme.TEXT, 16), "Audio settings…", lambda: self.open_sidebar_tab(1))
+        m.addAction(icon("tune", theme.TEXT, 16), "Audio settings…", lambda: self.open_sidebar_tab("audio"))
         return m
 
     def build_cast_menu(self, parent=None) -> QMenu:
@@ -219,7 +219,7 @@ class MenusMixin:
                     grp.addAction(a)
                     a.triggered.connect(lambda _=False, v=v: (e.set_aspect(v), self.sidebar.aspect.select(v)))
                 vm.addSeparator()
-                vm.addAction("Video settings…", lambda: self.open_sidebar_tab(2))
+                vm.addAction("Video settings…", lambda: self.open_sidebar_tab("video"))
             sm = m.addMenu(icon("speed", theme.TEXT, 16), "Speed")
             grp2 = QActionGroup(sm)
             for r in SPEED_PRESETS:

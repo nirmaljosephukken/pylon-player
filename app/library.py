@@ -144,7 +144,7 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
     # ================================================================ sections
     def _nav_clicked(self, key):
         """Clicking the tab you're already on goes back to its start (#35)."""
-        here = self.stack.currentIndex() == self.SECTIONS.index(key)
+        here = self.current_section() == key
         if here and key == "library" and self.folder is not None:
             self.open_folder(None)      # recorded, so Back still returns to the folder
             return
@@ -164,13 +164,15 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
          "playlists": self.refresh_playlists, "streams": self.refresh_streams,
          "music": self._open_music}[key]()
 
+    def current_section(self) -> str:
+        """The tab on show: one of SECTIONS."""
+        return self.SECTIONS[self.stack.currentIndex()]
+
     def _store_changed(self, section):
-        if section in ("recent",) and self.stack.currentIndex() == 1:
-            self.refresh_recent()
-        elif section in ("library",) and self.stack.currentIndex() == 0:
-            self.refresh_library()
-        elif section == "playlists" and self.stack.currentIndex() == 2:
-            self.refresh_playlists()
+        refresh = {"recent": self.refresh_recent, "library": self.refresh_library,
+                   "playlists": self.refresh_playlists}.get(section)
+        if refresh and self.current_section() == section:
+            refresh()
 
     # ---------------------------------------------------------------- library
     def _build_library(self):

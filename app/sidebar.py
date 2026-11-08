@@ -298,6 +298,7 @@ class EqualizerPanel(QWidget):
 
 class SettingsSidebar(QWidget):
     WIDTH = 340
+    TABS = ("subtitles", "audio", "video", "playback", "bookmarks")    # in the order they are shown
 
     def __init__(self, win):
         super().__init__()
@@ -355,7 +356,7 @@ class SettingsSidebar(QWidget):
         self._build_video()
         self._build_playback()
         self._build_bookmarks()
-        tab_names = ("subtitles", "audio", "video", "playback", "bookmarks")
+        tab_names = self.TABS
         selected = self.store.setting("settings_startup_tab")
         if selected == "last":
             selected = self.store.setting("settings_last_tab")
@@ -367,9 +368,25 @@ class SettingsSidebar(QWidget):
             cb.setMinimumWidth(0)
         self.refresh_presets()
 
+        self.store.setting_changed.connect(self._setting_changed)
         # Track changes reach the sidebar through the window (_on_tracks), once, and only rebuild the
         # lists while the panel is shown; opening it refreshes them (H9).
         self.engine.media_changed.connect(lambda _: QTimer.singleShot(50, self.on_media_changed))
+
+    def _setting_changed(self, key, value):
+        """Settings that Preferences edits too: show the new value here (M27)."""
+        if key in ("sub_lang", "audio_lang"):
+            box = self.sub_lang if key == "sub_lang" else self.audio_lang
+            if box.currentText().strip() != value:
+                box.blockSignals(True)
+                box.setCurrentText(value)
+                box.blockSignals(False)
+        elif key in ("binge", "repeat_queue"):
+            box = self.binge if key == "binge" else self.repeat_queue
+            if box.isChecked() != bool(value):
+                box.blockSignals(True)
+                box.setChecked(bool(value))
+                box.blockSignals(False)
 
     # ================================================================ subtitles
     def _build_subtitles(self):
@@ -521,8 +538,7 @@ class SettingsSidebar(QWidget):
 
     def apply_sub_style(self):
         self.engine.sub_style = self.sub_style_from_ui()
-        self.store.data["settings"]["sub_style"] = self.engine.sub_style
-        self.store.save()
+        self.store.set_setting("sub_style", dict(self.engine.sub_style))
         self.engine.rebuild()
         self.win.toast("Subtitle look applied")
 
