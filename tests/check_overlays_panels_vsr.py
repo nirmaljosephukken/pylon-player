@@ -242,8 +242,14 @@ class SuperResolution(Base):
     def go_full(self):
         self.full = True
         self.win._sync_panel_mode()
-        self.win.resize(1600, 900)                 # a 16:9 "screen"
+        self.win.resize(1280, 720)                 # the "screen"
         wait(100)
+
+    def filling_shape(self):
+        """A picture exactly the shape of the video page. The window can't always get the size asked for
+        (a small or scaled screen keeps it shorter), so take the shape from the page it really got."""
+        v = self.win.video
+        return {"aspect": Fraction(v.width(), v.height()), "src": (v.width(), v.height()), "crop": (0, 0, 0, 0)}
 
     def test_panels_float_over_the_video_in_full_screen(self):
         w = self.win
@@ -284,15 +290,16 @@ class SuperResolution(Base):
     def test_set_aside_while_the_picture_cant_fill_the_screen(self):
         w, e = self.win, self.win.engine
         self.go_full()
+        self.shape = self.filling_shape()
         w._vsr_policy()
-        self.assertFalse(e.vsr_paused)                     # 16:9 on a 16:9 screen
+        self.assertFalse(e.vsr_paused)                     # a picture that fills the screen
         self.shape = {"aspect": Fraction(4, 3), "src": (1440, 1080), "crop": (0, 0, 0, 0)}             # 4:3: bars at the sides
         w._vsr_policy()
         self.assertTrue(e.vsr_paused)
         e.rebuild.assert_called_once()
         self.assertIn("paused", self.toasts[-1])
         self.assertFalse(w._vsr_active())                  # no picture-sized area while it's aside
-        self.shape = {"aspect": Fraction(16, 9), "src": (1920, 1080), "crop": (0, 0, 0, 0)}
+        self.shape = self.filling_shape()
         w._vsr_policy()
         self.assertFalse(e.vsr_paused)
         self.assertEqual(e.rebuild.call_count, 2)
