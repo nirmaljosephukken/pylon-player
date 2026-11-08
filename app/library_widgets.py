@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QHBoxL
                                QStyledItemDelegate, QWidget)
 
 from . import theme
+from .widgets import IconButton
 from .util import is_url, list_media, natural_key, to_path, AUDIO_EXTS, PLAYLIST_EXTS, VIDEO_EXTS
 
 ROLE_PATH = Qt.UserRole
@@ -28,6 +29,7 @@ SORT_KINDS = {
     "plays": ("Times played", ("plays", "Most played first"), ("plays_fewest", "Least played first")),
 }
 SECTION_SORTS = {
+    "library": ("name", "date", "watched"),
     "playlists": ("added", "name", "played", "count", "watched"),
     "streams": ("added", "name", "played"),
     "music": ("default", "name", "count", "date", "played", "plays"),
@@ -50,7 +52,6 @@ class SortControl(QWidget):
 
     def __init__(self, section, mode):
         super().__init__()
-        from .widgets import IconButton
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(2)
@@ -99,17 +100,6 @@ class SortControl(QWidget):
         item = self.combo.model().item(self.combo.findData(kind))
         if item is not None:
             item.setEnabled(on)
-
-    # the QComboBox calls the older checks use: one index per mode, both directions
-    def currentData(self):
-        return self._mode
-
-    def findData(self, mode):
-        return self.modes.index(mode) if mode in self.modes else -1
-
-    def setCurrentIndex(self, i):
-        if 0 <= i < len(self.modes):
-            self.set_mode(self.modes[i])
 
 
 class MediaList(QListWidget):
@@ -281,7 +271,12 @@ def _mtime(p):
         return 0
 
 
+# What "show this file where it's stored" is called on each system (M31).
+REVEAL_LABEL = {"win32": "Show in Explorer", "darwin": "Show in Finder"}.get(sys.platform, "Show in folder")
+
+
 def reveal(path):
+    """Show the file in the system's file manager (selected, where the system allows it)."""
     path = to_path(path)
     if sys.platform == "win32":
         subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])

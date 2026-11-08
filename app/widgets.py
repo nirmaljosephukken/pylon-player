@@ -6,8 +6,8 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, QTimer, QUrl,
 from PySide6.QtGui import (QBrush, QColor, QDesktopServices, QFont, QFontMetrics, QIcon,
                            QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPen, QPixmap,
                            QPolygonF)
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QPushButton,
+                               QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from . import overlay, theme
 from .icons import icon, pixmap
@@ -362,6 +362,7 @@ class ConeVolume(QWidget):
 class OverlayWindow(QWidget):
     """A frameless, translucent window that floats over the native video
     surface (Qt widgets cannot be drawn on top of the VLC video directly)."""
+    HEIGHT = 48             # the height when pinned into the window's layout; each bar sets its own
 
     def __init__(self, owner, gradient: str = "none", radius: int = 0, alpha: int = 215):
         super().__init__(owner, overlay.flags())
@@ -688,11 +689,12 @@ class Card(QWidget):
         t.setStyleSheet("font-weight: 600; background: transparent; border: none;")
         t.setWordWrap(False)
         fm = QFontMetrics(t.font())
-        t.setText(fm.elidedText(title, Qt.ElideRight, 186))
+        room = self.width() - 2 * 12          # the card's width less the frame's margins
+        t.setText(fm.elidedText(title, Qt.ElideRight, room))
         t.setToolTip(title)
         lay.addWidget(t)
         if subtitle:
-            s = QLabel(fm.elidedText(subtitle, Qt.ElideRight, 186))
+            s = QLabel(fm.elidedText(subtitle, Qt.ElideRight, room))
             s.setStyleSheet(f"color: {theme.MUTED}; font-size: 12px; background: transparent; border: none;")
             lay.addWidget(s)
         self.progress = progress
@@ -756,3 +758,71 @@ def subtitle_search_menu(parent, store, query_fn):
     menu.aboutToShow.connect(fill)
     fill()
     return menu
+
+
+def section(text):
+    """A small capitals heading for a group of settings."""
+    lab = QLabel(text.upper())
+    lab.setObjectName("Section")
+    return lab
+
+
+def muted(text):
+    """A wrapped note in the quieter text colour."""
+    lab = QLabel(text)
+    lab.setObjectName("Muted")
+    lab.setWordWrap(True)
+    return lab
+
+
+class ChipGroup(QWidget):
+    """A row/grid of checkable chips acting as a single choice."""
+    picked = Signal(object)
+
+    def __init__(self, options: list[tuple[str, object]], cols=3, icon_name: str | None = None,
+                 tips: dict | None = None):
+        super().__init__()
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(6)
+        self.group = QButtonGroup(self)
+        self.group.setExclusive(True)
+        self.cols, self.icon_name, self.tips = cols, icon_name, tips or {}
+        self.values = []
+        self.set_options(options)
+        self.group.idClicked.connect(lambda i: self.picked.emit(self.values[i]))
+
+    def set_options(self, options: list[tuple[str, object]]):
+        """Replace the chips, keeping the one that was selected (the ratio rows change in Preferences, #62)."""
+        b = self.group.checkedButton()
+        keep = self.values[self.group.id(b)] if b else None
+        for old in self.group.buttons():
+            self.group.removeButton(old)
+            old.deleteLater()
+        self.values = []
+        for i, (label, val) in enumerate(options):
+            b = QPushButton(label)
+            b.setCheckable(True)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setToolTip(self.tips.get(val, label))
+            b.setMinimumWidth(0)
+            b.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            b.setCursor(Qt.PointingHandCursor)
+            if self.icon_name:
+                b.setIcon(icon(self.icon_name, theme.MUTED, 14))
+            self.group.addButton(b, i)
+            self.values.append(val)
+            self.grid.addWidget(b, i // self.cols, i % self.cols)
+        if keep is not None:
+            self.select(keep)
+
+    def select(self, val):
+        for i, v in enumerate(self.values):
+            if v == val:
+                self.group.button(i).setChecked(True)
+                return
+        b = self.group.checkedButton()
+        if b:
+            self.group.setExclusive(False)
+            b.setChecked(False)
+            self.group.setExclusive(True)

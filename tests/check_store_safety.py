@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtWidgets import QApplication
-from app import engine
+from app import engine, paths
 engine.vlc = None
 from app import store as store_mod
 from app.store import DEFAULT_SETTINGS, Store
@@ -189,7 +189,7 @@ class ExceptHookChain(unittest.TestCase):
         old_hook, old_err, old_out = sys.excepthook, sys.stderr, sys.stdout
         try:
             sys.excepthook = lambda *a: seen.append(a[0])
-            with patch.object(main.os.path, "abspath", lambda p: os.path.join(temp.name, "main.py")):
+            with patch.object(paths, "APP_ROOT", temp.name):
                 main._install_error_log()
             try:
                 raise KeyError("boom")
@@ -201,6 +201,29 @@ class ExceptHookChain(unittest.TestCase):
         finally:
             sys.excepthook, sys.stderr, sys.stdout = old_hook, old_err, old_out
             temp.cleanup()
+
+
+class Logs(unittest.TestCase):
+    def test_one_place_for_logs_and_saved_settings(self):
+        with tempfile.TemporaryDirectory() as d:
+            with patch.object(paths, "APP_ROOT", d):
+                self.assertEqual(paths.log_dir(), os.path.join(d, "logs"))
+                big = os.path.join(d, "logs", "vlc.log")
+                with open(big, "w") as f:
+                    f.write("x" * 50)
+                paths.rotate(big, 10)
+                self.assertFalse(os.path.exists(big))
+                self.assertTrue(os.path.exists(big + ".previous"))
+            data = os.path.join(d, "data.json")
+            self.assertEqual(store_mod.saved_setting("vlc_dir", data), "")          # no file yet
+            with open(data + ".bak", "w") as f:
+                json.dump({"settings": {"vlc_dir": "/opt/vlc"}}, f)
+            with open(data, "w") as f:
+                f.write("{not json")
+            self.assertEqual(store_mod.saved_setting("vlc_dir", data), "/opt/vlc")  # the last good copy
+            with open(data, "w") as f:
+                json.dump({"settings": {"vlc_dir": 5}}, f)
+            self.assertEqual(store_mod.saved_setting("vlc_dir", data), "")          # wrong type: default
 
 
 if __name__ == "__main__":

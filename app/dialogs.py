@@ -18,9 +18,10 @@ from . import theme, APP_VERSION
 from .colour_dialog import choose_colour
 from .icons import icon, pixmap
 from .store import DEFAULT_SHORTCUTS, HOME_SECTIONS, QUEUE_MODES, RATIOS
+from .updates import RELEASES_PAGE, installer_asset, run_installer
 from .util import (MATCH_LEVELS, SUB_EXTS, auto_match_folder, is_url, list_media, subtitle_query,
                    SUBTITLE_SITES)
-from .widgets import IconButton, subtitle_search_menu
+from .widgets import IconButton, muted, subtitle_search_menu
 
 SUB_FILTER = "Subtitles (" + " ".join(f"*{e}" for e in sorted(SUB_EXTS)) + ");;All files (*)"
 
@@ -402,13 +403,6 @@ ACCENTS = [("Cone orange", "#FF8800"), ("Amber", "#FFB300"), ("Red", "#F0483E"),
            ("Violet", "#9B6BFF"), ("Blue", "#3D8BFF"), ("Teal", "#1EC7B2"), ("Green", "#52C35A")]
 
 
-def muted_note(text):
-    lab = QLabel(text)
-    lab.setObjectName("Muted")
-    lab.setWordWrap(True)
-    return lab
-
-
 class HomeSectionList(QWidget):
     """Home screen sections (#53): drag the handle to reorder, click the eye to show or hide."""
     ROW = 34
@@ -619,7 +613,7 @@ class PreferencesDialog(QDialog):
         grid.setSpacing(8)
         cur = self.store.setting("accent")
         if theme.is_vibe(self.store.setting("theme")):
-            f.addWidget(muted_note("The current neon theme uses its own colours. Your accent colour returns when you pick a non-neon theme."))
+            f.addWidget(muted("The current neon theme uses its own colours. Your accent colour returns when you pick a non-neon theme."))
         for i, (name, col) in enumerate(ACCENTS):
             b = self._colour_button(name, [col], col.lower() == cur.lower(),
                                     lambda _=False, c=col: self._set_accent(c))
@@ -873,13 +867,13 @@ class PreferencesDialog(QDialog):
                 lambda _, c=combo, k=key: self.store.set_setting(k, c.currentData()))
             form.addRow(label, combo)
         f.addLayout(form)
-        f.addWidget(muted_note("These bindings apply over the video. Disable Left double-click for immediate "
+        f.addWidget(muted("These bindings apply over the video. Disable Left double-click for immediate "
                                "single clicks; otherwise Pylon waits for your system's double-click interval. "
                                "Scroll changes volume; right-click opens the menu. Extra buttons must be "
                                "reported by the mouse driver as standard mouse buttons."))
 
     def _privacy(self, f):
-        f.addWidget(muted_note("To hide Continue watching or Recently played from the home screen, use "
+        f.addWidget(muted("To hide Continue watching or Recently played from the home screen, use "
                                "Home screen sections in the Interface tab. Hiding them doesn't delete your history."))
         cb = QCheckBox("Remember recent files and where I stopped")
         cb.setChecked(bool(self.store.setting("remember_history")))
@@ -899,7 +893,7 @@ class PreferencesDialog(QDialog):
         up_row.addWidget(up_now)
         up_row.addStretch(1)
         f.addLayout(up_row)
-        f.addWidget(muted_note("This is the only time Pylon goes online by itself. It's an anonymous request "
+        f.addWidget(muted("This is the only time Pylon goes online by itself. It's an anonymous request "
                                "for the release list on GitHub; nothing about you or your files is sent."))
         lab = QLabel(f"Your data is stored only on this computer:\n{self.store.path}")
         lab.setObjectName("Muted")
@@ -913,6 +907,12 @@ class PreferencesDialog(QDialog):
         folder.setIcon(icon("folder", theme.TEXT, 16))
         folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(self.store.path))))
         f.addWidget(folder)
+
+    def _set_hw_decoding(self, on: bool):
+        """Applies at once, like Super Resolution: VLC restarts and carries on from the same point."""
+        self.store.set_setting("hw_decoding", on)
+        if self.win.engine.ok:
+            self.win.engine.rebuild()
 
     def _set_rtx_upscale(self, on: bool):
         self.store.set_setting("rtx_upscale", on)
@@ -929,12 +929,9 @@ class PreferencesDialog(QDialog):
     def _performance(self, f):
         cb = QCheckBox("Use the graphics card to decode video (hardware decoding)")
         cb.setChecked(bool(self.store.setting("hw_decoding")))
-        cb.toggled.connect(lambda v: self.store.set_setting("hw_decoding", v))
+        cb.toggled.connect(self._set_hw_decoding)
         f.addWidget(cb)
-        lab = QLabel("Turn this off if you see green frames, glitches, or a black picture with subtitles. Takes effect the next time the engine restarts.")
-        lab.setObjectName("Muted")
-        lab.setWordWrap(True)
-        f.addWidget(lab)
+        f.addWidget(muted("Turn this off if you see green frames, glitches, or a black picture with subtitles."))
         if sys.platform == "win32":
             up = QCheckBox("Use RTX Video Super Resolution to upscale video (NVIDIA RTX and Intel graphics)")
             up.setChecked(bool(self.store.setting("rtx_upscale")))
@@ -1044,7 +1041,6 @@ class UpdateDialog(QDialog):
 
     def __init__(self, win, release: dict):
         super().__init__(win)
-        from .updates import installer_asset, RELEASES_PAGE
         self.win = win
         self.release = release
         self.checker = win.updater
@@ -1132,7 +1128,6 @@ class UpdateDialog(QDialog):
             self.bar.setFormat(f"{done / 1048576:.1f} of {total / 1048576:.1f} MB")
 
     def _downloaded(self, path):
-        from .updates import run_installer
         self._downloading = False
         self.status.setText("Starting the installer. Pylon will close now.")
         if run_installer(path):

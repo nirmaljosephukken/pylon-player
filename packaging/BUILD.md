@@ -97,7 +97,7 @@ repository, Windows PE version resources, macOS plist, Linux AppStream XML,
 archive integrity, executable modes and symlinks. Generate SHA256SUMS.txt only
 after all packages are final. SOURCE-MANIFEST.json records the exact source and
 launcher hashes used. Windows staging was smoke-tested; Linux and macOS runtime
-testing remains outstanding. See RELEASE-NOTES-1.3.3.md for the known Mac issue.
+testing remains outstanding. See release-notes/RELEASE-NOTES-1.3.3.md for the known Mac issue.
 
 
 ### 1.3.4 maintenance release
@@ -111,4 +111,4 @@ installer excludes generated __pycache__ directories and .pyc files.
 Regression checks: `python tests/check_music_playlists.py` and
 `python tests/check_minimum_layout.py`. These use temporary settings and exercise
 Qt; run them in a desktop session (or with an available headless Qt plugin).
-See RELEASE-NOTES-1.3.4.md for scope and known platform limitations.
+See release-notes/RELEASE-NOTES-1.3.4.md for scope and known platform limitations.

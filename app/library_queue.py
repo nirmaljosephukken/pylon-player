@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QInputDialog, QListWidgetItem, QMenu
 
 from . import theme
 from .icons import icon
-from .library_widgets import ROLE_PATH, pick_media, reveal
+from .library_widgets import REVEAL_LABEL, ROLE_PATH, pick_media, reveal
 from .store import QUEUE_MODES
 from .util import display_name, is_audio, is_url, pretty_title
 
@@ -16,7 +16,7 @@ class QueueMixin:
         # bring the playing item into view when a different one starts (#50).
         bar = self.queue.verticalScrollBar()
         keep = bar.value()
-        moved = self.win.qindex != getattr(self, "_queue_shown_index", None)
+        moved = self.win.qindex != self._queue_shown_index
         self._queue_shown_index = self.win.qindex
         self.queue.clear()
         for i, item in enumerate(self.win.queue):
@@ -92,7 +92,7 @@ class QueueMixin:
                         lambda: self.win.remove_from_queue(rows))
             p = it.data(ROLE_PATH)
             if n == 1 and not is_url(p):
-                m.addAction("Show in Explorer", lambda: reveal(p))
+                m.addAction(REVEAL_LABEL, lambda: reveal(p))
             if n == 1 and is_url(p):
                 m.addAction("Copy link", lambda: self._copy_link(p))
             m.addSeparator()

@@ -130,6 +130,16 @@ def norm(p: str) -> str:
     return os.path.normpath(os.path.abspath(p))
 
 
+def short_path(path: str) -> str:
+    """A folder as people say it: relative to the home folder when it's inside it (Pictures/Pylon)."""
+    home = os.path.expanduser("~")
+    try:
+        rel = os.path.relpath(path, home)
+    except ValueError:                   # another drive on Windows
+        return path
+    return path if rel.startswith("..") or os.path.isabs(rel) else rel
+
+
 def display_name(path: str) -> str:
     if is_url(path):
         tail = urlparse(path).path.rstrip("/").split("/")[-1]
@@ -394,6 +404,27 @@ def parse_m3u(text: str) -> list[tuple[str, str]] | None:
             name = None
     return out or None
 
+
+
+def read_playlist(path: str) -> list[tuple[str, str]]:
+    """[(name, path or link)] from an .m3u file, with relative paths made absolute. Empty if the file
+    can't be read or isn't a list (an HLS stream, a .pls or .xspf file: VLC opens those itself)."""
+    try:
+        with open(path, encoding="utf-8-sig", errors="replace") as f:
+            found = parse_m3u(f.read(8_000_000)) or []
+    except OSError:
+        return []
+    base = os.path.dirname(path)
+    return [(n, u if is_url(u) or os.path.isabs(u) else os.path.normpath(os.path.join(base, u)))
+            for n, u in found]
+
+
+def write_m3u(path: str, entries) -> None:
+    """Write [(name, path or link)] as an extended M3U playlist. Raises OSError if it can't be written."""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("#EXTM3U\n")
+        for name, url in entries:
+            f.write(f"#EXTINF:-1,{name}\n{url}\n")
 
 # Subtitle sites "Find online" can open (#46). Each search address was checked in
 # October 2026. Subscene shut down in 2024; the YIFY subtitle sites are unofficial copies.

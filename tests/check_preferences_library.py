@@ -164,10 +164,10 @@ class PreferencesLibrary(unittest.TestCase):
                 ('three.mp3', 'Alpha', 'Newer', 1, 20))}
         for path in lib.music.songs:
             Path(path).touch()
-        lib.music_sort.setCurrentIndex(lib.music_sort.findData('count'))
+        lib.music_sort.set_mode('count')
         lib._music_mode('artists')
         self.assertTrue(lib.music_list.item(0).text().startswith('Zulu'))
-        lib.music_sort.setCurrentIndex(lib.music_sort.findData('date'))
+        lib.music_sort.set_mode('date')
         lib._music_mode('albums')
         self.assertTrue(lib.music_list.item(0).text().startswith('Newer'))
         lib._music_mode('songs')

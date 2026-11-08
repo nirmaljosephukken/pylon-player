@@ -13,7 +13,7 @@ from .icons import icon, pixmap
 from .music import folder_cover
 from .util import display_name, fmt_time, is_audio, is_disc, is_url, pretty_title, to_path, list_media
 from .store import HOME_SECTIONS, RESUME_MIN_MS, is_finished, resume_point
-from .widgets import Card, IconButton
+from .widgets import Card, IconButton, muted
 
 
 class FlowRow(QWidget):
@@ -194,7 +194,7 @@ class HomePage(QScrollArea):
                 row.add(c)
             lay.addWidget(hscroll(row))
         else:
-            lay.addWidget(self._muted("Add a folder (movies, shows, music) to see it here and in the library panel."))
+            lay.addWidget(muted("Add a folder (movies, shows, music) to see it here and in the library panel."))
 
     def _sec_playlists(self, lay):
         lib = self.win.library
@@ -262,7 +262,7 @@ class HomePage(QScrollArea):
     def _resume_listening(self, item):
         lib = self.win.library
         if item["album"]:
-            self.win.set_queue(lib._queue_items(item["album"]["tracks"]), item["index"], keep_playing=True)
+            self.win.set_queue(lib.queue_items(item["album"]["tracks"]), item["index"], keep_playing=True)
             self.win.play_queue_index(item["index"], start_ms=item["pos"])
         else:
             self.win.play_from_folder(item["path"], start_ms=item["pos"])
@@ -284,7 +284,7 @@ class HomePage(QScrollArea):
             song = lib.music.title_of(p, lib.music.songs.get(p, {})) if a else pretty_title(p)
             if a:
                 n = len(a["tracks"])
-                cover = lib._cover(a["art"], 40).pixmap(40, 40) if a["art"] else None
+                cover = lib.cover(a["art"], 40).pixmap(40, 40) if a["art"] else None
                 sub = f"Song {it['index'] + 1} of {n}  ·  {song}"
                 c = Card(a["album"], sub, "music", progress=it["progress"], picture=cover)
                 self._bind_card_menu(c, "album", a["key"])
@@ -313,7 +313,7 @@ class HomePage(QScrollArea):
         row = FlowRow()
         for a in (first + rest)[:12]:
             n = len(a["tracks"])
-            cover = lib._cover(a["art"], 40).pixmap(40, 40) if a["art"] else None
+            cover = lib.cover(a["art"], 40).pixmap(40, 40) if a["art"] else None
             c = Card(a["album"], f"{a['artist']}  ·  {n} song{'s' if n != 1 else ''}", "music", picture=cover)
             self._bind_card_menu(c, "album", a["key"])
             c.clicked.connect(lambda t=a["tracks"]: lib.play_songs(t))
@@ -335,12 +335,6 @@ class HomePage(QScrollArea):
                 row.add(c)
             lay.addWidget(hscroll(row))
 
-    def _remove_history_item(self, path):
-        self.store.data["recent"] = [r for r in self.store.data["recent"] if r["path"] != path]
-        self.store.data["positions"].pop(path, None)
-        self.store.save("recent")
-        self.win.library.refresh_recent()
-
     def _card_actions(self, kind, value):
         lib, win = self.win.library, self.win
         if kind == "media":
@@ -349,7 +343,7 @@ class HomePage(QScrollArea):
                     ("Add to queue", lambda: win.enqueue([value])),
                     ("Mark as unwatched" if watched else "Mark as watched",
                      lambda: self.store.set_watched(value, not watched)),
-                    ("Remove from history (including resume position)", lambda: self._remove_history_item(value))]
+                    ("Remove from history (including resume position)", lambda: lib.remove_recent([value]))]
         if kind == "folder":
             return [("Open folder", lambda: win.browse_folder(value)),
                     ("Play folder", lambda: win.play_folder(value)),
@@ -365,14 +359,14 @@ class HomePage(QScrollArea):
         if kind == "playlist":
             return [("Play", lambda: win.play_playlist(value)),
                     ("Add to queue", lambda: win.enqueue(self.store.data["playlists"].get(value, []))),
-                    ("Rename…", lambda: lib._pl_rename(value)),
-                    ("Export as .m3u…", lambda: lib._pl_export(value))]
+                    ("Rename…", lambda: lib.rename_playlist(value)),
+                    ("Export as .m3u…", lambda: lib.export_playlist(value))]
         s = lib.stream_entry(value) or {}
         add = ((lambda: win.enqueue_items([{"path": c["url"], "title": c["name"]} for c in s["channels"]]))
                if s.get("channels") else (lambda: win.enqueue([value])))
         return [("Play", lambda: win.play_saved_stream(value)),
                 ("Add to queue", add),
-                ("Remove saved stream", lambda: lib._st_remove(value))]
+                ("Remove saved stream", lambda: lib.remove_stream(value))]
 
     def _bind_card_menu(self, card, kind, value):
         card.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -395,11 +389,6 @@ class HomePage(QScrollArea):
         lab.setContentsMargins(0, 14, 0, 2)
         return lab
 
-    def _muted(self, text):
-        lab = QLabel(text)
-        lab.setObjectName("Muted")
-        lab.setWordWrap(True)
-        return lab
 
 
 def _parent(p):

@@ -45,19 +45,8 @@ def _install_error_log():
     main.py (or in the data folder if this folder isn't writable)."""
     import time
     import traceback
-    from app.store import data_dir
-    f = None
-    for log_dir in (os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs"),
-                    os.path.join(data_dir(), "logs")):
-        try:
-            os.makedirs(log_dir, exist_ok=True)
-            path = os.path.join(log_dir, "error.log")
-            if os.path.isfile(path) and os.path.getsize(path) > 1_000_000:
-                os.remove(path)
-            f = open(path, "a", encoding="utf-8", buffering=1)
-            break
-        except OSError:
-            continue
+    from app.paths import open_log
+    f = open_log("error.log")
     if f is None:
         return
     f.write(f"\n===== started {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
@@ -136,9 +125,17 @@ def main():
     for p in app.pending:
         QTimer.singleShot(400, lambda p=p: win.open_paths([p]))
 
-    QLocalServer.removeServer(server_name)
     server = QLocalServer(app)
-    server.listen(server_name)
+    if not server.listen(server_name):
+        # A socket file is left from a Pylon that crashed, or another Pylon started at the same moment.
+        # Only remove it if nobody answers there, so a live Pylon keeps its socket.
+        probe = QLocalSocket()
+        probe.connectToServer(server_name)
+        if not probe.waitForConnected(400):
+            QLocalServer.removeServer(server_name)
+            server.listen(server_name)
+        else:
+            probe.disconnectFromServer()
 
     def on_connection():
         conn = server.nextPendingConnection()
@@ -151,6 +148,9 @@ def main():
 
         def done():
             data = buf.decode("utf-8", "replace").strip()
+            if not data:                 # another Pylon only checking that this one is alive
+                conn.deleteLater()
+                return
             paths = [p for p in data.splitlines() if p and p != "<show>"]
             if win.isMinimized():
                 win.showNormal()
@@ -165,14 +165,7 @@ def main():
 
     if args:
         QTimer.singleShot(300, lambda: win.open_paths(args))
-    def shutdown():
-        # Stop VLC's threads before Qt tears down the window it draws into
-        try:
-            win._save_position()
-            win.engine.shutdown()
-        except Exception:
-            pass
-    app.aboutToQuit.connect(shutdown)
+    app.aboutToQuit.connect(win.shutdown)        # does nothing if the window already closed
     code = app.exec()
     startup.mark(f"Event loop exited: {code}")
     store.save_now()

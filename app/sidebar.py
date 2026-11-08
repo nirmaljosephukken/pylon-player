@@ -6,32 +6,23 @@ import os
 
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPixmap
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFontComboBox, QGridLayout,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFontComboBox, QGridLayout,
                                QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMenu,
                                QMessageBox, QPushButton, QRadioButton, QScrollArea, QSizePolicy,
                                QSlider, QTabWidget, QVBoxLayout, QWidget)
 
 from . import theme
 from .colour_dialog import choose_colour
-from .engine import CUSTOM_EQ, DEFAULT_SUB_STYLE, EQ_RANGE, VISUALIZERS
+from .engine import (CUSTOM_EQ, DEFAULT_SUB_STYLE, EQ_RANGE, NAV_ACTIVATE, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP,
+                     VISUALIZERS)
 from .icons import icon
 from .util import (SPEED_PRESETS, subtitle_query, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
                    match_subtitle, parse_subtitles)
 from .store import QUEUE_MODES, ratio_label
-from .widgets import IconButton, SubtitleTimeline, subtitle_search_menu
+from .widgets import ChipGroup, IconButton, SubtitleTimeline, muted, section, subtitle_search_menu
 
-
-def section(text):
-    lab = QLabel(text.upper())
-    lab.setObjectName("Section")
-    return lab
-
-
-def muted(text):
-    lab = QLabel(text)
-    lab.setObjectName("Muted")
-    lab.setWordWrap(True)
-    return lab
+# The picture sliders at their middle: no change to the picture (brightness etc. in percent, hue in degrees)
+NEUTRAL_PICTURE = {"brightness": 100, "contrast": 100, "saturation": 100, "gamma": 100, "hue": 0}
 
 
 def scroll_page():
@@ -132,59 +123,6 @@ class ValueSlider(QWidget):
 
     def value(self):
         return self.slider.value()
-
-
-class ChipGroup(QWidget):
-    """A row/grid of checkable chips acting as a single choice."""
-    picked = Signal(object)
-
-    def __init__(self, options: list[tuple[str, object]], cols=3, icon_name: str | None = None,
-                 tips: dict | None = None):
-        super().__init__()
-        self.grid = QGridLayout(self)
-        self.grid.setContentsMargins(0, 0, 0, 0)
-        self.grid.setSpacing(6)
-        self.group = QButtonGroup(self)
-        self.group.setExclusive(True)
-        self.cols, self.icon_name, self.tips = cols, icon_name, tips or {}
-        self.values = []
-        self.set_options(options)
-        self.group.idClicked.connect(lambda i: self.picked.emit(self.values[i]))
-
-    def set_options(self, options: list[tuple[str, object]]):
-        """Replace the chips, keeping the one that was selected (the ratio rows change in Preferences, #62)."""
-        b = self.group.checkedButton()
-        keep = self.values[self.group.id(b)] if b else None
-        for old in self.group.buttons():
-            self.group.removeButton(old)
-            old.deleteLater()
-        self.values = []
-        for i, (label, val) in enumerate(options):
-            b = QPushButton(label)
-            b.setCheckable(True)
-            b.setFocusPolicy(Qt.NoFocus)
-            b.setToolTip(self.tips.get(val, label))
-            b.setMinimumWidth(0)
-            b.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-            b.setCursor(Qt.PointingHandCursor)
-            if self.icon_name:
-                b.setIcon(icon(self.icon_name, theme.MUTED, 14))
-            self.group.addButton(b, i)
-            self.values.append(val)
-            self.grid.addWidget(b, i // self.cols, i % self.cols)
-        if keep is not None:
-            self.select(keep)
-
-    def select(self, val):
-        for i, v in enumerate(self.values):
-            if v == val:
-                self.group.button(i).setChecked(True)
-                return
-        b = self.group.checkedButton()
-        if b:
-            self.group.setExclusive(False)
-            b.setChecked(False)
-            self.group.setExclusive(True)
 
 
 EQ_TIPS = {   # one line per VLC preset, from the shape of its curve (#38)
@@ -751,7 +689,7 @@ class SettingsSidebar(QWidget):
     }
 
     def _pic_preset(self, key):
-        vals = self._PIC[key] or {"brightness": 100, "contrast": 100, "saturation": 100, "gamma": 100, "hue": 0}
+        vals = self._PIC[key] or NEUTRAL_PICTURE
         for k, s in self.adj.items():
             s.set_value(vals[k])
         self._adjust_changed(None, from_preset=key == "orig")
@@ -759,7 +697,7 @@ class SettingsSidebar(QWidget):
 
     def _adjust_changed(self, _v=None, from_preset=False):
         vals = {k: s.value() for k, s in self.adj.items()}
-        if from_preset or vals == {"brightness": 100, "contrast": 100, "saturation": 100, "gamma": 100, "hue": 0}:
+        if from_preset or vals == NEUTRAL_PICTURE:
             self.engine.set_adjust(None)
             return
         self.engine.set_adjust({"brightness": vals["brightness"] / 100, "contrast": vals["contrast"] / 100,
@@ -888,7 +826,6 @@ class SettingsSidebar(QWidget):
         box.addWidget(self.title_combo)
         pad = QGridLayout()
         pad.setSpacing(4)
-        from .engine import NAV_ACTIVATE, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP
         self.disc_buttons = []
         for label, tip, mode, r, c in (("▲", "Up", NAV_UP, 0, 1), ("◀", "Left", NAV_LEFT, 1, 0),
                                        ("OK", "Choose (Enter)", NAV_ACTIVATE, 1, 1), ("▶", "Right", NAV_RIGHT, 1, 2),
@@ -1229,7 +1166,7 @@ class SettingsSidebar(QWidget):
         i = self.deint.findData(L["deinterlace"])
         self.deint.setCurrentIndex(max(0, i))
         adj = L["adjust"]
-        vals = ({"brightness": 100, "contrast": 100, "saturation": 100, "gamma": 100, "hue": 0} if not adj else
+        vals = (NEUTRAL_PICTURE if not adj else
                 {"brightness": round(adj["brightness"] * 100), "contrast": round(adj["contrast"] * 100),
                  "saturation": round(adj["saturation"] * 100), "gamma": round(adj["gamma"] * 100),
                  "hue": round(adj["hue"])})

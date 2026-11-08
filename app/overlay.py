@@ -14,6 +14,7 @@ the window manager moved it.
 
 PYLON_OVERLAYS=bypass or =managed forces either mode."""
 import ctypes
+import ctypes.util
 import os
 import sys
 
@@ -74,11 +75,36 @@ def reset_for_tests():
     _state["bypass"], _state["reason"] = None, ""
 
 
-def real_position(widget):
-    """Where the X server really has the widget's window, in device pixels, or None off X11."""
-    from .stage import _x11
+_X11 = {}
+
+
+def _x11():
+    """libX11 and a display connection of our own, or None when this isn't X11."""
+    if "lib" not in _X11:
+        _X11["lib"] = _X11["dpy"] = None
+        try:
+            if QGuiApplication.platformName() == "xcb":
+                lib = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+                lib.XOpenDisplay.restype = ctypes.c_void_p
+                lib.XOpenDisplay.argtypes = [ctypes.c_char_p]
+                lib.XDefaultRootWindow.restype = ctypes.c_ulong
+                lib.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+                lib.XTranslateCoordinates.argtypes = [
+                    ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_int, ctypes.c_int,
+                    ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_ulong)]
+                dpy = lib.XOpenDisplay(None)
+                if dpy:
+                    _X11["lib"], _X11["dpy"] = lib, dpy
+        except Exception:
+            pass
+    return _X11["lib"], _X11["dpy"]
+
+
+def real_position(widget, visible_only=True):
+    """Where the X server really has the widget's window, in device pixels, or None off X11. The bars
+    use it to see where the window manager put them (#81), the video page to follow a drag (#59)."""
     lib, dpy = _x11()
-    if lib is None or not widget.isVisible():
+    if lib is None or (visible_only and not widget.isVisible()):
         return None
     x, y, child = ctypes.c_int(), ctypes.c_int(), ctypes.c_ulong()
     try:

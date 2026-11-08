@@ -8,16 +8,15 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QListWidgetItem, 
 
 from . import theme
 from .icons import icon
-from .library_widgets import ROLE_KIND, ROLE_PATH, MediaList, TwoLineDelegate, reveal
+from .library_widgets import ROLE_KIND, ROLE_PATH, MediaList, REVEAL_LABEL, TwoLineDelegate, reveal
+from .music import MusicLibrary
 from .util import fmt_time
-from .widgets import IconButton
+from .widgets import ChipGroup, IconButton
 
 
 class MusicMixin:
     # ================================================================ music
     def _build_music(self):
-        from .music import MusicLibrary
-        from .sidebar import ChipGroup
         self.music = MusicLibrary(self.store, self)
         self.music.progress.connect(self._music_progress)
         self.music.finished.connect(self._music_done)
@@ -143,7 +142,7 @@ class MusicMixin:
             self.music_trail.pop()
             self.refresh_music()
 
-    def _cover(self, art, size):
+    def cover(self, art, size):
         key = (art, size)
         if key not in self._icons:
             pm = QPixmap(art) if art else QPixmap()
@@ -212,7 +211,7 @@ class MusicMixin:
         def add_song(p, with_artist=True):
             s = songs.get(p, {})
             it = self._music_item(song_text(p, with_artist), "file", p,
-                                  self._cover(s.get("art", ""), 36) if with_artist else icon("music", theme.FAINT, 18), p)
+                                  self.cover(s.get("art", ""), 36) if with_artist else icon("music", theme.FAINT, 18), p)
             if p == current:
                 f = it.font()
                 f.setBold(True)
@@ -239,7 +238,7 @@ class MusicMixin:
             self.music_crumb.setText(f"{a['artist']}  ›  {a['album']}")
             total = sum(songs.get(p, {}).get("dur", 0) for p in a["tracks"])
             self._album_key = a["key"]
-            self.album_cover.setPixmap(self._cover(a["art"], 84).pixmap(84, 84))
+            self.album_cover.setPixmap(self.cover(a["art"], 84).pixmap(84, 84))
             self.album_name.setText(a["album"])
             self.album_meta.setText(f"{a['artist']}{'  ·  ' + a['year'] if a['year'] else ''}\n"
                                     f"{len(a['tracks'])} song{'s' if len(a['tracks']) != 1 else ''}  ·  {fmt_time(total)}")
@@ -267,7 +266,7 @@ class MusicMixin:
                 if q and q not in a["album"].lower():
                     continue
                 self._music_item(f"{a['album']}\n{a['year'] + '  ·  ' if a['year'] else ''}{len(a['tracks'])} songs",
-                                 "album", a["key"], self._cover(a["art"], 44))
+                                 "album", a["key"], self.cover(a["art"], 44))
             return
 
         self.music_crumb.setText("")
@@ -285,7 +284,7 @@ class MusicMixin:
                 n = sum(len(a["tracks"]) for a in albums)
                 art = next((a["art"] for a in albums if a["art"]), "")
                 self._music_item(f"{name}\n{len(albums)} album{'s' if len(albums) != 1 else ''}  ·  {n} song{'s' if n != 1 else ''}",
-                                 "artist", name, self._cover(art, 44))
+                                 "artist", name, self.cover(art, 44))
 
             self._fill_with_pins(lst, *self.with_pins("artists", artists, lambda x: x[0]), "Artists", add_artist)
         elif self.music_mode == "albums":
@@ -298,7 +297,7 @@ class MusicMixin:
 
             def add_album(a, pinned):
                 self._music_item(f"{a['album']}\n{a['artist']}{'  ·  ' + a['year'] if a['year'] else ''}",
-                                 "album", a["key"], self._cover(a["art"], 44))
+                                 "album", a["key"], self.cover(a["art"], 44))
 
             self._fill_with_pins(lst, *self.with_pins("albums", albums, lambda a: a["key"]), "Albums", add_album)
         else:
@@ -346,7 +345,7 @@ class MusicMixin:
         return [self.music_list.item(i).data(ROLE_PATH) for i in range(self.music_list.count())
                 if self.music_list.item(i).data(ROLE_KIND) == "file"]
 
-    def _queue_items(self, paths):
+    def queue_items(self, paths):
         m = self.music
         out = []
         for p in paths:
@@ -361,7 +360,7 @@ class MusicMixin:
         """Play these songs from index, or, when no song was picked, from the first one (a random
         one in Shuffle mode, #76)."""
         if paths:
-            self.win.set_queue(self._queue_items(paths), index or 0, any_start=index is None)
+            self.win.set_queue(self.queue_items(paths), index or 0, any_start=index is None)
 
     def _music_activate(self, it):
         kind, val = it.data(ROLE_KIND), it.data(ROLE_PATH)
@@ -407,5 +406,5 @@ class MusicMixin:
                         lambda: self.toggle_item_pin(pin_kind, val))
         if kind == "file":
             m.addSeparator()
-            m.addAction("Show in Explorer", lambda: reveal(val))
+            m.addAction(REVEAL_LABEL, lambda: reveal(val))
         m.exec(self.music_list.mapToGlobal(pos))

@@ -63,13 +63,13 @@ class HomeLibrary(unittest.TestCase):
  def test_sort_counts_and_music(self):
   self.store.data['playlists']={'Zulu':[self.path],'Alpha':[self.path,self.path]}
   self.lib.refresh_playlists();self.assertEqual(self.lib.playlists_count.text(),'2 playlists')
-  self.lib.playlists_sort.setCurrentIndex(self.lib.playlists_sort.findData('count'))
+  self.lib.playlists_sort.set_mode('count')
   self.assertTrue(self.lib.pl_list.item(0).text().startswith('Alpha'))
-  self.lib.playlists_sort.setCurrentIndex(self.lib.playlists_sort.findData('reverse'))
+  self.lib.playlists_sort.set_mode('reverse')
   self.assertTrue(self.lib.pl_list.item(0).text().startswith('Zulu'))
   self.lib.pl_search.setText('none');self.assertEqual(self.lib.playlists_count.text(),'0 playlists')
   self.store.data['streams']=[{'name':'Zulu','url':'https://example.com/z'},{'name':'Alpha','url':'https://example.com/a'}]
-  self.lib.streams_sort.setCurrentIndex(self.lib.streams_sort.findData('name'))
+  self.lib.streams_sort.set_mode('name')
   self.assertEqual(self.lib.st_list.item(0).text(),'Alpha');self.assertEqual(self.lib.streams_count.text(),'2 streams')
   music=self.lib.music;music.songs={self.path:{'artist':'Test','album':'Album','title':'Track'}}
   for mode in ('artists','albums','songs'):

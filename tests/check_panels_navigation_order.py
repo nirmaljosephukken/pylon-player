@@ -85,27 +85,27 @@ class PanelsNavigationOrder(unittest.TestCase):
         from app.library import ROLE_PATH
         names = [lib.pl_list.item(i).data(ROLE_PATH) for i in range(lib.pl_list.count())]
         self.assertEqual(names, ["Charlie", "alpha", "Bravo"])
-        self.assertEqual(lib.playlists_sort.currentData(), "newest")
-        lib.playlists_sort.setCurrentIndex(lib.playlists_sort.findData("oldest"))
+        self.assertEqual(lib.playlists_sort.mode(), "newest")
+        lib.playlists_sort.set_mode("oldest")
         names = [lib.pl_list.item(i).data(ROLE_PATH) for i in range(lib.pl_list.count())]
         self.assertEqual(names, ["Bravo", "alpha", "Charlie"])
-        lib.playlists_sort.setCurrentIndex(lib.playlists_sort.findData("name"))
+        lib.playlists_sort.set_mode("name")
         names = [lib.pl_list.item(i).data(ROLE_PATH) for i in range(lib.pl_list.count())]
         self.assertEqual(names, ["alpha", "Bravo", "Charlie"])
         lib.show_section("streams")
         urls = [lib.st_list.item(i).data(ROLE_PATH) for i in range(lib.st_list.count())]
         self.assertEqual(urls, ["http://z", "http://a"])
-        lib.streams_sort.setCurrentIndex(lib.streams_sort.findData("oldest"))
+        lib.streams_sort.set_mode("oldest")
         urls = [lib.st_list.item(i).data(ROLE_PATH) for i in range(lib.st_list.count())]
         self.assertEqual(urls, ["http://a", "http://z"])
         # renaming keeps a playlist's place by age, and can't overwrite another
-        lib.playlists_sort.setCurrentIndex(lib.playlists_sort.findData("oldest"))
+        lib.playlists_sort.set_mode("oldest")
         with patch("app.library.QInputDialog.getText", return_value=("Aardvark", True)):
-            lib._pl_rename("Bravo")
+            lib.rename_playlist("Bravo")
         self.assertEqual(list(self.store.data["playlists"]), ["Aardvark", "alpha", "Charlie"])
         with patch("app.library.QInputDialog.getText", return_value=("alpha", True)), \
              patch("app.library.QMessageBox.warning") as warn:
-            lib._pl_rename("Charlie")
+            lib.rename_playlist("Charlie")
         warn.assert_called_once()
         self.assertEqual(len(self.store.data["playlists"]), 3)
 

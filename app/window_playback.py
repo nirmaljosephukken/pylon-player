@@ -15,7 +15,9 @@ from .library_widgets import media_filter
 from .stage import PAGE_AUDIO, PAGE_HOME, PAGE_VIDEO
 from .store import resume_point
 from .updates import fetch_text
-from .util import SUB_EXTS, PLAYLIST_EXTS, display_name, norm, find_subtitle_candidates, is_disc, is_dvd_folder, fmt_time, is_audio, is_media, is_url, list_media, match_subtitle, natural_key, sort_key_by_name, parse_m3u
+from .util import (PLAYLIST_EXTS, SUB_EXTS, display_name, find_subtitle_candidates, fmt_time, is_audio, is_disc,
+                   is_dvd_folder, is_media, is_url, list_media, match_subtitle, natural_key, norm, parse_m3u,
+                   read_playlist, sort_key_by_name)
 
 
 class StreamProbe(QObject):
@@ -85,10 +87,8 @@ class PlaybackMixin:
         if d.exec() and d.url.text().strip():
             url = d.url.text().strip()
             name = d.name.text().strip() or display_name(url)
-            if d.save.isChecked() and url not in [s["url"] for s in self.store.data["streams"]]:
-                self.store.data["streams"].insert(0, {"name": name, "url": url})
-                self.store.save("streams")
-                self.library.refresh_streams()
+            if d.save.isChecked():
+                self.library.save_stream(url, name, toast=False)
             self.open_stream(url, name)
 
     def open_clipboard(self):
@@ -132,17 +132,7 @@ class PlaybackMixin:
             self._play_stream(url, name)                # a plain HLS stream: VLC plays it
 
     def open_playlist_file(self, path):
-        try:
-            with open(path, encoding="utf-8", errors="replace") as f:
-                items = parse_m3u(f.read()) or []
-        except OSError:
-            items = []
-        base = os.path.dirname(path)
-        q = []
-        for n, p in items:
-            if not is_url(p) and not os.path.isabs(p):
-                p = os.path.normpath(os.path.join(base, p))
-            q.append({"path": p, "title": n})
+        q = [{"path": p, "title": n} for n, p in read_playlist(path)]
         if q:
             self.set_queue(q, 0)
             if len(q) > 1 and all(is_url(x["path"]) for x in q):
@@ -475,7 +465,7 @@ class PlaybackMixin:
             self.library.refresh_library()
 
     def _accept_resume(self):
-        if self._resume_ms and getattr(self, "_resume_title", None) is not None:
+        if self._resume_ms and self._resume_title is not None:
             self._resume_disc(self._resume_title, self._resume_ms)
         elif self._resume_ms:
             self.engine.seek(self._resume_ms)
@@ -578,7 +568,7 @@ class PlaybackMixin:
             self._trim_start()
             if not self._live_applied:
                 self._live_applied = True
-                e.apply_live()
+                e.apply_live_once()
                 self.sidebar.sync_from_engine()
                 QTimer.singleShot(900, self._after_start)
             if not self._prefs_applied:

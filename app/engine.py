@@ -10,11 +10,12 @@ import os
 import sys
 import threading
 import time
-import json
 from fractions import Fraction
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
+from .paths import log_dir, rotate
+from .store import saved_setting
 from .util import disc_mrl, is_disc, is_url
 
 
@@ -111,13 +112,9 @@ def fill_aspects(area: tuple[int, int], crop: tuple[int, int], src: tuple[int, i
     return out
 
 def _saved_vlc_dir() -> str:
-    """A VLC folder the user picked with "Locate VLC folder..." (stored in data.json)."""
-    try:
-        from .store import data_dir
-        with open(os.path.join(data_dir(), "data.json"), encoding="utf-8") as f:
-            return json.load(f).get("settings", {}).get("vlc_dir", "") or ""
-    except Exception:
-        return ""
+    """A VLC folder the user picked with "Locate VLC folder..." (VLC loads before the Store exists, so
+    this reads the saved setting the way the Store would)."""
+    return saved_setting("vlc_dir") or ""
 
 
 def _windows_candidates() -> list[str]:
@@ -272,25 +269,6 @@ def load_vlc(folder: str = "") -> bool:
 load_vlc()
 
 
-def _pick_log_dir():
-    from .store import data_dir
-    for d in (os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs"),
-              os.path.join(data_dir(), "logs")):
-        try:
-            os.makedirs(d, exist_ok=True)
-            log = os.path.join(d, "vlc.log")
-            if os.path.isfile(log) and os.path.getsize(log) > 2_000_000:
-                os.remove(log)
-            with open(os.path.join(d, ".write-test"), "w"):
-                pass
-            os.remove(os.path.join(d, ".write-test"))
-            return d
-        except OSError:
-            continue
-    return None
-
-
-LOG_DIR = _pick_log_dir()
 
 
 def _dec(b) -> str:
@@ -356,6 +334,7 @@ class Engine(QObject):
                      "adjust": None}
         self._cb = []
         self._live_pending = False     # re-apply live settings once the new player plays
+        self._live_done = False        # live settings were applied to the media playing now (M16)
         self._audio_ready_at = 0.0     # Linux: when the audio output can take volume changes (#28)
         self._audio_pending = {}       # volume/mute changes waiting for that
         self._held_ms = None           # position shown while a media is opened paused
@@ -440,8 +419,10 @@ class Engine(QObject):
         extra = os.environ.get("PYLON_VLC_ARGS", "").split()
         if extra:
             args += extra
-        if LOG_DIR:
-            args += ["--file-logging", f"--logfile={os.path.join(LOG_DIR, 'vlc.log')}", "--log-verbose=1"]
+        logs = log_dir()
+        if logs:
+            rotate(os.path.join(logs, "vlc.log"), 2_000_000)
+            args += ["--file-logging", f"--logfile={os.path.join(logs, 'vlc.log')}", "--log-verbose=1"]
         return args
 
     def _build(self):
@@ -534,6 +515,7 @@ class Engine(QObject):
         self._held_ms = None
         self._settle = None
         self.izoom = None              # each new file starts unzoomed
+        self._live_done = False
         if paused:
             # Come back to exactly the frame that was showing, without playing on (#36).
             # VLC on Windows draws nothing for a media opened with :start-paused, so
@@ -689,13 +671,20 @@ class Engine(QObject):
         # a media reopened paused (#36) never reaches "playing", so apply there too
         if state in ("playing", "paused") and self._live_pending:
             self._live_pending = False
-            self.apply_live()
+            self.apply_live_once()
             QTimer.singleShot(400, self._reapply_picture)
 
+    def apply_live_once(self):
+        """Apply the session's tweaks to a media that has just started, unless that was done already
+        (the window and a rebuilt player both ask when playback starts)."""
+        if not self._live_done:
+            self.apply_live()
+
     def apply_live(self):
-        """Re-apply per-session tweaks after a new media starts."""
+        """Re-apply per-session tweaks after a new media starts, or after they changed."""
         if not self.ok:
             return
+        self._live_done = True
         L = self.live
         self.player.set_rate(L["rate"])
         self.player.video_set_spu_delay(int(L["sub_delay"] * 1000))
@@ -1085,13 +1074,21 @@ class Engine(QObject):
             pass
         return Fraction(1)
 
+    def _turned(self) -> bool:
+        """The picture is turned a quarter (90 or 270 degrees, mirrored or not), so its sides swap."""
+        return self.transform in ("90", "270", "transpose", "antitranspose")
+
+    def _zoom_borders(self, vw: int, vh: int):
+        """(left, top, right, bottom) in video pixels for the interactive zoom window."""
+        z = self.izoom
+        left, top = round(z["x"]), round(z["y"])
+        return left, top, max(0, vw - left - round(z["w"])), max(0, vh - top - round(z["h"]))
+
     def _crop_borders(self, vw: int, vh: int, sar: Fraction):
         """(left, top, right, bottom) in video pixels for the crop or interactive zoom, (0, 0, 0, 0) for
         none, or None for a crop Pylon can't work out. A ratio is cut the way VLC does (VoutDisplayCropRatio)."""
-        z = self.izoom
-        if z:
-            left, top = round(z["x"]), round(z["y"])
-            return (left, top, max(0, vw - left - round(z["w"])), max(0, vh - top - round(z["h"])))
+        if self.izoom:
+            return self._zoom_borders(vw, vh)
         c = self.live["crop"]
         if not c:
             return 0, 0, 0, 0
@@ -1120,7 +1117,7 @@ class Engine(QObject):
             return None
         sar = self._source_sar(vw, vh)
         crop = self._crop_borders(vw, vh, sar)
-        turned = self.transform in ("90", "270", "transpose", "antitranspose")
+        turned = self._turned()
         if crop is None or (turned and any(crop)):
             return None
         cw, ch = vw - crop[0] - crop[2], vh - crop[1] - crop[3]
@@ -1146,7 +1143,7 @@ class Engine(QObject):
         (vw, vh), borders = shape["src"], shape["crop"]
         left, top, right, bottom = borders
         crop = (vw - left - right, vh - top - bottom)
-        if self.transform in ("90", "270", "transpose", "antitranspose"):
+        if self._turned():
             vw, vh = vh, vw                 # VLC sees the turned picture (never cropped here)
             crop = (vw, vh)
         ratios = fill_aspects(self.fit, crop, (vw, vh))
@@ -1168,16 +1165,11 @@ class Engine(QObject):
             self.player.video_set_aspect_ratio(aspect)
             return
         self.player.video_set_aspect_ratio(self.live["aspect"] or None)
-        z = self.izoom
-        if z:
+        if self.izoom:
             # Use VLC's border form "left+top+right+bottom". VLC 3 reads the window
             # form "WxH+X+Y" as edges rather than a size, which gave the wrong area (#41).
-            vw, vh = self.video_size()
-            left, top = round(z["x"]), round(z["y"])
-            right = max(0, vw - left - round(z["w"]))
-            bottom = max(0, vh - top - round(z["h"]))
             self.player.video_set_scale(0)
-            self.player.video_set_crop_geometry(f"{left}+{top}+{right}+{bottom}")
+            self.player.video_set_crop_geometry("+".join(map(str, self._zoom_borders(*self.video_size()))))
         else:
             self.player.video_set_crop_geometry(self.live["crop"] or None)
             self.player.video_set_scale(self.live["zoom"])
@@ -1263,10 +1255,11 @@ class Engine(QObject):
         self.player.video_set_adjust_float(A.Hue, float(adj.get("hue", 0.0)))
         self.player.video_set_adjust_float(A.Gamma, float(adj.get("gamma", 1.0)))
 
-    def snapshot(self, folder: str) -> bool:
+    def snapshot(self, path: str) -> bool:
+        """Save the current frame to `path` (a .png file; VLC picks a name if it's a folder)."""
         if not self.ok:
             return False
-        return self.player.video_take_snapshot(0, folder, 0, 0) == 0
+        return self.player.video_take_snapshot(0, path, 0, 0) == 0
 
     # ------------------------------------------------------------------ chapters
     def chapters(self) -> list[tuple[int, str, int]]:

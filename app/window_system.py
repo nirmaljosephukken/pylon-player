@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from . import APP_VERSION, theme
 from . import engine as engine_mod
-from .dialogs import WelcomeDialog
+from .dialogs import UpdateDialog, WelcomeDialog
 from .util import desktop_mime_types
 
 
@@ -46,7 +46,6 @@ class SystemMixin:
                                 f"Pylon couldn't reach GitHub to check for a new version.\n\n{why}")
 
     def show_update(self, release=None):
-        from .dialogs import UpdateDialog
         release = release or self._update_release
         if release:
             UpdateDialog(self, release).exec()

@@ -6,6 +6,7 @@ import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
+from .paths import data_dir
 from .util import display_name, is_audio, is_media, is_url
 
 # What the queue does when an item ends (#48), in the order the queue button cycles through them:
@@ -181,27 +182,6 @@ MAX_POSITIONS = 2000
 MAX_PLAYS = 2000
 
 
-def data_dir() -> str:
-    """Windows: %APPDATA%\\Pylon   macOS: ~/Library/Application Support/Pylon
-    Linux: $XDG_DATA_HOME/pylon (~/.local/share/pylon)"""
-    home = os.path.expanduser("~")
-    if sys.platform == "win32":
-        base = os.environ.get("APPDATA") or home
-        path = os.path.join(base, "Pylon")
-        legacy = os.path.join(base, "ConePlayer")   # Pylon's earlier name
-        if not os.path.exists(path) and os.path.isdir(legacy):
-            try:
-                os.rename(legacy, path)
-            except OSError:
-                return legacy
-    elif sys.platform == "darwin":
-        path = os.path.join(home, "Library", "Application Support", "Pylon")
-    else:
-        path = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share"), "pylon")
-    os.makedirs(path, exist_ok=True)
-    return path
-
-
 def _same_type(default, value) -> bool:
     """Whether a loaded value can stand in for the default: same JSON type (an int may be a float,
     None defaults take anything)."""
@@ -212,6 +192,22 @@ def _same_type(default, value) -> bool:
     if isinstance(default, (int, float)):
         return isinstance(value, (int, float))
     return isinstance(value, type(default))
+
+
+def saved_setting(key: str, path: str | None = None):
+    """One saved setting, read without a Store (VLC is loaded before there is one): from data.json, or
+    its last good copy, and only if it has the default's type; otherwise the default."""
+    path = path or os.path.join(data_dir(), "data.json")
+    default = DEFAULT_SETTINGS.get(key)
+    for candidate in (path, path + ".bak"):
+        try:
+            with open(candidate, encoding="utf-8") as f:
+                settings = json.load(f).get("settings", {})
+        except (OSError, ValueError, AttributeError):
+            continue
+        value = settings.get(key, default) if isinstance(settings, dict) else default
+        return value if _same_type(default, value) else default
+    return default
 
 
 class Store(QObject):

@@ -13,6 +13,7 @@ from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication, QInputDialog, QMenu
 from app import engine, theme
 engine.vlc = None
+from app.library_widgets import REVEAL_LABEL
 from app.store import Store
 from app.window import MainWindow
 
@@ -87,7 +88,7 @@ class RecentMenu(Base):
         self.fill_recent()
         m = self.open_menu(self.lib._recent_menu, self.lib.recent_list, 0)
         labels = menu_labels(m)
-        for want in ("Play", "Add to queue", "Play next", "Mark as watched", "Show in Explorer", "Remove from Recent"):
+        for want in ("Play", "Add to queue", "Play next", "Mark as watched", REVEAL_LABEL, "Remove from Recent"):
             self.assertIn(want, labels)
         self.assertTrue(any(x.startswith("Add to playlist:") for x in labels))
 
@@ -97,7 +98,7 @@ class RecentMenu(Base):
         labels = menu_labels(m)
         for want in ("Play", "Copy link", "Save to Streams", "Remove from Recent"):
             self.assertIn(want, labels)
-        self.assertNotIn("Show in Explorer", labels)
+        self.assertNotIn(REVEAL_LABEL, labels)
         next(a for a in m.actions() if a.text() == "Save to Streams").trigger()
         self.assertEqual(self.store.data["streams"][0]["url"], "http://tv.test/news.m3u8")
 
@@ -126,10 +127,10 @@ class Pins(Base):
         next(a for a in m.actions() if a.text() == "Pin to top").trigger()
         self.assertEqual(self.texts(lib.pl_list), ["PINNED", "Alpha   (1)", "PLAYLISTS", "Gamma   (0)", "Beta   (2)"])
         self.assertEqual(lib.playlists_count.text(), "3 playlists")
-        lib.playlists_sort.setCurrentIndex(lib.playlists_sort.findData("reverse"))   # pins ignore the sort
+        lib.playlists_sort.set_mode("reverse")   # pins ignore the sort
         self.assertEqual(self.texts(lib.pl_list)[1], "Alpha   (1)")
         with patch.object(QInputDialog, "getText", lambda *a, **k: ("Aardvark", True)):
-            lib._pl_rename("Alpha")
+            lib.rename_playlist("Alpha")
         self.assertEqual(lib.pins("playlists"), ["Aardvark"])
         with patch("app.library.QMessageBox.question", lambda *a, **k: __import__("PySide6.QtWidgets", fromlist=["x"]).QMessageBox.Yes):
             lib._pl_delete("Aardvark")
@@ -153,7 +154,7 @@ class Pins(Base):
         from PySide6.QtWidgets import QLabel
         names = [c.findChildren(QLabel)[1].toolTip() for c in self.win.home.findChildren(Card)]
         self.assertLess(names.index("One"), names.index("Three"))
-        lib._st_remove("http://t/1")
+        lib.remove_stream("http://t/1")
         self.assertEqual(lib.pins("streams"), [])
 
     def test_music_pins(self):
