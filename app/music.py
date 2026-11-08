@@ -8,16 +8,15 @@ import hashlib
 import json
 import os
 import re
-import threading
 import time
-from urllib.parse import unquote, urlparse
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QImage
 
 from . import engine as engine_mod
+from .background import BackgroundJob, cache_dir
 from .store import data_dir
-from .util import is_audio, natural_key
+from .util import is_audio, natural_key, to_path
 
 UNKNOWN_ARTIST = "Unknown artist"
 COVER_NAMES = ("cover", "folder", "front", "album", "albumart")
@@ -44,9 +43,7 @@ def credit_artists(credit, known=()):
 
 
 def _art_dir():
-    d = os.path.join(data_dir(), "art")
-    os.makedirs(d, exist_ok=True)
-    return d
+    return cache_dir("art")
 
 
 def _int(v):
@@ -62,14 +59,8 @@ def _year(v):
 
 
 def _url_to_path(u):
-    if not u:
-        return ""
-    if u.startswith("file:"):
-        p = unquote(urlparse(u).path)
-        if os.name == "nt" and p.startswith("/") and len(p) > 2 and p[2] == ":":
-            p = p[1:]
-        return os.path.normpath(p)
-    return ""
+    """A local file named by VLC's artwork URL, or "" for anything else."""
+    return to_path(u) if u and u.lower().startswith("file://") else ""
 
 
 def folder_cover(folder):
@@ -101,17 +92,16 @@ def _store_art(src, artist, album):
     return out if img.save(out, "JPG", 88) else ""
 
 
-class MusicLibrary(QObject):
+class MusicLibrary(QObject, BackgroundJob):
     progress = Signal(int, int)    # done, total
     finished = Signal()
 
     def __init__(self, store, parent=None):
-        super().__init__(parent)
+        QObject.__init__(self, parent)
         self.store = store
         self.path = os.path.join(data_dir(), "music.json")
         self.songs: dict[str, dict] = {}
-        self._thread = None
-        self._stop = threading.Event()
+        BackgroundJob.__init__(self)
         self.scanning = False
         self._load()
 
@@ -138,15 +128,12 @@ class MusicLibrary(QObject):
         if self.scanning or engine_mod.vlc is None:
             return
         self.scanning = True
-        self._stop = threading.Event()
         folders = list(self.store.data.get("library_folders", []))
-        self._thread = threading.Thread(target=self._run, args=(folders, dict(self.songs), self._stop), daemon=True)
-        self._thread.start()
+        self._start_worker(self._run, folders, dict(self.songs))
 
-    def stop(self):
-        self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=3)
+    def stop(self, wait: bool = False):
+        """Stop scanning; the scan finishes on its own unless `wait` (M33)."""
+        self._stop_worker(wait)
 
     def _run(self, folders, old, stop):
         try:

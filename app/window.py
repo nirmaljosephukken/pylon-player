@@ -26,7 +26,7 @@ from .waveform import WaveformMaker
 from .widgets import IconButton, SeekPreview, Toast
 from .window_menus import MenusMixin
 from .window_panels import PanelsMixin
-from .window_playback import PlaybackMixin
+from .window_playback import PlaybackMixin, StreamProbe
 from .window_system import SystemMixin
 
 VSR_FULLSCREEN_RETRIES_MS = (600, 1500)    # extra Super Resolution redraws in full screen (#42)
@@ -43,6 +43,8 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         self.setAcceptDrops(True)
 
         self.engine = Engine(store, self)      # starts VLC once, with the saved subtitle style
+        self.stream_probe = StreamProbe(self)
+        self.stream_probe.finished.connect(self._stream_probed)
 
         self.queue: list[dict] = []
         self.qindex = -1
@@ -1274,8 +1276,10 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
 
     # ================================================================ closing
     def closeEvent(self, e):
-        self.thumbs.cancel()
-        self.waves.cancel()
+        # let the background readers' VLC instances go before VLC and Qt shut down
+        self.thumbs.cancel(wait=True)
+        self.waves.cancel(wait=True)
+        self.library.music.stop(wait=True)
         self._save_position()
         self.store.data["queue"] = [{k: v for k, v in q.items() if k in ("path", "title")} for q in self.queue][:500]
         self.engine.shutdown()

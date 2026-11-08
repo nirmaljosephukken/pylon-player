@@ -57,10 +57,16 @@ def _ssl_context():
     return ctx
 
 
-def _get(url, timeout=15):
-    req = urllib.request.Request(url, headers={"User-Agent": f"Pylon/{APP_VERSION}",
-                                               "Accept": "application/vnd.github+json"})
+def _get(url, timeout=15, accept="application/vnd.github+json"):
+    req = urllib.request.Request(url, headers={"User-Agent": f"Pylon/{APP_VERSION}", "Accept": accept})
     return urllib.request.urlopen(req, timeout=timeout, context=_ssl_context())
+
+
+def fetch_text(url: str, limit: int = 8_000_000, timeout: int = 12) -> str:
+    """Download a small text file (e.g. an online channel list) with Pylon's certificates and name.
+    Blocking: call it from a worker thread."""
+    with _get(url, timeout=timeout, accept="*/*") as r:
+        return r.read(limit).decode("utf-8", "replace")
 
 
 SUMS_NAME = "SHA256SUMS.txt"

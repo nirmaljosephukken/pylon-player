@@ -169,7 +169,7 @@ class MenusMixin:
                 m.addMenu(self.build_disc_menu(m))
             m.addAction(icon("subtitles", theme.TEXT, 16), "Add subtitles…", lambda: self.open_subtitle_dialog())
             m.addAction(icon("bookmark_add", theme.TEXT, 16), k("Add bookmark", "bookmark"), lambda: self.do("bookmark", key=False))
-            m.addAction(icon("snapshot", theme.TEXT, 16), k("Take a snapshot", "snapshot"), lambda: self.do("snapshot", key=False))
+            m.addAction(icon("snapshot", theme.TEXT, 16), "Take a snapshot", lambda: self.do("snapshot", key=False))
             m.addAction(icon("close", theme.TEXT, 16), k("Close the video", "close_media"), self.close_media)
         m.addSeparator()
         m.addAction(icon("settings", theme.TEXT, 16), "Preferences…", self.show_preferences)
@@ -233,7 +233,7 @@ class MenusMixin:
             m.addSeparator()
             m.addAction(icon("bookmark_add", theme.TEXT, 16), k("Add bookmark", "bookmark"), lambda: self.do("bookmark", key=False))
             if video:
-                m.addAction(icon("snapshot", theme.TEXT, 16), k("Take a snapshot", "snapshot"), lambda: self.do("snapshot", key=False))
+                m.addAction(icon("snapshot", theme.TEXT, 16), "Take a snapshot", lambda: self.do("snapshot", key=False))
             m.addSeparator()
         m.addAction(icon("sidebar_left", theme.TEXT, 16), k("Library and queue", "library"), lambda: self.toggle_library())
         m.addAction(icon("sidebar_right", theme.TEXT, 16), k("Settings panel", "sidebar"), lambda: self.toggle_sidebar())

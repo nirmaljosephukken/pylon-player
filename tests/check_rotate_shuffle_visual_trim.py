@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QEventLoop, QRect, QTimer
 from PySide6.QtWidgets import QApplication
-from app import engine, waveform
+from app import background, engine, waveform
 engine.vlc = None
 from app.engine import VISUALIZERS, VLC_TRANSFORMS, Engine, compose_transform, transform_parts
 from app.stage import PAGE_AUDIO, PAGE_VIDEO
@@ -340,7 +340,7 @@ class SilenceBounds(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             song = Path(d) / "a.mp3"
             song.write_bytes(b"x")
-            with patch.object(waveform, "data_dir", lambda: d):
+            with patch.object(background, "data_dir", lambda: d):
                 m = waveform.WaveformMaker()
                 m._save_cache(str(song), [0.5, 1.0], (1850, 7400, 10000))
                 self.assertEqual(m._load_cache(str(song)), ([0.5, 1.0], (1850, 7400, 10000)))

@@ -1,12 +1,12 @@
 """Main window: opening things, the queue, playing a file and what happens when it ends."""
 import os
 import random
+import threading
 import time
-import urllib.request
 
-from PySide6.QtCore import QPoint, Qt, QTimer
+from PySide6.QtCore import QObject, QPoint, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from . import APP_NAME
 from .dialogs import StreamDialog, SubtitleDialog
@@ -14,9 +14,36 @@ from .engine import MAX_SHARPEN
 from .library_widgets import media_filter
 from .stage import PAGE_AUDIO, PAGE_HOME, PAGE_VIDEO
 from .store import resume_point
+from .updates import fetch_text
 from .util import (SUB_EXTS, PLAYLIST_EXTS, display_name, norm, find_subtitle_candidates, is_disc, is_dvd_folder,
                    fmt_time, is_audio, is_media, is_url, list_media, match_subtitle, merge_in_name_order, natural_key,
                    sort_key_by_name, parse_m3u)
+
+
+class StreamProbe(QObject):
+    """Fetches an online .m3u/.m3u8 in a worker thread to see whether it lists channels."""
+    finished = Signal(str, str, object)       # url, name, [(name, url)] or None (on the GUI thread)
+    _done = Signal(int, str, str, object)     # from the worker thread; Qt queues it to the GUI thread
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._token = 0
+        self._done.connect(self._deliver)
+
+    def start(self, url: str, name: str):
+        self._token += 1
+        threading.Thread(target=self._run, args=(self._token, url, name), daemon=True).start()
+
+    def _run(self, token, url, name):
+        try:
+            channels = parse_m3u(fetch_text(url))
+        except Exception:
+            channels = None
+        self._done.emit(token, url, name, channels)
+
+    def _deliver(self, token, url, name, channels):
+        if token == self._token:              # only the latest request counts
+            self.finished.emit(url, name, channels)
 
 
 class PlaybackMixin:
@@ -66,27 +93,28 @@ class PlaybackMixin:
     def open_stream(self, url: str, name: str = ""):
         low = url.lower().split("?")[0]
         if low.endswith((".m3u", ".m3u8")) and url.startswith("http"):
-            QApplication.setOverrideCursor(Qt.WaitCursor)
-            try:
-                req = urllib.request.Request(url, headers={"User-Agent": "Pylon/1.0"})
-                with urllib.request.urlopen(req, timeout=12) as r:
-                    text = r.read(8_000_000).decode("utf-8", "replace")
-                channels = parse_m3u(text)
-            except Exception:
-                channels = None
-            finally:
-                QApplication.restoreOverrideCursor()
-            if channels:
-                saved = self.library.stream_entry(url)
-                if saved is not None and saved.get("count") != len(channels):
-                    saved["count"] = len(channels)          # show the channel count in Streams (#44)
-                    self.store.save("streams")
-                    self.library.refresh_streams()
-                self.set_queue([{"path": u, "title": n} for n, u in channels], 0)
-                self.toggle_queue(True)
-                self.toast(f"Loaded {len(channels)} channels into the queue")
-                return
+            # It may be a list of channels: look in a worker thread, so a slow server can't freeze the
+            # window (H3); _stream_probed carries on. A newer open_stream makes this answer stale.
+            self.stream_probe.start(url, name)
+            self.toast("Opening…")
+            return
+        self._play_stream(url, name)
+
+    def _play_stream(self, url: str, name: str = ""):
         self.set_queue([{"path": url, "title": name or display_name(url)}], 0)
+
+    def _stream_probed(self, url: str, name: str, channels):
+        if channels:
+            saved = self.library.stream_entry(url)
+            if saved is not None and saved.get("count") != len(channels):
+                saved["count"] = len(channels)          # show the channel count in Streams (#44)
+                self.store.save("streams")
+                self.library.refresh_streams()
+            self.set_queue([{"path": u, "title": n} for n, u in channels], 0)
+            self.toggle_queue(True)
+            self.toast(f"Loaded {len(channels)} channels into the queue")
+        else:
+            self._play_stream(url, name)                # a plain HLS stream: VLC plays it
 
     def open_playlist_file(self, path):
         try:

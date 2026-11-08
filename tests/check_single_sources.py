@@ -76,6 +76,7 @@ class KeyLabels(unittest.TestCase):
         self.store.set_setting("onboarded", True)
         with patch.object(MainWindow, "_vlc_missing"):
             self.win = MainWindow(self.store)
+        self.win._vlc_missing = lambda: None
         self.win._ui_timer.stop()
         self.win._time_timer.stop()
 

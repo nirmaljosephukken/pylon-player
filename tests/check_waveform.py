@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QApplication, QComboBox
 from app import engine
 REAL_VLC = engine.vlc
 engine.vlc = None
-from app import waveform
+from app import background
 from app.store import Store
 from app.waveform import WaveformMaker, peaks_from_wav
 from app.widgets import SeekBar
@@ -79,7 +79,7 @@ class Peaks(unittest.TestCase):
     def test_cache(self):
         song = self.d / "song.mp3"
         song.write_bytes(b"x")
-        with patch.object(waveform, "data_dir", lambda: str(self.d)):
+        with patch.object(background, "data_dir", lambda: str(self.d)):
             m = WaveformMaker()
             m._save_cache(str(song), [0.1, 0.5, 1.0], (150, 2400, 3000))
             self.assertEqual(m._load_cache(str(song)), ([0.1, 0.5, 1.0], (150, 2400, 3000)))
@@ -92,7 +92,7 @@ class Peaks(unittest.TestCase):
         src = self.d / "tone file.wav"
         write_wav(src, seconds=6)
         got = []
-        with patch.object(waveform, "data_dir", lambda: str(self.d)), patch.object(engine, "vlc", REAL_VLC):
+        with patch.object(background, "data_dir", lambda: str(self.d)), patch.object(engine, "vlc", REAL_VLC):
             m = WaveformMaker()
             m.ready.connect(lambda p, peaks: got.append(peaks))
             m.start(str(src))
@@ -100,7 +100,7 @@ class Peaks(unittest.TestCase):
                 if got:
                     break
                 wait(100)
-            m.cancel()
+            m.cancel(wait=True)                          # the reader removes its temporary file as it ends
         self.assertTrue(got, "no waveform within 10 s")
         peaks = got[0]
         half = len(peaks) // 2

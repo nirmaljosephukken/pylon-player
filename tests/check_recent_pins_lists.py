@@ -242,6 +242,10 @@ class ChannelLists(Base):
 
         with patch("urllib.request.urlopen", lambda *a, **k: Resp(body)):
             win.play_saved_stream(url)
+            for _ in range(100):              # the list is fetched in a worker thread (H3)
+                if len(win.queue) == 2:
+                    break
+                wait(20)
         self.assertEqual(len(win.queue), 2)
         self.assertEqual(self.store.data["streams"][0]["count"], 2)
         self.assertEqual(self.texts(lib.st_list), ["Free-TV   (2)"])

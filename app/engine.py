@@ -8,6 +8,7 @@ import ctypes
 import math
 import os
 import sys
+import threading
 import time
 import json
 from fractions import Fraction
@@ -333,6 +334,7 @@ class Engine(QObject):
     wake_picture = Signal()           # Windows: give VLC's video area a nudge so the picture shows (#82)
     picture_changed = Signal()          # the picture's shape may have changed (aspect, crop, new video)
     renderers_changed = Signal()        # a cast device appeared or went away
+    _renderer_seen = Signal(object, bool, object)   # VLC thread -> GUI thread: pointer, added, held item
 
     def __init__(self, store, parent=None):
         super().__init__(parent)
@@ -354,6 +356,8 @@ class Engine(QObject):
                      "adjust": None}
         self._cb = []
         self._live_pending = False     # re-apply live settings once the new player plays
+        self._audio_ready_at = 0.0     # Linux: when the audio output can take volume changes (#28)
+        self._audio_pending = {}       # volume/mute changes waiting for that
         self._held_ms = None           # position shown while a media is opened paused
         self._settle = None            # reopening paused: where to return once it plays (#36)
         self.izoom = None              # interactive zoom (#39): {"z", "x", "y", "w", "h"} in video pixels
@@ -367,7 +371,12 @@ class Engine(QObject):
         self._seek_timer.setSingleShot(True)
         self._seek_timer.timeout.connect(self._seek_flush)
         self._discoverers = []           # renderer discoverers while looking for cast devices
-        self._renderers = {}             # item pointer -> {"item", "name", "type"}
+        self._renderers = {}             # item pointer -> {"item", "name", "type"}; GUI thread only
+        self._renderer_ptrs = set()      # pointers held so far; VLC thread, under _renderer_lock
+        self._renderer_lock = threading.Lock()
+        self._dropped = []               # devices that went away, released the next time the list is read
+        # Auto connection: queued when emitted on VLC's thread, direct when emitted on the GUI thread
+        self._renderer_seen.connect(self._on_renderer_seen)
         self.renderer = None             # the cast device in use, or None for this computer
         # The picture filter (brightness, saturation...) only sticks once VLC has
         # made its video output, so apply it again whenever a new one appears.
@@ -818,7 +827,7 @@ class Engine(QObject):
 
     # ------------------------------------------------------------------ audio
     def _audio_wait_ms(self) -> int:
-        return max(0, int((getattr(self, "_audio_ready_at", 0) - time.monotonic()) * 1000))
+        return max(0, int((self._audio_ready_at - time.monotonic()) * 1000))
 
     def _queue_audio(self, **change):
         """Apply volume/mute now, or once the audio output has settled (#28)."""
@@ -973,11 +982,9 @@ class Engine(QObject):
                 vlc.libvlc_audio_equalizer_set_amp_at_index(eq, amp, i)
         else:
             eq = vlc.libvlc_audio_equalizer_new_from_preset(index)
-        # the player copies the settings, so the previous object can go
+        # libVLC copies the settings into the player, so the object can go straight away
         self.player.set_equalizer(eq)
-        old, self._eq = getattr(self, "_eq", None), eq
-        if old:
-            vlc.libvlc_audio_equalizer_release(old)
+        vlc.libvlc_audio_equalizer_release(eq)
 
     # ------------------------------------------------------------------ subtitles
     def sub_tracks(self) -> list[tuple[int, str]]:
@@ -1358,6 +1365,8 @@ class Engine(QObject):
             self._discoverers.append((rd, cb_add, cb_del))
 
     def _renderer_event(self, event, added):
+        """Runs on a VLC thread (H5): only keep the device alive (VLC frees an item after its "deleted"
+        event unless it is held) and hand it to the GUI thread, which owns the device list."""
         try:
             # python-vlc doesn't describe this event's payload; it is the item pointer
             ptr = ctypes.c_void_p.from_address(ctypes.addressof(event.u)).value
@@ -1365,19 +1374,28 @@ class Engine(QObject):
             return
         if not ptr:
             return
-        if added and ptr not in self._renderers:
-            item = vlc._Constructor(vlc.Renderer, ptr)
-            item.hold()
+        item = None
+        with self._renderer_lock:
+            if added and ptr not in self._renderer_ptrs:
+                item = vlc._Constructor(vlc.Renderer, ptr)
+                item.hold()
+                self._renderer_ptrs.add(ptr)
+            elif not added:
+                self._renderer_ptrs.discard(ptr)
+        self._renderer_seen.emit(ptr, added, item)
+
+    def _on_renderer_seen(self, ptr, added, item):
+        if added and item is not None:
             self._renderers[ptr] = {"item": item, "name": _dec(item.name()) or "Cast device",
                                     "type": _dec(item.type()), "key": ptr}
         elif not added:
             gone = self._renderers.pop(ptr, None)
             if gone is not None and (self.renderer is None or self.renderer["key"] != ptr):
-                self._dropped = getattr(self, "_dropped", []) + [gone]   # released on the GUI thread
+                self._dropped.append(gone)        # the cast menu may still show it: release later
         self.renderers_changed.emit()
 
     def renderers(self) -> list[dict]:
-        for gone in getattr(self, "_dropped", []):
+        for gone in self._dropped:
             try:
                 gone["item"].release()
             except Exception:
