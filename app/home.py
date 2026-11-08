@@ -3,10 +3,10 @@ library, playlists, streams) and the Now Playing page used for music."""
 import os
 import time
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea,
-                               QSizePolicy, QVBoxLayout, QWidget, QMenu)
+from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy,
+                               QVBoxLayout, QWidget, QMenu)
 
 from . import theme
 from .icons import icon, pixmap
@@ -427,7 +427,10 @@ class NowPlayingPage(QWidget):
     def mouseMoveEvent(self, e):
         if getattr(self.win, "_pip", None) and not e.buttons():
             cur = self.win.edge_cursor(self.win.pip_edges(e.globalPosition().toPoint()))
-            self.setCursor(cur) if cur is not None else self.setCursor(Qt.OpenHandCursor)
+            if cur is not None:
+                self.setCursor(cur)
+            else:
+                self.setCursor(Qt.OpenHandCursor)
         elif self.cursor().shape() != Qt.ArrowCursor and not getattr(self.win, "_pip", None):
             self.unsetCursor()
         super().mouseMoveEvent(e)

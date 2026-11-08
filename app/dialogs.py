@@ -3,19 +3,23 @@ stream, keyboard shortcuts, preferences, and the first-run welcome."""
 import os
 import sys
 
-from PySide6.QtCore import QSize, Qt, QUrl, QTimer
-from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QIcon, QPixmap, QPainter
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QFrame,
-                               QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout,
-                               QHeaderView, QKeySequenceEdit, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QSpinBox,
-                               QScrollArea, QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtCore import QEvent, QRect, QSize, QTimer, QUrl, Qt
+from PySide6.QtGui import (QColor, QDesktopServices, QGuiApplication, QIcon, QKeySequence, QPainter,
+                           QPixmap)
+from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDialog,
+                               QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout,
+                               QHBoxLayout, QHeaderView, QKeySequenceEdit, QLabel, QLineEdit,
+                               QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton,
+                               QRadioButton, QScrollArea, QSpinBox, QStackedWidget, QStyle,
+                               QStyledItemDelegate, QTableWidget, QTableWidgetItem, QTextBrowser,
+                               QVBoxLayout, QWidget)
 
-from . import theme
+from . import theme, APP_VERSION
 from .colour_dialog import choose_colour
 from .icons import icon, pixmap
 from .store import DEFAULT_SHORTCUTS, HOME_SECTIONS, QUEUE_MODES, RATIOS
-from .util import MATCH_LEVELS, SUB_EXTS, auto_match_folder, display_name, is_url, list_media, subtitle_query
+from .util import (MATCH_LEVELS, SUB_EXTS, auto_match_folder, is_url, list_media, subtitle_query,
+                   SUBTITLE_SITES)
 from .widgets import IconButton, subtitle_search_menu
 
 SUB_FILTER = "Subtitles (" + " ".join(f"*{e}" for e in sorted(SUB_EXTS)) + ");;All files (*)"
@@ -234,7 +238,6 @@ class StreamDialog(QDialog):
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
-        from PySide6.QtGui import QGuiApplication
         clip = QGuiApplication.clipboard().text().strip()
         if "://" in clip and " " not in clip:
             self.url.setText(clip)
@@ -278,7 +281,8 @@ class ShortcutsDialog(QDialog):
                 e.setMaximumSequenceLength(1)
             except AttributeError:
                 pass
-            e.setClearButtonEnabled(True) if hasattr(e, "setClearButtonEnabled") else None
+            if hasattr(e, "setClearButtonEnabled"):
+                e.setClearButtonEnabled(True)
             self.table.setCellWidget(r, 1, e)
             self.edits[action] = e
             self.table.setRowHeight(r, 34)
@@ -411,7 +415,6 @@ class HomeSectionList(QWidget):
 
     def __init__(self, store, on_change):
         super().__init__()
-        from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem, QStyledItemDelegate
         self.store, self.on_change = store, on_change
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -435,7 +438,6 @@ class HomeSectionList(QWidget):
                 r = opt.rect
                 shown = owner.is_shown(index.data(Qt.UserRole))
                 p.save()
-                from PySide6.QtWidgets import QStyle
                 if opt.state & QStyle.State_MouseOver:
                     p.fillRect(r, QColor(theme.SURFACE_HI))
                 p.drawPixmap(r.x() + 6, r.y() + (r.height() - 16) // 2, pixmap("drag", theme.FAINT, 16))
@@ -453,7 +455,6 @@ class HomeSectionList(QWidget):
 
     @staticmethod
     def eye_rect(r):
-        from PySide6.QtCore import QRect
         return QRect(r.x() + 30, r.y() + (r.height() - 18) // 2, 18, 18)
 
     def is_shown(self, key):
@@ -471,7 +472,6 @@ class HomeSectionList(QWidget):
         self.on_change(None, None)
 
     def eventFilter(self, obj, e):
-        from PySide6.QtCore import QEvent
         if e.type() == QEvent.MouseButtonRelease and e.button() == Qt.LeftButton:
             pos = e.position().toPoint()
             it = self.list.itemAt(pos)
@@ -835,7 +835,6 @@ class PreferencesDialog(QDialog):
         combo.currentIndexChanged.connect(lambda i: self.store.set_setting("sub_match", combo.itemData(i)))
         f.addWidget(combo)
         f.addWidget(info_label("Preferred subtitle site", "Marked with a star in the Find online menu. The menu keeps the same order."))
-        from .util import SUBTITLE_SITES
         site = QComboBox()
         site.addItem("No preference", "")
         for key, name, _u in SUBTITLE_SITES:
@@ -1038,8 +1037,6 @@ class UpdateDialog(QDialog):
 
     def __init__(self, win, release: dict):
         super().__init__(win)
-        from PySide6.QtWidgets import QProgressBar, QTextBrowser
-        from . import APP_VERSION
         from .updates import installer_asset, RELEASES_PAGE
         self.win = win
         self.release = release

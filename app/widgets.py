@@ -2,15 +2,16 @@
 floating overlay windows, the on-screen toast and the subtitle timeline."""
 import time
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import (QBrush, QColor, QCursor, QFont, QFontMetrics, QLinearGradient,
-                           QPainter, QPainterPath, QPen, QPixmap, QPolygonF)
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QSizePolicy, QToolButton, QToolTip,
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, QTimer, QUrl, Qt, Signal
+from PySide6.QtGui import (QBrush, QColor, QDesktopServices, QFont, QFontMetrics, QIcon,
+                           QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPen, QPixmap,
+                           QPolygonF)
+from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton,
                                QVBoxLayout, QWidget)
 
 from . import overlay, theme
-from .icons import icon
-from .util import fmt_delay, fmt_time
+from .icons import icon, pixmap
+from .util import fmt_delay, fmt_time, SUBTITLE_SITES, subtitle_search_url
 
 
 class IconButton(QToolButton):
@@ -32,11 +33,6 @@ class IconButton(QToolButton):
         self._name = name
         self.refresh()
 
-    def set_dot(self, on: bool):
-        """A small accent-coloured dot in the corner, for a mode that is switched on."""
-        self._dot = bool(on)
-        self.update()
-
     def paintEvent(self, e):
         super().paintEvent(e)
         if self.objectName() == "PlayButton" and self.underMouse():
@@ -46,15 +42,6 @@ class IconButton(QToolButton):
             p.setBrush(Qt.NoBrush)
             p.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 8, 8)
             p.end()
-        if getattr(self, "_dot", False):
-            from PySide6.QtGui import QPainter
-            p = QPainter(self)
-            p.setRenderHint(QPainter.Antialiasing)
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor(theme.accent()))
-            r = max(3.0, self.width() / 9)
-            p.drawEllipse(QPointF(self.width() - r - 2, r + 2), r, r)
-            p.end()
 
     def refresh(self):
         c = self._color() if callable(self._color) else self._color
@@ -62,13 +49,6 @@ class IconButton(QToolButton):
             self.setIcon(icon(self._name, c, self._size))
         else:
             self.setIcon(icon(self._name, theme.TEXT, self._size, active=theme.accent()))
-
-
-def hline():
-    from PySide6.QtWidgets import QFrame
-    f = QFrame()
-    f.setObjectName("Divider")
-    return f
 
 
 # ---------------------------------------------------------------- seek bar
@@ -329,7 +309,6 @@ class ConeVolume(QWidget):
         core.lineTo(right, cy + base)
         core.lineTo(left, cy + tip)
         core.closeSubpath()
-        from PySide6.QtGui import QPainterPathStroker
         st = QPainterPathStroker()
         st.setWidth(2 * r)
         st.setJoinStyle(Qt.RoundJoin)
@@ -687,7 +666,6 @@ class Card(QWidget):
     def __init__(self, title: str, subtitle: str = "", icon_name: str = "file", progress: float | None = None,
                  parent=None, picture=None):
         super().__init__(parent)
-        from PySide6.QtWidgets import QFrame
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedSize(210, 128)
         outer = QVBoxLayout(self)
@@ -699,7 +677,6 @@ class Card(QWidget):
         lay.setContentsMargins(12, 12, 12, 10)
         lay.setSpacing(4)
         ic = QLabel()
-        from .icons import pixmap
         if picture is not None and not picture.isNull():     # album cover art
             ic.setPixmap(picture)
         else:
@@ -754,15 +731,9 @@ class Card(QWidget):
 def subtitle_search_menu(parent, store, query_fn):
     """Menu of subtitle sites for "Find online" (#46). The order never changes; the preferred
     site from Preferences > Subtitles is marked with a star (#54)."""
-    from PySide6.QtCore import QUrl
-    from PySide6.QtGui import QDesktopServices
-    from PySide6.QtWidgets import QMenu
-    from .util import SUBTITLE_SITES, subtitle_search_url
     menu = QMenu(parent)
 
-    from .icons import icon
 
-    from PySide6.QtGui import QIcon, QPixmap
     pm = QPixmap(16, 16)
     pm.fill(Qt.transparent)
     blank = QIcon(pm)

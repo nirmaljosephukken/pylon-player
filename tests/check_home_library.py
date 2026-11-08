@@ -1,9 +1,9 @@
 """Regression checks for privacy, queue display, view sorting and home actions."""
-import os,sys,tempfile,copy,unittest
+import sys, tempfile, copy, unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from PySide6.QtWidgets import QApplication,QLabel,QInputDialog,QPushButton
+from PySide6.QtWidgets import QApplication, QLabel, QInputDialog
 from app import engine
 engine.vlc=None
 from app.window import MainWindow

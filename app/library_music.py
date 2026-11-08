@@ -373,10 +373,6 @@ class MusicMixin:
             self.music_trail.append(("album", val))
             self.music_search.clear()
             self.refresh_music()
-        elif kind == "play_album":
-            a = self._album_by_key(val)
-            if a:
-                self.play_songs(a["tracks"])
         elif kind == "play_artist":
             self.play_songs(self._artist_tracks(val))
         elif kind == "file":
@@ -388,7 +384,7 @@ class MusicMixin:
         if not it or not it.data(ROLE_KIND):
             return
         kind, val = it.data(ROLE_KIND), it.data(ROLE_PATH)
-        if kind in ("album", "play_album"):
+        if kind == "album":
             a = self._album_by_key(val)
             paths = a["tracks"] if a else []
         elif kind in ("artist", "play_artist"):

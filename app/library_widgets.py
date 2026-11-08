@@ -9,10 +9,10 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QHBoxL
                                QStyledItemDelegate, QWidget)
 
 from . import theme
-from .util import is_url, list_media, natural_key, to_path
+from .util import is_url, list_media, natural_key, to_path, AUDIO_EXTS, PLAYLIST_EXTS, VIDEO_EXTS
 
 ROLE_PATH = Qt.UserRole
-ROLE_KIND = Qt.UserRole + 1   # "folder" | "file" | "root"
+ROLE_KIND = Qt.UserRole + 1   # what a row is: "folder", "file", "stream", "playlist"...
 
 # One entry per way of sorting, with an arrow for its direction (#63):
 # kind -> (name, (mode, what it does), (reversed mode, what it does) or None).
@@ -208,10 +208,16 @@ class ChannelListDrop(QListWidget):
                 if u.isLocalFile() and os.path.splitext(u.toLocalFile())[1].lower() in (".m3u", ".m3u8")]
 
     def dragEnterEvent(self, e):
-        e.acceptProposedAction() if self._lists(e) else e.ignore()
+        if self._lists(e):
+            e.acceptProposedAction()
+        else:
+            e.ignore()
 
     def dragMoveEvent(self, e):
-        e.acceptProposedAction() if self._lists(e) else e.ignore()
+        if self._lists(e):
+            e.acceptProposedAction()
+        else:
+            e.ignore()
 
     def dropEvent(self, e):
         paths = self._lists(e)
@@ -268,10 +274,6 @@ class QueueList(QListWidget):
             self.dropped_urls.emit(paths, row if row >= 0 else self.count())
 
 
-def win_call(fn):
-    fn()
-
-
 def _mtime(p):
     try:
         return os.path.getmtime(p)
@@ -290,7 +292,6 @@ def reveal(path):
 
 
 def media_filter():
-    from .util import AUDIO_EXTS, PLAYLIST_EXTS, VIDEO_EXTS
     v = " ".join(f"*{e}" for e in sorted(VIDEO_EXTS))
     a = " ".join(f"*{e}" for e in sorted(AUDIO_EXTS))
     p = " ".join(f"*{e}" for e in sorted(PLAYLIST_EXTS))

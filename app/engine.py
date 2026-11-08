@@ -9,6 +9,7 @@ import math
 import os
 import sys
 import time
+import json
 from fractions import Fraction
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
@@ -111,7 +112,6 @@ def fill_aspects(area: tuple[int, int], crop: tuple[int, int], src: tuple[int, i
 def _saved_vlc_dir() -> str:
     """A VLC folder the user picked with "Locate VLC folder..." (stored in data.json)."""
     try:
-        import json
         from .store import data_dir
         with open(os.path.join(data_dir(), "data.json"), encoding="utf-8") as f:
             return json.load(f).get("settings", {}).get("vlc_dir", "") or ""
@@ -207,21 +207,19 @@ _DLL_DIRS = []   # keep os.add_dll_directory handles alive
 _MAC_LIBS = []   # keep the preloaded VLC core and engine alive on macOS
 vlc = None
 VLC_ERROR = "not loaded yet"
-VLC_DIR = ""     # the folder libVLC was loaded from ("" = found by python-vlc itself)
 
 
 def load_vlc(folder: str = "") -> bool:
     """Find and load libVLC. With `folder`, use exactly that VLC. Can be called
     again while Pylon runs (after "Locate VLC folder...") as long as no VLC was
     loaded yet."""
-    global vlc, VLC_ERROR, VLC_DIR
+    global vlc, VLC_ERROR
     if vlc is not None:
         return True
     try:
         if folder:
             if not _point_at(folder):
                 raise ImportError(f"{folder} doesn't contain VLC")
-            VLC_DIR = folder
         elif "PYTHON_VLC_LIB_PATH" not in os.environ:
             saved = os.environ.get("PYLON_VLC_DIR") or _saved_vlc_dir()
             if saved:
@@ -239,7 +237,6 @@ def load_vlc(folder: str = "") -> bool:
                     continue
                 seen.add(key)
                 if _point_at(cand):
-                    VLC_DIR = os.path.normpath(cand)
                     break
         if sys.platform == "darwin":
             lib = os.environ.get("PYTHON_VLC_LIB_PATH")

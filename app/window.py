@@ -7,7 +7,8 @@ import time
 
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QCursor, QGuiApplication, QKeySequence, QShortcut, QRegion
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QLineEdit, QMainWindow,
+                               QStackedWidget, QVBoxLayout, QWidget)
 
 from . import APP_NAME, overlay, theme
 from .controls import BottomBar, TopBar
@@ -250,7 +251,8 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         self.bottom.apply_glow()
         self.top.update()
         self.osd.update()
-        self.library.refresh_music() if self.library.stack.currentIndex() == 4 else None
+        if self.library.stack.currentIndex() == 4:
+            self.library.refresh_music()
 
     # ================================================================ pages / panels
     def show_home(self):
@@ -675,7 +677,6 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
             return
         elif action == "fullscreen_enter":
             # Enter still works normally while typing or picking from a list
-            from PySide6.QtWidgets import QAbstractItemView, QLineEdit
             fw = QApplication.focusWidget()
             if isinstance(fw, QLineEdit):
                 fw.returnPressed.emit()
@@ -801,7 +802,6 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
 
     def _typing(self, action) -> bool:
         """The key belongs to a text box, or Enter to a list item, that has the focus."""
-        from PySide6.QtWidgets import QAbstractItemView, QLineEdit
         fw = QApplication.focusWidget()
         if isinstance(fw, QLineEdit) and fw.isVisible():
             return True
@@ -1015,7 +1015,10 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         if self._pip:
             self.toggle_pip()
         if self.isFullScreen():
-            self.showMaximized() if getattr(self, "_was_max", False) else self.showNormal()
+            if getattr(self, "_was_max", False):
+                self.showMaximized()
+            else:
+                self.showNormal()
         else:
             self._was_max = self.isMaximized()
             self.showFullScreen()
@@ -1235,7 +1238,10 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
                     return True
             elif t == QEvent.MouseMove and not e.buttons():
                 cur = self.edge_cursor(self.pip_edges(e.globalPosition().toPoint()))
-                obj.setCursor(cur) if cur is not None else obj.unsetCursor()
+                if cur is not None:
+                    obj.setCursor(cur)
+                else:
+                    obj.unsetCursor()
         return super().eventFilter(obj, e)
 
     def _topmost(self, on: bool):
@@ -1266,7 +1272,6 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
     # ================================================================ closing
     def closeEvent(self, e):
         self.thumbs.cancel()
-        self.waves.cancel()
         self.waves.cancel()
         self._save_position()
         self.store.data["queue"] = [{k: v for k, v in q.items() if k in ("path", "title")} for q in self.queue][:500]

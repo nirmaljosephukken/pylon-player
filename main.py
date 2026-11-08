@@ -5,15 +5,15 @@
 import os
 import sys
 
-from app import startup
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # find app/ when started from elsewhere
+
+from app import startup  # noqa: E402
 startup.install()
 startup.mark("Importing Qt")
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal  # noqa: E402
+from PySide6.QtGui import QFont  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 startup.mark("Qt imported")
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import APP_NAME, theme  # noqa: E402
 from app.store import Store  # noqa: E402

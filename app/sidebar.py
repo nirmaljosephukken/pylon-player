@@ -4,21 +4,21 @@ of in a dialog that covers the video. A preset row at the top saves the
 current tweaks for a show and re-applies them on every episode."""
 import os
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFontComboBox,
-                               QGridLayout, QHBoxLayout, QInputDialog, QLabel, QListWidget,
-                               QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QScrollArea,
-                               QSizePolicy, QSlider, QSpinBox, QTabWidget, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QIcon, QPixmap
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFontComboBox, QGridLayout,
+                               QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMenu,
+                               QMessageBox, QPushButton, QRadioButton, QScrollArea, QSizePolicy,
+                               QSlider, QTabWidget, QVBoxLayout, QWidget)
 
 from . import theme
 from .colour_dialog import choose_colour
 from .engine import CUSTOM_EQ, DEFAULT_SUB_STYLE, EQ_RANGE, VISUALIZERS
 from .icons import icon
-from .util import (display_name, subtitle_query, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
+from .util import (subtitle_query, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
                    match_subtitle, parse_subtitles)
 from .store import QUEUE_MODES, ratio_label
-from .widgets import IconButton, SubtitleTimeline, hline, subtitle_search_menu
+from .widgets import IconButton, SubtitleTimeline, subtitle_search_menu
 
 
 def section(text):
@@ -129,8 +129,6 @@ class ValueSlider(QWidget):
         self.slider.setValue(v)
         self.slider.blockSignals(False)
         self.label.setText(self.fmt(v))
-        if emit and self.slider.value() == v:
-            pass
 
     def value(self):
         return self.slider.value()
@@ -486,7 +484,6 @@ class SettingsSidebar(QWidget):
             self._paint_color_btn()
 
     def _paint_color_btn(self):
-        from PySide6.QtGui import QIcon, QPixmap
         px = QPixmap(14, 14)
         px.fill(QColor(self._sub_color))
         self.color_btn.setIcon(QIcon(px))
@@ -842,7 +839,6 @@ class SettingsSidebar(QWidget):
         self.meta = QLabel("Nothing playing")
         self.meta.setWordWrap(True)
         self.meta.setMinimumWidth(10)
-        from PySide6.QtWidgets import QSizePolicy
         self.meta.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.meta.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.meta.setStyleSheet(f"color: {theme.MUTED}; line-height: 150%;")
@@ -1002,7 +998,6 @@ class SettingsSidebar(QWidget):
             self.refresh_bookmarks()
 
     def _bm_menu(self, pos):
-        from PySide6.QtWidgets import QMenu
         it = self.bm_list.itemAt(pos)
         if not it or it.data(Qt.UserRole) is None:
             return

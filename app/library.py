@@ -23,9 +23,8 @@ from .util import (display_name, fmt_time, is_audio, is_disc, is_dvd_folder, is_
                    natural_key, norm, parse_m3u, sort_key_by_name)
 from .library_music import MusicMixin
 from .library_queue import QueueMixin
-from .library_widgets import (ROLE_KIND, ROLE_PATH, ChannelListDrop, MediaList, QueueList,  # noqa: F401
-                              SortControl, TwoLineDelegate, _mtime, media_filter, pick_media, reveal, sort_kind,
-                              win_call)
+from .library_widgets import (ROLE_KIND, ROLE_PATH, ChannelListDrop, MediaList, QueueList,
+                              SortControl, _mtime, pick_media, reveal, sort_kind)
 from .widgets import IconButton
 
 
@@ -218,8 +217,8 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         self.btn_add.setPopupMode(IconButton.InstantPopup)
         am = QMenu(self)
         am.addAction(icon("folder_add", theme.TEXT, 16), "Add a folder to the library…", self.add_library_folder)
-        am.addAction(icon("file", theme.TEXT, 16), "Open a file…", lambda: win_call(self.win.open_file_dialog))
-        am.addAction(icon("folder", theme.TEXT, 16), "Open a folder…", lambda: win_call(self.win.open_folder_dialog))
+        am.addAction(icon("file", theme.TEXT, 16), "Open a file…", self.win.open_file_dialog)
+        am.addAction(icon("folder", theme.TEXT, 16), "Open a folder…", self.win.open_folder_dialog)
         self.btn_add.setMenu(am)
         tools.addWidget(self.search, 1)
         tools.addWidget(self.btn_sort)
@@ -1009,8 +1008,7 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
 
     def save_channel_list(self, items, name):
         """Save queue items ({path, title}) as a channel list in Streams."""
-        import time as _t
-        s = {"name": name, "url": f"pylon-list:{int(_t.time() * 1000)}",
+        s = {"name": name, "url": f"pylon-list:{int(time.time() * 1000)}",
              "channels": [{"name": x.get("title") or display_name(x["path"]), "url": x["path"]} for x in items]}
         self.store.data["streams"].insert(0, s)
         self.store.save("streams")

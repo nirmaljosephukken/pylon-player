@@ -4,7 +4,7 @@ from PySide6.QtCore import QPoint
 from PySide6.QtGui import QActionGroup
 from PySide6.QtWidgets import QMenu, QMessageBox
 
-from . import theme
+from . import theme, APP_VERSION
 from .dialogs import PreferencesDialog, ShortcutsDialog
 from .icons import icon
 from .stage import PAGE_AUDIO
@@ -252,7 +252,6 @@ class MenusMixin:
         ShortcutsDialog(self).exec()
 
     def show_about(self):
-        from . import APP_VERSION
         QMessageBox.about(self, "About Pylon",
                           f"<b>Pylon {APP_VERSION}</b><br>A redesigned interface on top of the VLC engine "
                           "(libVLC). Playback, codecs and streaming are all VLC.<br><br>"

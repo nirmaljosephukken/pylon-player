@@ -15,7 +15,7 @@ import os
 import threading
 import time
 
-from PySide6.QtCore import QObject, QRect, Qt, Signal
+from PySide6.QtCore import QObject, QRect, Qt
 from PySide6.QtGui import QImage, QPainter
 
 from . import engine as engine_mod
@@ -59,8 +59,6 @@ def _prune_cache():
 
 class ThumbnailMaker(QObject):
     """Makes and serves preview frames for one file at a time."""
-    progress = Signal(str, int, int)    # path, done, total
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.path = None
@@ -89,7 +87,6 @@ class ThumbnailMaker(QObject):
         self.frames = {}
         self.timestamps = {}
         if self._load_cache():
-            self.progress.emit(path, self.total, self.total)
             return
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, args=(path, self._stop), daemon=True)
@@ -113,10 +110,6 @@ class ThumbnailMaker(QObject):
             if abs(i * self.step - ms) > max(30_000, self.step * 12):
                 return None, None
             return self.frames[i], self.timestamps.get(i, i * self.step)
-
-    def frame_at(self, ms: int):
-        """Nearest finished preview to `ms`, or None."""
-        return self.preview_at(ms)[0]
 
     # ------------------------------------------------------------------ cache
     def _sheet_paths(self, path):
@@ -181,7 +174,7 @@ class ThumbnailMaker(QObject):
     def _grab(self, path, stop):
         vlc = engine_mod.vlc
         w, h = self.size
-        step, total = self.step, self.total
+        step = self.step
         buf = (ctypes.c_ubyte * (w * h * 4))()
         count = [0]
 
@@ -237,8 +230,6 @@ class ThumbnailMaker(QObject):
                 frames[i] = img
                 timestamps[i] = captured_ms
                 done += 1
-                if done % 8 == 0 or done == total:
-                    self.progress.emit(path, done, total)
                 if player.get_state() in (vlc.State.Ended, vlc.State.Error):
                     player.stop()
                     player.play()

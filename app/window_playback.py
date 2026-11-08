@@ -2,6 +2,7 @@
 import os
 import random
 import time
+import urllib.request
 
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QGuiApplication
@@ -10,7 +11,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 from . import APP_NAME
 from .dialogs import StreamDialog, SubtitleDialog
 from .engine import MAX_SHARPEN
-from .library import media_filter
+from .library_widgets import media_filter
 from .stage import PAGE_AUDIO, PAGE_HOME, PAGE_VIDEO
 from .util import (SUB_EXTS, PLAYLIST_EXTS, display_name, norm, find_subtitle_candidates, is_disc, is_dvd_folder,
                    fmt_time, is_audio, is_media, is_url, list_media, match_subtitle, merge_in_name_order, natural_key,
@@ -52,7 +53,10 @@ class PlaybackMixin:
         if not text:
             self.toast("Clipboard is empty")
         elif os.path.exists(text):
-            self.play_folder(text) if os.path.isdir(text) else self.play_from_folder(text)
+            if os.path.isdir(text):
+                self.play_folder(text)
+            else:
+                self.play_from_folder(text)
         elif "://" in text:
             self.open_stream(text)
         else:
@@ -63,7 +67,6 @@ class PlaybackMixin:
         if low.endswith((".m3u", ".m3u8")) and url.startswith("http"):
             QApplication.setOverrideCursor(Qt.WaitCursor)
             try:
-                import urllib.request
                 req = urllib.request.Request(url, headers={"User-Agent": "Pylon/1.0"})
                 with urllib.request.urlopen(req, timeout=12) as r:
                     text = r.read(8_000_000).decode("utf-8", "replace")
@@ -635,7 +638,10 @@ class PlaybackMixin:
             self.toast("Sleep timer: stopped at the end of the file")
             return
         if self.queue_mode == "loop" and e.current:
-            self.play_queue_index(self.qindex) if self.qindex >= 0 else self.play_path(e.current, start_ms=0)
+            if self.qindex >= 0:
+                self.play_queue_index(self.qindex)
+            else:
+                self.play_path(e.current, start_ms=0)
             return
         if self.queue_mode == "none" or not self.play_next():
             self.bottom.set_playing(False)

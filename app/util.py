@@ -388,6 +388,29 @@ def subtitle_search_url(site: str, query: str) -> str:
     return pattern.replace("{q}", quote(query.strip(), safe=""))
 
 
+_USER32 = None
+
+
+def _user32():
+    """user32 with the prototypes Pylon calls declared once (Windows only, imported lazily)."""
+    global _USER32
+    if _USER32 is None:
+        import ctypes
+        from ctypes import wintypes
+        u = ctypes.windll.user32
+        u.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                   ctypes.c_int, wintypes.UINT]
+        u.SetWindowPos.restype = wintypes.BOOL
+        u.GetSystemMenu.argtypes = [wintypes.HWND, wintypes.BOOL]
+        u.GetSystemMenu.restype = wintypes.HMENU
+        u.EnableMenuItem.argtypes = [wintypes.HMENU, wintypes.UINT, wintypes.UINT]
+        u.EnableMenuItem.restype = wintypes.BOOL
+        u.DrawMenuBar.argtypes = [wintypes.HWND]
+        u.DrawMenuBar.restype = wintypes.BOOL
+        _USER32 = u
+    return _USER32
+
+
 def win_set_topmost(hwnd: int, on: bool) -> bool:
     """Put a window above (or back among) other apps' windows on Windows. Returns whether it worked.
     The argument types matter on 64-bit Windows: without them ctypes passes HWND_TOPMOST (-1) as a
@@ -395,12 +418,8 @@ def win_set_topmost(hwnd: int, on: bool) -> bool:
     if sys.platform != "win32":
         return False
     try:
-        import ctypes
         from ctypes import wintypes
-        f = ctypes.windll.user32.SetWindowPos
-        f.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
-                      wintypes.UINT]
-        f.restype = wintypes.BOOL
+        f = _user32().SetWindowPos
         swp = 0x0001 | 0x0002 | 0x0010            # NOSIZE | NOMOVE | NOACTIVATE
         return bool(f(wintypes.HWND(hwnd), wintypes.HWND(-1 if on else -2), 0, 0, 0, 0, swp))
     except Exception:
@@ -414,18 +433,8 @@ def win_enable_close(hwnd: int) -> bool:
     if sys.platform != "win32":
         return False
     try:
-        import ctypes
         from ctypes import wintypes
-        u = ctypes.windll.user32
-        u.GetSystemMenu.argtypes = [wintypes.HWND, wintypes.BOOL]
-        u.GetSystemMenu.restype = wintypes.HMENU
-        u.EnableMenuItem.argtypes = [wintypes.HMENU, wintypes.UINT, wintypes.UINT]
-        u.EnableMenuItem.restype = wintypes.BOOL
-        u.DrawMenuBar.argtypes = [wintypes.HWND]
-        u.DrawMenuBar.restype = wintypes.BOOL
-        u.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
-                                   ctypes.c_int, wintypes.UINT]
-        u.SetWindowPos.restype = wintypes.BOOL
+        u = _user32()
         menu = u.GetSystemMenu(wintypes.HWND(hwnd), False)
         if not menu:
             return False

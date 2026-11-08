@@ -5,12 +5,14 @@ Bottom bar: [prev][PLAY][next] time   (continue chip)   speed [subs][audio][queu
             ================ thick seek bar along the bottom edge =================
 """
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFontMetrics
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtGui import QColor, QFontMetrics
+from PySide6.QtWidgets import (QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
+                               QVBoxLayout)
 
 from . import theme
 from .util import fmt_time
 from .widgets import ConeVolume, IconButton, OverlayWindow, SeekBar
+from .icons import icon
 
 
 class TopBar(OverlayWindow):
@@ -76,7 +78,6 @@ class TopBar(OverlayWindow):
 
     def set_casting(self, name: str):
         """While casting, a chip says where the video is playing."""
-        from .icons import icon
         self.cast_chip.setText(f"  {name}" if name else "")
         self.cast_chip.setIcon(icon("cast", theme.accent(), 14))
         self.cast_chip.setToolTip(f"Playing on {name}. Open the menu to stop casting" if name else "")
@@ -188,8 +189,6 @@ class BottomBar(OverlayWindow):
     def apply_glow(self):
         """Neon themes: a soft coloured glow around the play button."""
         if theme.glow():
-            from PySide6.QtGui import QColor
-            from PySide6.QtWidgets import QGraphicsDropShadowEffect
             fx = QGraphicsDropShadowEffect(self.btn_play)
             fx.setBlurRadius(22)
             fx.setOffset(0, 0)

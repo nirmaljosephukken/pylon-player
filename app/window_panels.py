@@ -46,7 +46,8 @@ class PanelSlot(QWidget):
         if on:
             self.panel.show()
             self.show()
-            self.raise_() if self.floating else None
+            if self.floating:
+                self.raise_()
         start = self.width() if self.isVisible() else 0
         end = self.full if on else 0
         if not animate or start == end:
@@ -78,7 +79,8 @@ class PanelSlot(QWidget):
         if not self.is_open:
             self.hide()
             self.panel.hide()
-        self.window()._panel_settled(self) if hasattr(self.window(), "_panel_settled") else None
+        if hasattr(self.window(), "_panel_settled"):
+            self.window()._panel_settled(self)
 
     def set_floating(self, on: bool, rect: QRect | None = None):
         if on:

@@ -3,7 +3,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QEvent, QPointF, Qt
@@ -76,7 +75,6 @@ class Zoom(unittest.TestCase):
         self.assertEqual(DEFAULT_SHORTCUTS["zoom_in"][1], "Ctrl+=")
 
     def _mouse(self, w, kind, pos, buttons=Qt.LeftButton):
-        b = Qt.NoButton if kind == QEvent.MouseButtonRelease else Qt.LeftButton
         ev = QMouseEvent(kind, QPointF(*pos), QPointF(*pos), Qt.LeftButton,
                          Qt.NoButton if kind == QEvent.MouseButtonRelease else buttons, Qt.NoModifier)
         QApplication.sendEvent(w, ev)

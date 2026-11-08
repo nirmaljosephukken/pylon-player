@@ -3,6 +3,7 @@
 Design language from the redesign: orange cone accent, neutral grays and
 black, rectangular shapes that are only slightly rounded.
 """
+from PySide6.QtGui import QColor, QLinearGradient
 
 DEFAULT_ACCENT = "#FF8800"
 
@@ -45,7 +46,6 @@ _panel_grad = None    # (top, bottom) for a gently graded side panel
 
 def tint_palette(color: str) -> dict:
     """Dark shades of any colour, kept dark enough that light text stays readable."""
-    from PySide6.QtGui import QColor
     c = QColor(color)
     if not c.isValid():
         return dict(THEMES["dark"])
@@ -57,7 +57,7 @@ def tint_palette(color: str) -> dict:
 
 
 def set_theme(name: str, tint: str = ""):
-    """Switch the background palette ("dark", "black", "warm", "midnight" or "custom" with a tint colour)."""
+    """Switch the background palette: a key of THEMES, or "custom" with a tint colour."""
     global BG, PANEL, SURFACE, SURFACE_HI, BORDER, _theme, _vibe, _panel_grad
     pal = tint_palette(tint) if name == "custom" and tint else THEMES.get(name, THEMES["dark"])
     _theme = name if (name in THEMES or (name == "custom" and tint)) else "dark"
@@ -99,7 +99,6 @@ def is_vibe(name: str) -> bool:
 
 def brush(x0: float, x1: float):
     """A QBrush/QColor for accent fills: a horizontal gradient on neon themes, else the flat accent."""
-    from PySide6.QtGui import QColor, QLinearGradient
     st = stops()
     if len(st) == 1:
         return QColor(st[0])
