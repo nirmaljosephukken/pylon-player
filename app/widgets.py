@@ -615,7 +615,7 @@ class SubtitleTimeline(QWidget):
             c.setAlpha(230 if active else 110)
             p.setBrush(c)
             p.drawRoundedRect(r, 3, 3)
-            p.setPen(QColor("#111") if active else QColor(theme.TEXT))
+            p.setPen(QColor(theme.on_accent()) if active else QColor(theme.TEXT))
             p.drawText(r.adjusted(5, 2, -4, -2), Qt.AlignLeft | Qt.AlignVCenter,
                        fm.elidedText(text, Qt.ElideRight, int(max(0, r.width() - 9))))
         # playhead

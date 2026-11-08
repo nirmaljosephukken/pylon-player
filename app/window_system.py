@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 from . import APP_VERSION, theme
 from . import engine as engine_mod
 from .dialogs import WelcomeDialog
+from .util import desktop_mime_types
 
 
 class SystemMixin:
@@ -102,10 +103,7 @@ class SystemMixin:
         png = os.path.join(here, "pylon.png")
         if os.path.isfile(png):
             shutil.copyfile(png, os.path.join(icons, "pylon.png"))
-        mimes = sorted({"video/mp4", "video/x-matroska", "video/webm", "video/x-msvideo", "video/quicktime",
-                        "video/x-flv", "video/mpeg", "video/mp2t", "video/x-ms-wmv", "video/3gpp", "video/ogg",
-                        "audio/mpeg", "audio/flac", "audio/x-wav", "audio/mp4", "audio/aac", "audio/ogg",
-                        "audio/x-ms-wma", "audio/x-matroska", "audio/opus", "audio/x-mpegurl", "application/vnd.apple.mpegurl"})
+        mimes = desktop_mime_types()
         entry = ("[Desktop Entry]\nType=Application\nName=Pylon\nGenericName=Media Player\n"
                  "Comment=Calmer interface for the VLC engine\n"
                  f"Exec=\"{appimage}\" %F\nIcon=pylon\nTerminal=false\nCategories=AudioVideo;Player;Video;Audio;\n"

@@ -13,6 +13,7 @@ from .dialogs import StreamDialog, SubtitleDialog
 from .engine import MAX_SHARPEN
 from .library_widgets import media_filter
 from .stage import PAGE_AUDIO, PAGE_HOME, PAGE_VIDEO
+from .store import resume_point
 from .util import (SUB_EXTS, PLAYLIST_EXTS, display_name, norm, find_subtitle_candidates, is_disc, is_dvd_folder,
                    fmt_time, is_audio, is_media, is_url, list_media, match_subtitle, merge_in_name_order, natural_key,
                    sort_key_by_name, parse_m3u)
@@ -372,8 +373,8 @@ class PlaybackMixin:
         if start_ms is None:
             start_ms = 0
             pos = self.store.position(path)
-            ln, p = pos.get("len", 0), pos.get("pos", 0)
-            if ln and 10_000 < p < ln * 0.93 and not pos.get("watched"):
+            p = resume_point(pos)
+            if p:
                 mode = self.store.setting("resume")
                 if disc:
                     # a disc opens at its menu; its title and time are picked up once it plays

@@ -27,10 +27,12 @@ class TopBar(OverlayWindow):
 
     def __init__(self, owner):
         super().__init__(owner, gradient="down")
+        self._store = None
+        self._fullscreen = False
         lay = QHBoxLayout(self)
         lay.setContentsMargins(10, 6, 10, 6)
         lay.setSpacing(4)
-        self.btn_library = IconButton("sidebar_left", "Library (Ctrl+L)", checkable=True)
+        self.btn_library = IconButton("sidebar_left", "Library", checkable=True)
         self.btn_library.clicked.connect(self.library_clicked)
         self.folder_chip = QPushButton("")
         self.folder_chip.setObjectName("Chip")
@@ -42,13 +44,13 @@ class TopBar(OverlayWindow):
         self.title.setStyleSheet("font-size: 14px; font-weight: 600; background: transparent;")
         self.title.setAlignment(Qt.AlignCenter)
         self.title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.btn_pip = IconButton("pip", "Picture in picture (Ctrl+P)", checkable=True)
+        self.btn_pip = IconButton("pip", "Picture in picture", checkable=True)
         self.btn_pip.clicked.connect(self.pip_clicked)
-        self.btn_full = IconButton("fullscreen", "Fullscreen (F)")
+        self.btn_full = IconButton("fullscreen", "Fullscreen")
         self.btn_full.clicked.connect(self.fullscreen_clicked)
         self.btn_menu = IconButton("menu", "Menu")
         self.btn_menu.clicked.connect(self.menu_clicked)
-        self.btn_close = IconButton("close", "Close the video (Ctrl+W)")
+        self.btn_close = IconButton("close", "Close the video")
         self.btn_close.clicked.connect(self.close_clicked)
         self.cast_chip = QPushButton("")
         self.cast_chip.setObjectName("Chip")
@@ -83,9 +85,19 @@ class TopBar(OverlayWindow):
         self.cast_chip.setToolTip(f"Playing on {name}. Open the menu to stop casting" if name else "")
         self.cast_chip.setVisible(bool(name))
 
+    def label_keys(self, store):
+        """Tooltips with the keys the user has now (shortcuts can be remapped)."""
+        self._store = store
+        self.btn_library.setToolTip(store.tip("Library", "library"))
+        self.btn_pip.setToolTip(store.tip("Picture in picture", "pip"))
+        self.btn_close.setToolTip(store.tip("Close the video", "close_media"))
+        self.set_fullscreen(self._fullscreen)
+
     def set_fullscreen(self, on: bool):
+        self._fullscreen = on
         self.btn_full.set_icon("exit_fullscreen" if on else "fullscreen")
-        self.btn_full.setToolTip("Leave fullscreen (F)" if on else "Fullscreen (F)")
+        text = "Leave fullscreen" if on else "Fullscreen"
+        self.btn_full.setToolTip(self._store.tip(text, "exit_fullscreen" if on else "fullscreen") if self._store else text)
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -118,12 +130,12 @@ class BottomBar(OverlayWindow):
         outer.setSpacing(4)
         row = QHBoxLayout()
         row.setSpacing(2)
-        self.btn_prev = IconButton("prev", "Previous (P)", size=18)
-        self.btn_play = IconButton("play", "Play / pause (Space)", size=20, box=40, color=theme.on_accent)
+        self.btn_prev = IconButton("prev", "Previous", size=18)
+        self.btn_play = IconButton("play", "Play / pause", size=20, box=40, color=theme.on_accent)
         self.btn_play.setObjectName("PlayButton")
         self.btn_play.setFixedSize(50, 36)
         self.apply_glow()
-        self.btn_next = IconButton("next", "Next (N)", size=18)
+        self.btn_next = IconButton("next", "Next", size=18)
         self.btn_prev.clicked.connect(self.prev_clicked)
         self.btn_play.clicked.connect(self.play_clicked)
         self.btn_next.clicked.connect(self.next_clicked)
@@ -132,7 +144,7 @@ class BottomBar(OverlayWindow):
         self.time.setFocusPolicy(Qt.NoFocus)
         self.time.setCursor(Qt.PointingHandCursor)
         self.time.setToolTip("Click to show remaining time")
-        self.time.setStyleSheet("QPushButton { background: transparent; border: none; color: #EDEDED;"
+        self.time.setStyleSheet(f"QPushButton {{ background: transparent; border: none; color: {theme.TEXT};"
                                 " padding: 0 8px; }")
         self.time.clicked.connect(self._toggle_remaining)
         self.show_remaining = False
@@ -148,16 +160,16 @@ class BottomBar(OverlayWindow):
         self.speed.setObjectName("Chip")
         self.speed.setFocusPolicy(Qt.NoFocus)
         self.speed.setCursor(Qt.PointingHandCursor)
-        self.speed.setToolTip("Playback speed  ([ and ])")
+        self.speed.setToolTip("Playback speed")
         self.speed.clicked.connect(self.speed_clicked)
         self.speed.hide()
 
-        self.btn_subs = IconButton("subtitles", "Subtitles (V)")
-        self.btn_audio = IconButton("audio", "Audio tracks and output (B)")
-        self.btn_queue = IconButton("queue", "Queue (Ctrl+Q)", checkable=True)
-        self.btn_mute = IconButton("volume", "Mute (M)", size=18)
+        self.btn_subs = IconButton("subtitles", "Subtitles")
+        self.btn_audio = IconButton("audio", "Audio tracks and output")
+        self.btn_queue = IconButton("queue", "Queue", checkable=True)
+        self.btn_mute = IconButton("volume", "Mute", size=18)
         self.cone = ConeVolume()
-        self.btn_tune = IconButton("tune", "Subtitle, audio, video and playback settings (Ctrl+T)", checkable=True)
+        self.btn_tune = IconButton("tune", "Subtitle, audio, video and playback settings", checkable=True)
         self.btn_subs.clicked.connect(self.subs_clicked)
         self.btn_audio.clicked.connect(self.audio_clicked)
         self.btn_queue.clicked.connect(self.queue_clicked)
@@ -185,6 +197,17 @@ class BottomBar(OverlayWindow):
         self.seek = SeekBar()
         outer.addWidget(self.seek)
         self._pos = self._len = 0
+
+    def label_keys(self, store):
+        """Tooltips with the keys the user has now (shortcuts can be remapped)."""
+        for button, text, actions in ((self.btn_prev, "Previous", ("prev",)), (self.btn_next, "Next", ("next",)),
+                                      (self.btn_play, "Play / pause", ("play_pause",)),
+                                      (self.speed, "Playback speed", ("speed_down", "speed_up")),
+                                      (self.btn_subs, "Subtitles", ("cycle_sub",)),
+                                      (self.btn_audio, "Audio tracks and output", ("cycle_audio",)),
+                                      (self.btn_queue, "Queue", ("queue",)), (self.btn_mute, "Mute", ("mute",)),
+                                      (self.btn_tune, "Subtitle, audio, video and playback settings", ("sidebar",))):
+            button.setToolTip(store.tip(text, *actions))
 
     def apply_glow(self):
         """Neon themes: a soft coloured glow around the play button."""

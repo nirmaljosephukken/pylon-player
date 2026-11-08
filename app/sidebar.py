@@ -15,7 +15,7 @@ from . import theme
 from .colour_dialog import choose_colour
 from .engine import CUSTOM_EQ, DEFAULT_SUB_STYLE, EQ_RANGE, VISUALIZERS
 from .icons import icon
-from .util import (subtitle_query, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
+from .util import (SPEED_PRESETS, subtitle_query, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
                    match_subtitle, parse_subtitles)
 from .store import QUEUE_MODES, ratio_label
 from .widgets import IconButton, SubtitleTimeline, subtitle_search_menu
@@ -788,7 +788,7 @@ class SettingsSidebar(QWidget):
         self.speed = ValueSlider(25, 400, 5, 100, lambda v: f"{v / 100:g}x", reset=100)
         self.speed.changed.connect(lambda v: self.win.set_rate(v / 100, from_ui=True))
         lay.addWidget(self.speed)
-        self.speed_chips = ChipGroup([("0.5x", 50), ("0.75x", 75), ("1x", 100), ("1.25x", 125), ("1.5x", 150), ("2x", 200)], cols=3)
+        self.speed_chips = ChipGroup([(f"{r:g}x", round(r * 100)) for r in SPEED_PRESETS], cols=3)
         self.speed_chips.picked.connect(lambda v: self.win.set_rate(v / 100))
         lay.addWidget(self.speed_chips)
 
@@ -942,9 +942,10 @@ class SettingsSidebar(QWidget):
     def _build_bookmarks(self):
         page, lay = scroll_page()
         self.tabs.addTab(page, "Bookmarks")
-        add = QPushButton("Add bookmark here   Ctrl+B")
+        add = QPushButton(self._bookmark_label())
+        self._bookmark_button = add
         add.setObjectName("Primary")
-        add.setIcon(icon("bookmark_add", "#111111", 14))
+        add.setIcon(icon("bookmark_add", theme.on_accent(), 14))
         add.clicked.connect(lambda: self.win.do("bookmark", key=False))
         lay.addWidget(add)
         lay.addWidget(muted("Click to jump. Double-click to rename."))
@@ -968,7 +969,12 @@ class SettingsSidebar(QWidget):
         lay.addWidget(self.ch_list)
         lay.addStretch(1)
 
+    def _bookmark_label(self):
+        key = self.store.shortcut("bookmark")
+        return "Add bookmark here" + (f"   {key}" if key else "")
+
     def refresh_bookmarks(self):
+        self._bookmark_button.setText(self._bookmark_label())    # the key may have been changed
         self.bm_list.clear()
         path = self.engine.current
         items = self.store.bookmarks(path) if path else []

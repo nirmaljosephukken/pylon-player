@@ -145,7 +145,7 @@ class SubtitleDialog(QDialog):
             found = []
             for root, _, files in os.walk(d):
                 for f in files:
-                    if os.path.splitext(f)[1].lower() in SUB_EXTS - {".txt"}:
+                    if os.path.splitext(f)[1].lower() in SUB_EXTS - {".txt"}:   # .idx kept: VobSub needs it
                         found.append(os.path.join(root, f))
             self.subs = found
             self.rematch()
@@ -995,9 +995,16 @@ class WelcomeDialog(QDialog):
         grid = QGridLayout()
         grid.setHorizontalSpacing(16)
         grid.setVerticalSpacing(8)
-        keys = [("Space", "Play / pause"), ("← →", "Jump 10 seconds"), ("F", "Fullscreen"),
-                ("H", "Hide the interface"), ("G  J", "Move subtitles earlier / later"), ("[  ]", "Slower / faster"),
-                ("Ctrl+B", "Bookmark this moment"), ("Ctrl+L", "Library"), ("Ctrl+T", "Settings panel"), ("F1", "All shortcuts")]
+        sc = win.store.shortcut
+        arrows = {"Left": "←", "Right": "→"}
+        keys = [(sc("play_pause"), "Play / pause"),
+                (f"{arrows.get(sc('seek_back'), sc('seek_back'))} {arrows.get(sc('seek_fwd'), sc('seek_fwd'))}",
+                 "Jump 10 seconds"),
+                (sc("fullscreen"), "Fullscreen"), (sc("hide_ui"), "Hide the interface"),
+                (f"{sc('sub_delay_minus')}  {sc('sub_delay_plus')}", "Move subtitles earlier / later"),
+                (f"{sc('speed_down')}  {sc('speed_up')}", "Slower / faster"), (sc("bookmark"), "Bookmark this moment"),
+                (sc("library"), "Library"), (sc("sidebar"), "Settings panel"), (sc("shortcuts"), "All shortcuts")]
+        keys = [(k.strip(), d) for k, d in keys if k.strip()]     # keys you cleared aren't shown
         for i, (k, d) in enumerate(keys):
             kl = QLabel(k)
             kl.setStyleSheet(f"background: {theme.SURFACE}; border: 1px solid {theme.BORDER}; border-radius: 3px;"

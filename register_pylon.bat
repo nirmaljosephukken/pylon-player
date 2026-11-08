@@ -31,7 +31,7 @@ reg add "%C%" /v ApplicationDescription /d "Pylon media player (VLC engine)" /f 
 reg add "%C%" /v ApplicationIcon /d "%ICO%,0" /f >nul
 reg add "HKCU\Software\RegisteredApplications" /v Pylon /d "Software\Pylon\Capabilities" /f >nul
 
-for %%E in (.3gp .aac .ac3 .aiff .alac .ape .asf .avi .divx .dts .f4v .flac .flv .m2ts .m4a .m4v .mka .mkv .mov .mp3 .mp4 .mpeg .mpg .mts .ogg .ogv .opus .rmvb .ts .vob .wav .webm .wma .wmv) do (
+for %%E in (.3gp .aac .ac3 .aiff .ape .asf .avi .divx .dts .f4v .flac .flv .m2ts .m3u .m3u8 .m4a .m4v .mka .mkv .mov .mp3 .mp4 .mpeg .mpg .mts .ogg .ogv .opus .pls .rmvb .ts .vob .wav .webm .wma .wmv .xspf) do (
     reg add "%K%\%%E\OpenWithProgids" /v Pylon.Media /t REG_NONE /f >nul
     reg add "%K%\Applications\Pylon.exe\SupportedTypes" /v %%E /t REG_SZ /d "" /f >nul
     reg add "%C%\FileAssociations" /v %%E /d Pylon.Media /f >nul
@@ -41,7 +41,7 @@ rem Tell Explorer that file associations changed
 powershell -NoProfile -Command "Add-Type -Namespace W -Name S -MemberDefinition '[DllImport(\"shell32.dll\")] public static extern void SHChangeNotify(int e,int f,System.IntPtr a,System.IntPtr b);'; [W.S]::SHChangeNotify(0x08000000,0,[System.IntPtr]::Zero,[System.IntPtr]::Zero)" >nul 2>nul
 
 echo.
-echo Done. Pylon is registered for 34 video and audio types.
+echo Done. Pylon is registered for 37 video and audio types.
 echo Opening Default apps: search for Pylon there, or right-click a video,
 echo Open with, Choose another app, Pylon, Always.
 start "" ms-settings:defaultapps

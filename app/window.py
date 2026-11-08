@@ -17,7 +17,8 @@ from .home import HomePage, NowPlayingPage
 from .library import LibraryPanel
 from .sidebar import SettingsSidebar
 from .store import DEFAULT_SHORTCUTS, QUEUE_MODES
-from .util import fmt_delay, fmt_time, is_audio, is_disc, is_url, win_enable_close, win_set_topmost
+from .util import (SPEED_STEPS, fmt_delay, fmt_time, is_audio, is_disc, is_url, win_enable_close,
+                   win_set_topmost)
 from .stage import PAGE_AUDIO, PAGE_HOME, PAGE_VIDEO, VideoSurface  # noqa: F401  (tests import these from here)
 from .thumbs import ThumbnailMaker
 from .updates import UpdateChecker
@@ -575,6 +576,8 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
 
     # ================================================================ shortcuts / actions
     def install_shortcuts(self):
+        self.top.label_keys(self.store)
+        self.bottom.label_keys(self.store)
         for sc in getattr(self, "_shortcuts", []):
             sc.setEnabled(False)
             sc.deleteLater()
@@ -710,7 +713,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
                 self.toggle_sidebar(False)
             msg = "Interface hidden" if self.hide_ui else "Interface shown"
         elif action in ("speed_up", "speed_down", "speed_reset"):
-            steps = [0.25, 0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0]
+            steps = SPEED_STEPS
             r = e.rate()
             if action == "speed_reset":
                 r = 1.0

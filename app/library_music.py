@@ -78,7 +78,7 @@ class MusicMixin:
         self.album_meta.setStyleSheet(f"color: {theme.MUTED}; font-size: 12px;")
         self.album_play = QPushButton("Play")
         self.album_play.setObjectName("Primary")
-        self.album_play.setIcon(icon("play", "#111111", 14))
+        self.album_play.setIcon(icon("play", theme.on_accent(), 14))
         self.album_play.setCursor(Qt.PointingHandCursor)
         self.album_play.clicked.connect(lambda: self.play_songs(self._album_by_key(self._album_key)["tracks"])
                                         if self._album_by_key(self._album_key) else None)

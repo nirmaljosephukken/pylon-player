@@ -10,8 +10,9 @@ from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QScroll
 
 from . import theme
 from .icons import icon, pixmap
+from .music import folder_cover
 from .util import display_name, fmt_time, is_audio, is_disc, is_url, pretty_title, to_path, list_media
-from .store import HOME_SECTIONS
+from .store import HOME_SECTIONS, RESUME_MIN_MS, is_finished, resume_point
 from .widgets import Card, IconButton
 
 
@@ -67,7 +68,7 @@ class HomePage(QScrollArea):
 
         # header row
         head = QHBoxLayout()
-        lib = IconButton("sidebar_left", "Library (Ctrl+L)", size=20)
+        lib = IconButton("sidebar_left", self.store.tip("Library", "library"), size=20)
         lib.clicked.connect(lambda: self.win.toggle_library())
         logo = QLabel()
         logo.setPixmap(pixmap("cone", theme.accent(), 34))
@@ -113,8 +114,13 @@ class HomePage(QScrollArea):
                 builders[key](lay)
 
         lay.addStretch(1)
-        keys = QLabel("Space play/pause  ·  ←/→ jump 10s  ·  F fullscreen  ·  H hide interface  ·  "
-                      "Ctrl+B bookmark  ·  F1 all shortcuts")
+        sc = self.store.shortcut
+        arrows = {"Left": "←", "Right": "→"}
+        jump = "/".join(k for k in (arrows.get(sc("seek_back"), sc("seek_back")), arrows.get(sc("seek_fwd"), sc("seek_fwd")))
+                        if k)
+        hints = [(sc("play_pause"), "play/pause"), (jump, "jump 10s"), (sc("fullscreen"), "fullscreen"),
+                 (sc("hide_ui"), "hide interface"), (sc("bookmark"), "bookmark"), (sc("shortcuts"), "all shortcuts")]
+        keys = QLabel("  ·  ".join(f"{k} {what}" for k, what in hints if k))
         keys.setStyleSheet(f"color: {theme.FAINT}; font-size: 12px;")
         lay.addWidget(keys)
         old = self.takeWidget()
@@ -210,7 +216,7 @@ class HomePage(QScrollArea):
             if is_url(p) or not is_audio(p) or not os.path.exists(p):
                 continue
             ln, pos, t = e.get("len", 0), e.get("pos", 0), e.get("t", 0)
-            done = e.get("watched") or (ln and pos >= ln * 0.93)
+            done = is_finished(e)
             found = album_of.get(key(p))
             k = found[0]["key"] if found else key(p)
             if k in seen:
@@ -224,12 +230,12 @@ class HomePage(QScrollArea):
                     i, pos = i + 1, 0
                     if i >= len(a["tracks"]):
                         continue              # the whole album is finished
-                elif i == 0 and pos < 10_000:
+                elif i == 0 and pos < RESUME_MIN_MS:
                     continue                  # barely started
                 frac = (pos / ln) if (ln and not done) else 0
                 out.append({"key": k, "album": a, "index": i, "path": a["tracks"][i], "pos": pos,
                             "progress": (i + frac) / len(a["tracks"])})
-            elif not done and pos > 10_000 and ln:
+            elif resume_point(e):
                 out.append({"key": k, "album": None, "index": 0, "path": p, "pos": pos, "progress": pos / ln})
             if len(out) >= limit:
                 break
@@ -448,12 +454,9 @@ class NowPlayingPage(QWidget):
         if art:
             pix = QPixmap(to_path(art))
         if (pix is None or pix.isNull()) and not is_url(path):
-            folder = os.path.dirname(path)
-            for name in ("cover.jpg", "cover.png", "folder.jpg", "folder.png", "front.jpg", "AlbumArt.jpg"):
-                p = os.path.join(folder, name)
-                if os.path.isfile(p):
-                    pix = QPixmap(p)
-                    break
+            cover = folder_cover(os.path.dirname(path))
+            if cover:
+                pix = QPixmap(cover)
         self._pix = pix if pix is not None and not pix.isNull() else None
         self._render()
 

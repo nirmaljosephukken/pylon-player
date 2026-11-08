@@ -7,4 +7,4 @@ Exec=AppRun %F
 Icon=pylon
 Terminal=false
 Categories=AudioVideo;Player;Video;Audio;
-MimeType=video/mp4;video/x-matroska;video/webm;video/x-msvideo;video/quicktime;video/mpeg;audio/mpeg;audio/flac;audio/ogg;
+MimeType=application/vnd.apple.mpegurl;application/vnd.rn-realmedia;application/xspf+xml;audio/aac;audio/ac3;audio/flac;audio/mp4;audio/mpeg;audio/ogg;audio/opus;audio/vnd.dts;audio/x-aiff;audio/x-ape;audio/x-matroska;audio/x-mpegurl;audio/x-ms-wma;audio/x-scpls;audio/x-wav;video/3gpp;video/mp2t;video/mp4;video/mpeg;video/ogg;video/quicktime;video/webm;video/x-flv;video/x-m4v;video/x-matroska;video/x-ms-asf;video/x-ms-wmv;video/x-msvideo;

@@ -25,6 +25,7 @@ from .library_music import MusicMixin
 from .library_queue import QueueMixin
 from .library_widgets import (ROLE_KIND, ROLE_PATH, ChannelListDrop, MediaList, QueueList,
                               SortControl, _mtime, pick_media, reveal, sort_kind)
+from .store import RESUME_MIN_MS
 from .widgets import IconButton
 
 
@@ -330,7 +331,7 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
             e = pos.get(f, {})
             watched = e.get("watched")
             prog = ""
-            if not watched and e.get("len") and e.get("pos", 0) > 10_000:
+            if not watched and e.get("len") and e.get("pos", 0) > RESUME_MIN_MS:
                 prog = f"   {fmt_time(e['pos'])} / {fmt_time(e['len'])}"
             name = os.path.basename(f)
             it = QListWidgetItem(name + prog)

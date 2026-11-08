@@ -9,6 +9,8 @@ from PySide6.QtCore import QByteArray, QRectF, Qt
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
+from .theme import FAINT, TEXT
+
 _S = 'fill="none" stroke="{c}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"'
 _F = 'fill="{c}" stroke="none"'
 
@@ -86,7 +88,7 @@ def _svg(name: str, color: str) -> bytes:
 
 
 @lru_cache(maxsize=1024)
-def pixmap(name: str, color: str = "#EDEDED", size: int = 20, dpr: float = 2.0) -> QPixmap:
+def pixmap(name: str, color: str = TEXT, size: int = 20, dpr: float = 2.0) -> QPixmap:
     px = QPixmap(int(size * dpr), int(size * dpr))
     px.fill(Qt.transparent)
     renderer = QSvgRenderer(QByteArray(_svg(name, color)))
@@ -98,10 +100,10 @@ def pixmap(name: str, color: str = "#EDEDED", size: int = 20, dpr: float = 2.0) 
     return px
 
 
-def icon(name: str, color: str = "#EDEDED", size: int = 20, active: str | None = None) -> QIcon:
+def icon(name: str, color: str = TEXT, size: int = 20, active: str | None = None) -> QIcon:
     ic = QIcon()
     ic.addPixmap(pixmap(name, color, size), QIcon.Normal, QIcon.Off)
-    ic.addPixmap(pixmap(name, "#5E5E5E", size), QIcon.Disabled, QIcon.Off)
+    ic.addPixmap(pixmap(name, FAINT, size), QIcon.Disabled, QIcon.Off)
     if active:
         ic.addPixmap(pixmap(name, active, size), QIcon.Normal, QIcon.On)
     return ic

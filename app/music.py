@@ -72,7 +72,8 @@ def _url_to_path(u):
     return ""
 
 
-def _folder_cover(folder):
+def folder_cover(folder):
+    """The cover picture in a folder (cover.jpg, folder.png, AlbumArt.jpg...), or ""."""
     try:
         names = os.listdir(folder)
     except OSError:
@@ -216,7 +217,7 @@ class MusicLibrary(QObject):
             m.release()
         except Exception:
             art = ""
-        art = art if art and os.path.isfile(art) else _folder_cover(folder)
+        art = art if art and os.path.isfile(art) else folder_cover(folder)
         info["art"] = _store_art(art, info["album_artist"] or info["artist"], info["album"] or folder)
         return info
 

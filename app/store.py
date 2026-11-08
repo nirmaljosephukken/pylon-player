@@ -155,6 +155,27 @@ DEFAULT_SETTINGS = {
     "sub_style": {},            # subtitle look from the Subtitles tab; {} = the engine's default style
 }
 
+# The resume rule, in one place: a file is offered to resume once it is more than RESUME_MIN_MS in and
+# not yet RESUME_MAX_FRACTION done; it counts as watched past WATCHED_FRACTION.
+RESUME_MIN_MS = 10_000
+RESUME_MAX_FRACTION = 0.93
+WATCHED_FRACTION = 0.9
+
+
+def is_finished(entry: dict) -> bool:
+    """A positions entry that is watched, or played so far that it wouldn't be resumed."""
+    ln, pos = entry.get("len", 0), entry.get("pos", 0)
+    return bool(entry.get("watched") or (ln and pos >= ln * RESUME_MAX_FRACTION))
+
+
+def resume_point(entry: dict) -> int:
+    """Where to resume a positions entry, in ms, or 0 when it shouldn't be resumed."""
+    ln, pos = entry.get("len", 0), entry.get("pos", 0)
+    if ln and RESUME_MIN_MS < pos < ln * RESUME_MAX_FRACTION and not entry.get("watched"):
+        return int(pos)
+    return 0
+
+
 # How many files the store remembers positions and play counts for (oldest are dropped first).
 MAX_POSITIONS = 2000
 MAX_PLAYS = 2000
@@ -332,6 +353,16 @@ class Store(QObject):
             return ""
         return default
 
+    def menu_label(self, text: str, action: str) -> str:
+        """A menu item's text with the key the user has for `action` on the right (shortcuts can be remapped)."""
+        key = self.shortcut(action)
+        return f"{text}\t{key}" if key else text
+
+    def tip(self, text: str, *actions: str, joiner: str = " and ") -> str:
+        """A tooltip with the keys for `actions`, e.g. "Library (Ctrl+L)"; just the text when none is set."""
+        keys = [k for k in (self.shortcut(a) for a in actions) if k]
+        return f"{text} ({joiner.join(keys)})" if keys else text
+
     # ---------- history ----------
     def add_recent(self, path: str, title: str = ""):
         if not self.setting("remember_history"):
@@ -366,12 +397,16 @@ class Store(QObject):
         if not path or not self.setting("remember_history"):
             return
         entry = self.data["positions"].get(path, {})
-        watched = entry.get("watched", False) or (length > 0 and pos / length > 0.9)
+        watched = entry.get("watched", False) or (length > 0 and pos / length > WATCHED_FRACTION)
         self.data["positions"][path] = {"pos": int(pos), "len": int(length), "watched": watched, "t": time.time()}
         self.save()
 
     def position(self, path: str) -> dict:
         return self.data["positions"].get(path, {})
+
+    def resume_position(self, path: str) -> int:
+        """Where to resume `path` in ms, or 0 (see resume_point)."""
+        return resume_point(self.position(path))
 
     def count_play(self, path: str):
         """One more play of this file (Recently played and Most played in Music)."""
@@ -405,10 +440,9 @@ class Store(QObject):
     def continue_watching(self, limit=12) -> list[dict]:
         out = []
         for p, e in self.data["positions"].items():
-            ln = e.get("len", 0)
             if is_audio(p):
                 continue           # songs have their own row under Music: Continue listening (#55)
-            if ln and 10_000 < e.get("pos", 0) < ln * 0.93 and not e.get("watched"):
+            if resume_point(e):
                 out.append({"path": p, **e})
         out.sort(key=lambda e: -e.get("t", 0))
         return out[:limit]

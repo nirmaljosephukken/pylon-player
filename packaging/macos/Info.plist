@@ -55,7 +55,6 @@
 				<string>aac</string>
 				<string>ac3</string>
 				<string>aiff</string>
-				<string>alac</string>
 				<string>ape</string>
 				<string>dts</string>
 				<string>flac</string>
@@ -80,6 +79,26 @@
 				<string>public.mpeg-4-audio</string>
 				<string>org.xiph.flac</string>
 				<string>com.microsoft.waveform-audio</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>m3u</string>
+				<string>m3u8</string>
+				<string>pls</string>
+				<string>xspf</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>Playlist</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.m3u-playlist</string>
+				<string>public.playlist</string>
 			</array>
 		</dict>
 	</array>

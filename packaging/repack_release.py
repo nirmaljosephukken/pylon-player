@@ -93,9 +93,32 @@ def validate_squashfs(path):
  if compressor not in (1,6):
   raise ValueError(f'Compressor {compressor} is unsupported by the bundled AppImage runtime; use gzip or zstd')
 
+def tree_digest(folder):
+ """One SHA-256 over every file's relative path and contents (caches left out), to pin a runtime tree."""
+ h=hashlib.sha256()
+ for p in sorted(folder.rglob('*')):
+  if p.is_file() and '__pycache__' not in p.parts and p.suffix!='.pyc':
+   h.update(p.relative_to(folder).as_posix().encode()+b'\0')
+   with p.open('rb') as src:h.update(hashlib.file_digest(src,'sha256').digest())
+ return h.hexdigest()
+
+RUNTIME_PINS=ROOT/'packaging/windows/runtime.sha256'
+
+def check_runtime(installed):
+ """The Windows Python and licences come from outside the repository (BUILD.md); make sure they are the
+ ones this release was tested with. The first run records them in packaging/windows/runtime.sha256."""
+ found={name:tree_digest(installed/name) for name in ('Python','licenses')}
+ if not RUNTIME_PINS.exists():
+  RUNTIME_PINS.write_text(''.join(f'{d}  {n}\n' for n,d in found.items()))
+  print(f'Recorded the runtime hashes in {RUNTIME_PINS.relative_to(ROOT)}; commit that file',flush=True);return
+ for line in RUNTIME_PINS.read_text().splitlines():
+  expected,name=line.split(maxsplit=1)
+  assert found[name]==expected,f'{installed/name} is not the runtime pinned in {RUNTIME_PINS.name}'
+
 def windows_stage():
  stage=BUILD/'windows/Pylon';stage.mkdir(parents=True,exist_ok=True)
  installed=ROOT.parent/'Pylon-1.1/Pylon'
+ check_runtime(installed)
  for name in ('Python','licenses'):
   shutil.copytree(installed/name,stage/name,dirs_exist_ok=True,ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
  for name,data in sources().items():
@@ -105,6 +128,10 @@ def windows_stage():
 
 if __name__=='__main__':
  import sys
+ assert sys.version_info>=(3,11),'repack_release.py needs Python 3.11 or newer (hashlib.file_digest)'
+ import sync_metadata
+ stale=sync_metadata.out_of_date()
+ assert not stale,'Version or file types out of date, run python packaging/sync_metadata.py: '+', '.join(stale)
  OUT.mkdir(parents=True,exist_ok=True)
  for line in (BASE/'SHA256SUMS.txt').read_text().splitlines():
   expected,name=line.split(maxsplit=1)

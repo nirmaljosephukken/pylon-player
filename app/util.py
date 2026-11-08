@@ -8,12 +8,43 @@ from urllib.parse import unquote, urlparse
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".mpg", ".mpeg",
               ".ts", ".m2ts", ".mts", ".3gp", ".ogv", ".vob", ".divx", ".rmvb", ".asf", ".f4v", ".iso"}
-AUDIO_EXTS = {".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".wma", ".alac", ".aiff",
-              ".ape", ".mka", ".dts", ".ac3"}
-SUB_EXTS = {".srt", ".ass", ".ssa", ".vtt", ".sub", ".idx", ".smi", ".txt"}
+AUDIO_EXTS = {".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".wma", ".aiff",
+              ".ape", ".mka", ".dts", ".ac3"}     # ALAC lives in .m4a
+SUB_EXTS = {".srt", ".ass", ".ssa", ".vtt", ".sub", ".idx", ".smi", ".txt"}   # files you can load as subtitles
+# Files picked up next to a video automatically: not .txt (too many notes and readmes) or .idx (needs its .sub)
+SUB_SIDECAR_EXTS = SUB_EXTS - {".txt", ".idx"}
 PLAYLIST_EXTS = {".m3u", ".m3u8", ".pls", ".xspf"}
 MEDIA_EXTS = VIDEO_EXTS | AUDIO_EXTS
 
+# The file types Pylon lists itself for under "Open with" on every OS. This is the one list:
+# packaging/sync_metadata.py writes it into the Windows installer, register_pylon.bat, the macOS
+# Info.plist and the Linux desktop file. .iso is left out on purpose: it is a disc image first.
+ASSOCIATED_EXTS = tuple(sorted((MEDIA_EXTS | PLAYLIST_EXTS) - {".iso"}))
+# Linux MIME type for each of them (several extensions can share one)
+MIME_TYPES = {
+    ".3gp": "video/3gpp", ".asf": "video/x-ms-asf", ".avi": "video/x-msvideo", ".divx": "video/x-msvideo",
+    ".f4v": "video/mp4", ".flv": "video/x-flv", ".m2ts": "video/mp2t", ".m4v": "video/x-m4v",
+    ".mkv": "video/x-matroska", ".mov": "video/quicktime", ".mp4": "video/mp4", ".mpeg": "video/mpeg",
+    ".mpg": "video/mpeg", ".mts": "video/mp2t", ".ogv": "video/ogg", ".rmvb": "application/vnd.rn-realmedia",
+    ".ts": "video/mp2t", ".vob": "video/mpeg", ".webm": "video/webm", ".wmv": "video/x-ms-wmv",
+    ".aac": "audio/aac", ".ac3": "audio/ac3", ".aiff": "audio/x-aiff", ".ape": "audio/x-ape",
+    ".dts": "audio/vnd.dts", ".flac": "audio/flac", ".m4a": "audio/mp4", ".mka": "audio/x-matroska",
+    ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".opus": "audio/opus", ".wav": "audio/x-wav",
+    ".wma": "audio/x-ms-wma",
+    ".m3u": "audio/x-mpegurl", ".m3u8": "application/vnd.apple.mpegurl", ".pls": "audio/x-scpls",
+    ".xspf": "application/xspf+xml",
+}
+
+
+def desktop_mime_types() -> list[str]:
+    """The MimeType= list of Pylon's Linux desktop entry."""
+    return sorted({MIME_TYPES[e] for e in ASSOCIATED_EXTS})
+
+
+# Playback speeds: the steps the Faster/Slower keys move through, and the presets in the menu and
+# the Playback tab's chips.
+SPEED_STEPS = (0.25, 0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0)
+SPEED_PRESETS = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
 
 def fmt_time(ms: int | float | None, force_hours: bool = False) -> str:
     if ms is None or ms < 0:
@@ -106,6 +137,17 @@ def display_name(path: str) -> str:
     return Path(path).stem
 
 
+# Episode markers, shared by titles, subtitle matching and subtitle searches: S01E02, 1x02 and E02/EP02.
+_SXE = r"[Ss](\d{1,2})[ ._-]*[Ee](\d{1,3})"
+_NXN = r"(\d{1,2})[xX](\d{1,3})"
+_EPN = r"[Ee][Pp]?[ ._-]?(\d{1,3})"
+# For matching subtitle files to videos (loose: any of the three, anywhere in the name)
+_EP_PATTERNS = [re.compile(_SXE), re.compile(_NXN), re.compile(_EPN)]
+# For titles: S01E02 or 1x02 (two or three digits, so "4x4" stays part of a name), as a whole word
+_TITLE_EP = re.compile(rf"\b(?:{_SXE}|(\d{{1,2}})[xX](\d{{2,3}}))\b")
+# For subtitle searches: the marker and everything after it
+_EP_TAIL = re.compile(rf"\s*\b(?:{_SXE}|{_NXN}|{_EPN})\b.*$")
+
 _JUNK = re.compile(r"\b(2160p|1080p|720p|480p|4k|uhd|hdr10?\+?|dv|web-?dl|webrip|web|bluray|blu-ray|brrip|bdrip|"
                    r"dvdrip|hdtv|x26[45]|h\.?26[45]|hevc|avc|aac\d?(\.\d)?|ddp?\d?(\.\d)?|atmos|10bit|8bit|"
                    r"proper|repack|extended|remastered|multi|dual|subs?|esub)\b.*$", re.I)
@@ -118,10 +160,11 @@ def pretty_title(path: str) -> str:
     if is_url(path):
         return name
     text = re.sub(r"[._]+", " ", name).strip()
-    m = re.search(r"\b[Ss](\d{1,2})[ ._-]?[Ee](\d{1,3})\b", text) or re.search(r"\b(\d{1,2})x(\d{2,3})\b", text)
+    m = _TITLE_EP.search(text)
     if m:
         show = text[:m.start()].strip(" -[(")
-        code = f"S{int(m.group(1)):02d}E{int(m.group(2)):02d}"
+        season, episode = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+        code = f"S{int(season):02d}E{int(episode):02d}"
         return f"{show}  ·  {code}" if show else code
     years = [y for y in re.finditer(r"[\[(]?\b(19[3-9]\d|20[0-4]\d)\b[\])]?", text) if y.start() > 0]
     m = years[-1] if years else None
@@ -184,13 +227,6 @@ def list_media(folder: str) -> list[str]:
 
 # ---------- episode / subtitle matching ----------
 
-_EP_PATTERNS = [
-    re.compile(r"[Ss](\d{1,2})[ ._-]*[Ee](\d{1,3})"),
-    re.compile(r"(\d{1,2})[xX](\d{1,3})"),
-    re.compile(r"[Ee][Pp]?[ ._-]?(\d{1,3})"),
-]
-
-
 def episode_key(name: str):
     """Return (season, episode) if the name looks like an episode, else None."""
     for i, pat in enumerate(_EP_PATTERNS):
@@ -231,7 +267,7 @@ def find_subtitle_candidates(video: str) -> list[str]:
         try:
             for f in os.listdir(d):
                 p = os.path.join(d, f)
-                if os.path.isfile(p) and Path(f).suffix.lower() in SUB_EXTS - {".txt", ".idx"}:
+                if os.path.isfile(p) and Path(f).suffix.lower() in SUB_SIDECAR_EXTS:
                     cands.append(p)
         except OSError:
             pass
@@ -377,7 +413,7 @@ def subtitle_query(path: str) -> str:
         return ""
     title = pretty_title(path).split("  ·  ")[0]
     # keep the show name only: drop an episode marker (S01E02, 1x02, E01) and what follows
-    title = re.sub(r"\s*\b([Ss]\d{1,2}[ ._-]*[Ee]\d{1,3}|\d{1,2}[xX]\d{1,3}|[Ee][Pp]?\d{1,3})\b.*$", "", title)
+    title = _EP_TAIL.sub("", title)
     title = re.sub(r"\s*\((19|20)\d\d\)$", "", title).strip()
     return title or display_name(path)
 

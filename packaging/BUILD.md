@@ -57,6 +57,15 @@ and replaces the application with the current repository source. It checks the
 baseline files against that release's SHA256SUMS.txt before use. This is a
 maintenance repack, not a fresh dependency build.
 
+Run `repack_release.py` with Python 3.11 or newer (it uses `hashlib.file_digest`).
+
+Before a release, bump `APP_VERSION` in `app/__init__.py` and run `python packaging/sync_metadata.py`.
+It writes the version into the NSIS script, `launcher/pylon.rc`, `license-summary.txt`, `Info.plist`
+and the AppStream file (a new `<release>` with today's date), and writes the "Open with" file types
+from `app/util.py` (`ASSOCIATED_EXTS`) into `windows/file-types.nsh`, `Info.plist`, `linux/pylon.desktop`
+and the two `.bat` files. `repack_release.py` refuses to run while any of them is out of date, and
+`tests/check_metadata_sync.py` checks the same thing.
+
 Build tools used: Zig 0.15.2 (PyPI), NSIS 3.12 (conda-forge), and
 squashfs-tools-ng 1.3.2 (the upstream Windows binary package). Keep these under
 `build/tools` (ignored by Git). All outputs go to the sibling
@@ -76,7 +85,9 @@ squashfs-tools-ng 1.3.2 (the upstream Windows binary package). Keep these under
   before writing an AppImage. Run `python tests/check_appimage_compression.py`.
 - Windows: build `Pylon.exe` using `launcher/build.md`, then run
   `python packaging/repack_release.py windows`. This stages Python and licences
-  from the installed `Pylon-1.1/Pylon` copy, plus current repository files.
+  from the installed `Pylon-1.1/Pylon` copy, plus current repository files. The first run records a
+  hash of that Python and licences folder in `packaging/windows/runtime.sha256` (commit it); later runs
+  stop if the folder has changed.
   Compile `packaging/windows/pylon.nsi` with NSIS and define SRC as the absolute
   `build/windows/Pylon` path. The compiler writes the installer next to the NSI
   script; move it to Downloads after compilation succeeds.
