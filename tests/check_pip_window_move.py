@@ -126,16 +126,18 @@ class MovingWindow(Base):
         self.assertEqual(w.top.pos(), w.stage.mapToGlobal(QPoint(0, 0)))
 
     def test_pinned_bars_follow_straight_away(self):
+        """Since 1.7.0 pinned bars are part of the window (#81), so they move with it by themselves."""
         w = self.win
         self.store.set_setting("pin_controls", True)
         w.stage.setCurrentIndex(window_mod.PAGE_VIDEO)
         self.tick()
         self.tick()
         self.assertTrue(w._bars_visible)
+        self.assertFalse(w.top.isWindow())
         w.move(w.x() + 40, w.y() + 20)
         wait(100)
         self.assertTrue(w._bars_visible)
-        self.assertEqual(w.top.pos(), w.stage.mapToGlobal(QPoint(0, 0)))
+        self.assertEqual(w.top.mapToGlobal(QPoint(0, 0)), w.middle.mapToGlobal(QPoint(0, 0)))
 
     def test_drag_that_qt_is_not_told_about(self):
         """While the window manager drags the window, only X11 knows where it is."""
@@ -156,8 +158,9 @@ class MovingWindow(Base):
         self.tick()
         w.video.x11_drift = lambda: QPoint(60, 30)
         self.tick()
-        self.assertTrue(w._bars_visible)
-        self.assertEqual(w.top.pos(), w.stage.mapToGlobal(QPoint(0, 0)) + QPoint(60, 30))
+        self.assertTrue(w._bars_visible)         # part of the window: nothing to hide or move
+        self.assertFalse(w.top.isWindow())
+        self.assertFalse(w.bottom.isWindow())
 
     def test_small_drift_is_ignored(self):
         w = self.win

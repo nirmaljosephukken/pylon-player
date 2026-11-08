@@ -704,6 +704,10 @@ class PreferencesDialog(QDialog):
         cb3.setChecked(bool(self.store.setting("pin_controls")))
         cb3.toggled.connect(lambda v: self.store.set_setting("pin_controls", v))
         f.addWidget(cb3)
+        slide = QCheckBox("Slide the side panels in and out")
+        slide.setChecked(bool(self.store.setting("animate_panels")))
+        slide.toggled.connect(lambda v: self.store.set_setting("animate_panels", v))
+        f.addWidget(slide)
         simple = QCheckBox("Show simplified names in the queue")
         simple.setChecked(bool(self.store.setting("simple_queue_names")))
         simple.setToolTip("Changes displayed titles only. Hover an item to see its original path.")
@@ -910,6 +914,7 @@ class PreferencesDialog(QDialog):
     def _set_rtx_upscale(self, on: bool):
         self.store.set_setting("rtx_upscale", on)
         engine = self.win.engine
+        engine.vsr_paused = False       # a fresh start; full screen decides again (#42)
         if engine.ok:
             engine.rebuild()            # applies now and continues from the same point
 
@@ -923,7 +928,7 @@ class PreferencesDialog(QDialog):
         cb.setChecked(bool(self.store.setting("hw_decoding")))
         cb.toggled.connect(lambda v: self.store.set_setting("hw_decoding", v))
         f.addWidget(cb)
-        lab = QLabel("Turn this off if you see green frames or glitches. Takes effect the next time the engine restarts.")
+        lab = QLabel("Turn this off if you see green frames, glitches, or a black picture with subtitles. Takes effect the next time the engine restarts.")
         lab.setObjectName("Muted")
         lab.setWordWrap(True)
         f.addWidget(lab)

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFontComboBox
 
 from . import theme
 from .colour_dialog import choose_colour
-from .engine import CUSTOM_EQ, DEFAULT_SUB_STYLE, EQ_RANGE
+from .engine import CUSTOM_EQ, DEFAULT_SUB_STYLE, EQ_RANGE, VISUALIZERS
 from .icons import icon
 from .util import (display_name, subtitle_query, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
                    match_subtitle, parse_subtitles)
@@ -564,6 +564,24 @@ class SettingsSidebar(QWidget):
         self._eq_save_timer.setInterval(600)
         self._eq_save_timer.timeout.connect(
             lambda: self.store.set_setting("eq_custom", self.engine.live.get("eq_custom")))
+        lay.addWidget(section("Visualization"))
+        # VLC's visualizations while sound with no video plays (#85)
+        self.visualizer = ChipGroup([(v[0], k) for k, v in VISUALIZERS.items()], cols=3,
+                                    tips={"": "Off: songs show their cover and details.",
+                                          "goom": "Goom: not in every VLC build.",
+                                          "glspectrum": "3D spectrum: needs OpenGL, not in every VLC build."})
+        self.visualizer.picked.connect(self._set_visualizer)
+        self.visualizer.select(self.store.setting("visualizer") or "")
+        lay.addWidget(self.visualizer)
+        lay.addWidget(muted("Shown instead of the cover while a song or other sound without video plays."))
+        lay.addWidget(section("Silence"))
+        # Leading and trailing silence in songs (#86)
+        self.trim_silence = QCheckBox("Skip silence at the start and end of songs")
+        self.trim_silence.setChecked(bool(self.store.setting("trim_silence")))
+        self.trim_silence.toggled.connect(self.win.set_trim_silence)
+        lay.addWidget(self.trim_silence)
+        lay.addWidget(muted("Pylon listens to each song once in the background, then skips the quiet part "
+                            "before the music starts and moves on when only silence is left."))
         lay.addWidget(section("Every episode"))
         lay.addWidget(muted("Audio language to pick automatically, e.g. jpn, eng, Hindi."))
         self.audio_lang = QComboBox()
@@ -590,6 +608,29 @@ class SettingsSidebar(QWidget):
         self.engine.set_eq(idx)
         name = "Off" if idx < 0 else self.engine.eq_presets()[idx]
         self.win.toast(f"Equalizer: {name}")
+
+    def _set_visualizer(self, key):
+        e = self.engine
+        restarted = e.set_visualizer(key)
+        if restarted:            # the music page comes back once the new player has started without one
+            for ms in (1200, 2500):
+                QTimer.singleShot(ms, self.win._sync_audio_page)
+        name = VISUALIZERS[key][0]
+        if not key:
+            self.win.toast("Visualization off")
+        elif restarted or not e.current:
+            self.win.toast(f"Visualization: {name}")
+            if restarted:
+                QTimer.singleShot(3000, lambda: self._check_visualizer(key))
+        else:
+            self.win.toast(f"Visualization: {name}, from the next song")
+
+    def _check_visualizer(self, key):
+        """Goom and 3D spectrum aren't in every VLC build: say so instead of leaving nothing to see."""
+        e = self.engine
+        if (self.store.setting("visualizer") == key and e.current and e.is_playing()
+                and e.video_track_count() == 0 and not e.visualizing()):
+            self.win.toast(f"{VISUALIZERS[key][0]} isn't available in this VLC")
 
     def _custom_eq_changed(self, curve):
         self.engine.set_custom_eq(curve)
@@ -651,12 +692,26 @@ class SettingsSidebar(QWidget):
         lay.addWidget(muted("Makes soft or low-resolution video look crisper. Changing it restarts the video at the same spot."))
 
         lay.addWidget(section("Rotate and flip"))
-        self.transform = ChipGroup([("Normal", ""), ("90°", "90"), ("180°", "180"), ("270°", "270"),
-                                    ("Flip H", "hflip"), ("Flip V", "vflip")], cols=3)
-        self.transform.picked.connect(self._set_transform)
-        self.transform.select("")
-        lay.addWidget(self.transform)
-        lay.addWidget(muted("Rotating restarts the video at the same spot."))
+        # Turning and mirroring are separate choices, so Flip H goes with 90° or 270° too (#83)
+        self.rotate = ChipGroup([("Normal", 0), ("90°", 90), ("180°", 180), ("270°", 270)], cols=4)
+        self.rotate.picked.connect(lambda v: self._set_transform(rotate=v))
+        self.rotate.select(0)
+        lay.addWidget(self.rotate)
+        flips = QHBoxLayout()
+        flips.setSpacing(6)
+        self.flip_h = QPushButton("Flip H")
+        self.flip_v = QPushButton("Flip V")
+        for b, key, tip in ((self.flip_h, "flip_h", "Mirror the picture left to right"),
+                            (self.flip_v, "flip_v", "Mirror the picture upside down")):
+            b.setCheckable(True)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip(tip)
+            b.clicked.connect(lambda on, k=key: self._set_transform(**{k: on}))
+            flips.addWidget(b)
+        lay.addLayout(flips)
+        lay.addWidget(muted("The flips mirror the picture as you see it, after turning. "
+                            "Rotating or flipping restarts the video at the same spot."))
 
         lay.addWidget(section("Deinterlace"))
         self.deint = QComboBox()
@@ -705,10 +760,26 @@ class SettingsSidebar(QWidget):
         self.engine.rebuild()
         self.win.toast("Sharpen: off" if v == 0 else f"Sharpen: {v:.2f}")
 
-    def _set_transform(self, v):
-        self.engine.transform = v
-        self.engine.rebuild()
-        self.win.toast("Rotation: " + {"": "Normal", "hflip": "Flipped", "vflip": "Flipped vertically"}.get(v, f"{v}°"))
+    def _set_transform(self, **change):
+        """Turn and mirror the picture (#83): rotate is 0, 90, 180 or 270; flip_h and flip_v switch on and off
+        by themselves, so any rotation can be mirrored."""
+        e = self.engine
+        before = e.transform
+        for k, v in change.items():
+            setattr(e, k, v)
+        self.show_transform()
+        if e.transform != before:
+            e.rebuild()
+        parts = [f"{e.rotate}°" if e.rotate else ""] + [n for n, on in (("flipped", e.flip_h),
+                                                                         ("flipped vertically", e.flip_v)) if on]
+        text = ", ".join(p for p in parts if p)
+        self.win.toast("Rotation: " + (text[0].upper() + text[1:] if text else "Normal"))
+
+    def show_transform(self):
+        e = self.engine
+        self.rotate.select(e.rotate)
+        self.flip_h.setChecked(e.flip_h)
+        self.flip_v.setChecked(e.flip_v)
 
     # ================================================================ playback
     def _build_playback(self):
@@ -1135,5 +1206,5 @@ class SettingsSidebar(QWidget):
         for k, s in self.adj.items():
             s.set_value(vals[k])
         self.load_sub_style(self.engine.sub_style)
-        self.transform.select(self.engine.transform)
+        self.show_transform()
         self.sharpen.set_value(round(self.engine.sharpen * 20))

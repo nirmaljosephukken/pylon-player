@@ -4,7 +4,7 @@
 
 ### [⬇ Download page: nirmaljosephukken.github.io/pylon-player](https://nirmaljosephukken.github.io/pylon-player/)
 
-**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.6.5.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.6.5-x86_64.AppImage) · [macOS](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.6.5-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
+**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.7.0.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.7.0-x86_64.AppImage) · [macOS](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.7.0-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
 
 **New to Pylon?** The [user guide](https://nirmaljosephukken.github.io/pylon-player/guide.html) shows every screen, panel and setting with pictures and step-by-step how-tos. It's also available as a [PDF](https://nirmaljosephukken.github.io/pylon-player/guide/Pylon-User-Guide.pdf).
@@ -20,6 +20,8 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 ![Library, queue and settings sidebar](docs/panels.png)
 
 ## What's new
+
+**1.7.0:** Songs can show one of VLC's **visualizations** (Settings > Audio), and Pylon can **skip the silence** at the start and end of songs. **Flip H** now goes with 90° and 270° rotation. Switching from **Shuffle** to **Stop** or **Loop** keeps the shuffled queue. On Windows, 10-bit HEVC videos that showed only subtitles over a black picture should now show the picture. The side panels **slide** in and out (you can turn it off in Preferences > Interface). On Wayland desktops such as COSMIC the floating controls now sit over the video where they belong and follow the window. With **Super Resolution** on, panels in full screen float over the video so it keeps the whole screen, and when an aspect ratio or crop can't fill the screen Pylon sets Super Resolution aside instead of showing a black picture. **Keep the controls visible** now makes the bars part of the window.
 
 **1.6.5:** With **Super Resolution** on, the picture no longer goes black when you open a side panel in full screen or pick an aspect ratio that doesn't match the screen: Pylon now draws the black bars itself, so VLC's picture always fills its area exactly, and panels stay in full screen. **Keep the controls visible** now really puts the video between the bars instead of under them. Click a slider in the settings panel and **Left** and **Right** move it one step at a time.
 
@@ -92,7 +94,7 @@ Pylon plays everything through **VLC**, which you install yourself (Pylon never 
 | | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ |
 | --- | --- | --- | --- |
 | **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
-| **2. Pylon** | `Pylon-Setup-1.6.5.exe` | `Pylon-1.6.5-x86_64.AppImage` | `Pylon-1.6.5-macOS.zip` |
+| **2. Pylon** | `Pylon-Setup-1.7.0.exe` | `Pylon-1.7.0-x86_64.AppImage` | `Pylon-1.7.0-macOS.zip` |
 | **3. Run** | Run the setup. No admin rights needed. | `chmod +x Pylon-*.AppImage`, then double-click it | Unzip, move **Pylon** to Applications, see the first-launch note below |
 
 Nothing else is needed: each download carries its own Python and Qt.

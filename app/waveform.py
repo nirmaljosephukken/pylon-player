@@ -3,8 +3,9 @@
 A second libVLC instance converts the file's sound to a tiny mono WAV (2000
 samples a second, no picture), which takes well under a second for a song and
 a few seconds for a film, because VLC writes it as fast as it can decode. The
-loudest sample in each slice becomes one bar. Bars are kept on disk, so a file
-only has to be read once.
+loudest sample in each slice becomes one bar. The same sound tells where a song's
+leading and trailing silence ends and starts (#86). Both are kept on disk, so a
+file only has to be read once.
 """
 import array
 import hashlib
@@ -23,6 +24,10 @@ BARS = 600             # slices along the bar; more than the bar is wide on most
 RATE = 2000            # samples a second: plenty for an outline, tiny to write
 MAX_SECONDS = 600      # give up on anything that takes longer than this to read
 CACHE_FILES = 500
+CACHE_VERSION = 2      # 2 adds the silence at both ends (#86)
+SILENCE_DB = -50       # quieter than this, relative to full scale, counts as silence
+LEAD_IN_MS = 150       # start this much before the sound, so its first note isn't clipped
+TAIL_MS = 400          # and keep this much after it, so a fade ends naturally
 
 
 def _cache_dir() -> str:
@@ -62,6 +67,35 @@ def peaks_from_wav(wav_path: str, bars: int = BARS) -> list[float]:
     return [round((v / top) ** 0.5, 3) for v in out]
 
 
+def silence_from_wav(wav_path: str) -> tuple[int, int, int] | None:
+    """(where the sound starts, where it ends, length), in ms, ignoring silence at both ends (#86).
+    None for a file that is silent all through."""
+    with wave.open(wav_path, "rb") as w:
+        if w.getsampwidth() != 2:
+            return None
+        channels = max(1, w.getnchannels())
+        rate = w.getframerate() or RATE
+        data = array.array("h", w.readframes(w.getnframes()))
+    if channels > 1:
+        data = data[::channels]
+    return silence_bounds(data, rate)
+
+
+def silence_bounds(samples, rate: int = RATE, db: float = SILENCE_DB) -> tuple[int, int, int] | None:
+    n = len(samples)
+    if not n:
+        return None
+    limit = 32768 * 10 ** (db / 20)
+    first = next((i for i in range(n) if abs(samples[i]) > limit), None)
+    if first is None:
+        return None
+    last = next(i for i in range(n - 1, -1, -1) if abs(samples[i]) > limit)
+    total = n * 1000 // rate
+    start = max(0, first * 1000 // rate - LEAD_IN_MS)
+    end = min(total, (last + 1) * 1000 // rate + TAIL_MS)
+    return start, end, total
+
+
 def _prune_cache():
     try:
         d = _cache_dir()
@@ -75,11 +109,13 @@ def _prune_cache():
 class WaveformMaker(QObject):
     """Makes the waveform for one file at a time, in the background."""
     ready = Signal(str, list)        # path, bars (0..1)
+    silence = Signal(str, int, int, int)   # path, where the sound starts and ends, length (ms) (#86)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.path = None
         self.peaks: list[float] = []
+        self.bounds = None               # (start, end, length) ms without the silence at both ends
         self._thread = None
         self._stop = threading.Event()
 
@@ -92,8 +128,10 @@ class WaveformMaker(QObject):
         self.path = path
         cached = self._load_cache(path)
         if cached:
-            self.peaks = cached
-            self.ready.emit(path, cached)
+            self.peaks, self.bounds = cached
+            self.ready.emit(path, self.peaks)
+            if self.bounds:
+                self.silence.emit(path, *self.bounds)
             return
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, args=(path, self._stop), daemon=True)
@@ -106,6 +144,7 @@ class WaveformMaker(QObject):
         self._thread = None
         self.path = None
         self.peaks = []
+        self.bounds = None
 
     # ------------------------------------------------------------------ cache
     def _cache_path(self, path):
@@ -115,17 +154,18 @@ class WaveformMaker(QObject):
         try:
             with open(self._cache_path(path), encoding="utf-8") as f:
                 info = json.load(f)
-            if info.get("version") != 1:
+            if info.get("version") != CACHE_VERSION:
                 return None
             os.utime(self._cache_path(path))
-            return [float(v) for v in info["peaks"]]
+            trim = info.get("trim")
+            return [float(v) for v in info["peaks"]], (tuple(int(v) for v in trim) if trim else None)
         except (OSError, ValueError, KeyError, TypeError):
             return None
 
-    def _save_cache(self, path, peaks):
+    def _save_cache(self, path, peaks, bounds=None):
         try:
             with open(self._cache_path(path), "w", encoding="utf-8") as f:
-                json.dump({"version": 1, "peaks": peaks}, f)
+                json.dump({"version": CACHE_VERSION, "peaks": peaks, "trim": list(bounds) if bounds else None}, f)
             _prune_cache()
         except OSError:
             pass
@@ -136,11 +176,14 @@ class WaveformMaker(QObject):
         try:
             if self._decode(path, wav, stop) and not stop.is_set():
                 peaks = peaks_from_wav(wav)
+                bounds = silence_from_wav(wav)
                 if peaks and not stop.is_set():
-                    self._save_cache(path, peaks)
+                    self._save_cache(path, peaks, bounds)
                     if self.path == path:
-                        self.peaks = peaks
+                        self.peaks, self.bounds = peaks, bounds
                         self.ready.emit(path, peaks)
+                        if bounds:
+                            self.silence.emit(path, *bounds)
         except Exception:
             pass
         finally:

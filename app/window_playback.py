@@ -413,7 +413,11 @@ class PlaybackMixin:
         audio = is_audio(path)
         self.stage.setCurrentIndex(PAGE_AUDIO if audio else PAGE_VIDEO)
         self._overlay_geo = None
+        self._trim = None
+        self._trim_started = self._trim_ended = False
         e.open(path, start_ms=start_ms, subs=subs, title=title)
+        if self._wants_trim(path):
+            self.start_waveform()        # early, so the silence before the music can still be skipped (#86)
         self.store.add_recent(path, title)
         self.store.count_play(path)
         self._in_menu = False
@@ -540,6 +544,7 @@ class PlaybackMixin:
         e = self.engine
         self.bottom.set_playing(state == "playing")
         if state == "playing":
+            self._trim_start()
             if not self._live_applied:
                 self._live_applied = True
                 e.apply_live()
@@ -596,13 +601,27 @@ class PlaybackMixin:
                 self.stage.setCurrentIndex(PAGE_AUDIO)
             elif self.stage.currentIndex() == PAGE_AUDIO:
                 self.stage.setCurrentIndex(PAGE_VIDEO)
-            if has_video:
+            if has_video and not e.visualizing():     # no seek pictures for a visualization (#85)
                 self.start_previews()
             self.start_waveform()
             meta_title = e.meta().get("now_playing") or ""
             if meta_title and is_url(e.current):
                 self.top.set_title(f"{e.current_title or display_name(e.current)}  ·  {meta_title}")
         self.sidebar.refresh_tracks()
+
+    def _sync_audio_page(self):
+        """Sound with no video shows the music page, or the video page while a visualization plays (#85).
+        VLC makes or drops the visualization's video output when the player starts, or restarts after the
+        visualization changes."""
+        e = self.engine
+        if not e.current or not e.ok or self.stage.currentIndex() == PAGE_HOME or e.video_track_count() > 0:
+            return
+        if e.visualizing():
+            if self.stage.currentIndex() != PAGE_VIDEO:
+                self.stage.setCurrentIndex(PAGE_VIDEO)
+        elif self.stage.currentIndex() == PAGE_VIDEO and not e.has_video() and e.state() in ("playing", "paused"):
+            self.now_playing.load(e.current, e.meta())
+            self.stage.setCurrentIndex(PAGE_AUDIO)
 
     def _on_ended(self):
         e = self.engine
@@ -645,6 +664,7 @@ class PlaybackMixin:
             self.sidebar.tick()
         if e.is_disc():
             self._disc_tick()
+        self._trim_tick()
         now = time.monotonic()
         if e.is_playing() and now - self._last_saved > 5:
             self._last_saved = now

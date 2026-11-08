@@ -28,6 +28,51 @@ def _video_track(track):
         return None
 
 
+# Rotate and flip (#83). Matrices act on (x, y) with y pointing down, so "90" turns the picture clockwise.
+_ROT = {0: (1, 0, 0, 1), 90: (0, -1, 1, 0), 180: (-1, 0, 0, -1), 270: (0, 1, -1, 0)}
+_FLIP_H, _FLIP_V = (-1, 0, 0, 1), (1, 0, 0, -1)
+# VLC's --transform-type values: the eight ways a picture can be turned and mirrored
+VLC_TRANSFORMS = {"": _ROT[0], "90": _ROT[90], "180": _ROT[180], "270": _ROT[270],
+                  "hflip": _FLIP_H, "vflip": _FLIP_V, "transpose": (0, 1, 1, 0), "antitranspose": (0, -1, -1, 0)}
+# the other way round, as Pylon shows it: VLC value -> (rotation, flip H, flip V)
+_PARTS = {"": (0, False, False), "90": (90, False, False), "180": (180, False, False), "270": (270, False, False),
+          "hflip": (0, True, False), "vflip": (0, False, True), "transpose": (90, True, False),
+          "antitranspose": (270, True, False)}
+
+
+def _mul(a, b):
+    return (a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * b[3],
+            a[2] * b[0] + a[3] * b[2], a[2] * b[1] + a[3] * b[3])
+
+
+def compose_transform(rotate: int = 0, flip_h: bool = False, flip_v: bool = False) -> str:
+    """The one VLC transform that turns the picture by `rotate` degrees clockwise and then mirrors what
+    you see (#83: Flip H with 90° or 270° used to be impossible, because VLC takes a single value)."""
+    m = _ROT[int(rotate) % 360]
+    if flip_v:
+        m = _mul(_FLIP_V, m)
+    if flip_h:
+        m = _mul(_FLIP_H, m)
+    return next(k for k, v in VLC_TRANSFORMS.items() if v == m)
+
+
+def transform_parts(value: str) -> tuple[int, bool, bool]:
+    """(rotation, flip H, flip V) for a VLC transform value, the way the Video tab shows it."""
+    return _PARTS.get(str(value or ""), (0, False, False))
+
+
+# VLC's visualizations for sound with no video (#85): key -> (name, VLC options). The first four come with
+# every VLC; Goom and 3D spectrum are separate modules that some builds (Linux distributions) leave out.
+VISUALIZERS = {
+    "": ("Off", []),
+    "spectrum": ("Spectrum", ["--audio-visual=visual", "--effect-list=spectrum"]),
+    "scope": ("Scope", ["--audio-visual=visual", "--effect-list=scope"]),
+    "vumeter": ("VU meter", ["--audio-visual=visual", "--effect-list=vuMeter"]),
+    "spectrometer": ("Spectrometer", ["--audio-visual=visual", "--effect-list=spectrometer"]),
+    "goom": ("Goom", ["--audio-visual=goom"]),
+    "glspectrum": ("3D spectrum", ["--audio-visual=glspectrum"]),
+}
+
 def vlc_place(src: tuple[int, int], sar: tuple[int, int], area: tuple[int, int]):
     """The picture size VLC 3 fits into a video area (vout_display_PlacePicture, display.c), with its
     integer maths: src is the (cropped) picture in pixels, sar its sample aspect ratio. None when VLC's
@@ -288,6 +333,7 @@ class Engine(QObject):
     media_changed = Signal(str)
     tracks_changed = Signal()
     vout_changed = Signal(int)
+    wake_picture = Signal()           # Windows: give VLC's video area a nudge so the picture shows (#82)
     picture_changed = Signal()          # the picture's shape may have changed (aspect, crop, new video)
     renderers_changed = Signal()        # a cast device appeared or went away
 
@@ -301,7 +347,7 @@ class Engine(QObject):
         self.current_title = ""
         self.extra_subs: list[str] = []  # external subtitle files added to this media
         self.sub_style = dict(DEFAULT_SUB_STYLE)
-        self.transform = ""            # "", 90, 180, 270, hflip, vflip
+        self.rotate, self.flip_h, self.flip_v = 0, False, False     # rotate and flip (#83)
         self.sharpen = 0.0             # 0 = off, else VLC sharpen strength (sigma, up to 1.5)
         self.live = {"rate": 1.0, "sub_delay": 0, "audio_delay": 0, "eq": -1, "eq_custom": None,
                      "aspect": "", "crop": "", "zoom": 0.0, "deinterlace": "",
@@ -313,6 +359,8 @@ class Engine(QObject):
         self.izoom = None              # interactive zoom (#39): {"z", "x", "y", "w", "h"} in video pixels
         self.fit = None                # (w, h) device pixels of a video area sized to the picture (#42)
         self._fit_turn = 0             # which of the equivalent fill ratios is in use
+        self._args_stale = False       # VLC options changed: start a new player at the next file
+        self.vsr_paused = False        # Super Resolution set aside while the picture can't fill the screen (#42)
         self._last_seek_t = 0.0
         self._seek_target = None
         self._seek_timer = QTimer(self)
@@ -328,6 +376,17 @@ class Engine(QObject):
         if vlc is not None:
             self._build()
 
+    # ------------------------------------------------------------------ rotate and flip
+    @property
+    def transform(self) -> str:
+        """VLC's --transform-type for the rotation and flips together: "", 90, 180, 270, hflip, vflip,
+        transpose or antitranspose."""
+        return compose_transform(self.rotate, self.flip_h, self.flip_v)
+
+    @transform.setter
+    def transform(self, value: str):
+        self.rotate, self.flip_h, self.flip_v = transform_parts(value)
+
     # ------------------------------------------------------------------ setup
     def _args(self) -> list[str]:
         st = self.sub_style
@@ -338,7 +397,7 @@ class Engine(QObject):
             # playback starts (#28). Prefer VLC's PulseAudio output, which PipeWire also
             # serves on modern desktops, then ALSA, then whatever else is installed.
             args.append("--aout=pulse,alsa,any")
-        if sys.platform == "win32" and self.store.setting("rtx_upscale"):
+        if sys.platform == "win32" and self.store.setting("rtx_upscale") and not self.vsr_paused:
             # Lets NVIDIA RTX / Intel Video Super Resolution sharpen upscaled video (#42).
             # VLC falls back to its normal scaler on graphics that can't do it.
             args.append("--d3d11-upscale-mode=super")
@@ -359,6 +418,7 @@ class Engine(QObject):
             args.append("--freetype-bold")
         if st["margin"]:
             args.append(f"--sub-margin={int(st['margin'])}")
+        args += VISUALIZERS.get(self.store.setting("visualizer"), VISUALIZERS[""])[1]
         filters = []
         if self.transform:
             filters.append("transform")
@@ -449,6 +509,8 @@ class Engine(QObject):
              paused: bool = False):
         if not self.ok:
             return
+        if self._args_stale:          # an option VLC reads at start changed while a video played (#85)
+            self._renew(self.volume())
         if not is_url(target):
             target = os.path.normpath(os.path.abspath(target))
         self.current = target
@@ -498,17 +560,7 @@ class Engine(QObject):
         subs = list(self.extra_subs)
         sub_id, audio_id = self.current_sub(), self.current_audio()
         vol = self.volume()
-        looking = self._stop_discovery()
-        try:
-            self.player.stop()
-            self.player.release()
-            self.instance.release()
-        except Exception:
-            pass
-        self._build()
-        self._queue_audio(volume=vol)
-        if looking:
-            self.start_discovery()
+        self._renew(vol)
         if target:
             self._live_pending = True     # the new player starts with VLC defaults
             zoom = self.izoom
@@ -526,6 +578,65 @@ class Engine(QObject):
                 QTimer.singleShot(wait, reopen)
             else:
                 reopen()
+
+    def _renew(self, vol: int):
+        """A new VLC instance and player with the current options, playing nothing yet."""
+        self._args_stale = False
+        looking = self._stop_discovery()
+        try:
+            self.player.stop()
+            self.player.release()
+            self.instance.release()
+        except Exception:
+            pass
+        self._build()
+        self._queue_audio(volume=vol)
+        if looking:
+            self.start_discovery()
+
+    def video_track_count(self) -> int:
+        if not self.ok:
+            return 0
+        try:
+            return self.player.video_get_track_count() or 0
+        except Exception:
+            return 0
+
+    def visualizing(self) -> bool:
+        """True while VLC shows a visualization: a picture for sound with no video (#85)."""
+        if not self.ok or not self.store.setting("visualizer"):
+            return False
+        try:
+            return self.video_track_count() == 0 and bool(self.player.has_vout())
+        except Exception:
+            return False
+
+    def set_visualizer(self, key: str) -> bool:
+        """Pick a visualization (#85). VLC reads it only when the player starts, so sound that's playing
+        now continues from the same spot with it; while a video plays, it's applied at the next file.
+        True if the player was restarted."""
+        if key not in VISUALIZERS:
+            key = ""
+        if key == (self.store.setting("visualizer") or ""):
+            return False
+        self.store.set_setting("visualizer", key)
+        if self.current and self.video_track_count() == 0:
+            self.rebuild()
+            return True
+        self._args_stale = True
+        return False
+
+    def set_vsr_paused(self, on: bool) -> bool:
+        """Set Super Resolution aside, or bring it back (#42). VLC reads its upscaling mode only when the
+        player is made, so this rebuilds the player and continues from the same point. Returns True if
+        anything changed."""
+        on = bool(on)
+        if on == self.vsr_paused:
+            return False
+        self.vsr_paused = on
+        if self.ok:
+            self.rebuild()
+        return True
 
     def recreate(self):
         """Rebuild the VLC instance without reopening anything (used when a
@@ -551,6 +662,12 @@ class Engine(QObject):
         self.picture_changed.emit()       # the video size is known now, or soon (a TS stream tells later)
         for ms in (400, 1500):
             QTimer.singleShot(ms, self.picture_changed.emit)
+        if sys.platform == "win32":
+            # Some Windows graphics drivers show subtitles but a black picture for hardware-decoded 10-bit
+            # video (HEVC especially) until VLC's video area changes size (#82: opening a panel fixed it).
+            # The window gives the area a one-off nudge once the first frames are out, and once more later.
+            for ms in (300, 1200):
+                QTimer.singleShot(ms, self.wake_picture.emit)
 
     def _reapply_picture(self):
         if not self.ok:
@@ -645,6 +762,13 @@ class Engine(QObject):
 
     def length(self) -> int:
         return int(self.player.get_length() or 0) if self.ok else 0
+
+    def finish(self):
+        """End the file now, the way it ends by itself, so whatever comes next (the next song, a loop, the
+        sleep timer) happens as usual. Used to skip the silence after a song (#86)."""
+        if not self.ok:
+            return
+        self.player.set_position(1.0)
 
     def seek(self, ms: int):
         """Jump to ms. Requests that arrive while VLC is still finishing the last jump
