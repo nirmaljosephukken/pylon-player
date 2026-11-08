@@ -1123,7 +1123,7 @@ class UpdateDialog(QDialog):
         self.bar.show()
         self.status.setText("Downloading the installer…")
         self.status.show()
-        self.checker.download(self.asset)
+        self.checker.download(self.asset, self.release)
 
     def _progress(self, done, total):
         if total > 0:
