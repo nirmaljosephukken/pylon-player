@@ -456,7 +456,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
 
 <section id="settings" data-title="The settings panel">
 <h2>The settings panel</h2>
-<p>Press <kbd>Ctrl</kbd>+<kbd>T</kbd> or click the sliders button at the bottom right. The panel opens on the right, so you can adjust things while the video plays. Click a slider and <kbd>&larr;</kbd> <kbd>&rarr;</kbd> move it one step at a time; click the video or press <kbd>Esc</kbd> and the arrows jump through the video again.</p>
+<p>Press <kbd>Ctrl</kbd>+<kbd>T</kbd> or click the sliders button at the bottom right. The panel slides in on the right, so you can adjust things while the video plays. Click a slider and <kbd>&larr;</kbd> <kbd>&rarr;</kbd> move it one step at a time; click the video or press <kbd>Esc</kbd> and the arrows jump through the video again.</p>
 <h3 id="presets">Presets: settings for a show</h3>
 <p>A preset keeps subtitle timing and look, audio and subtitle tracks, speed and picture settings for a show. Set things up once, then click the save button next to <b>Preset</b> and give it a name. Every file in that folder uses it automatically from then on. Pick another preset from the list, or <b>No preset</b>, at any time.</p>
 
@@ -488,6 +488,8 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
 <li><b>Track</b> and <b>Output</b>: the audio track, and where sound plays (speakers, headphones and so on).</li>
 <li><b>Timing</b>: move the sound earlier or later if it doesn't match the picture. Keys: <kbd>K</kbd> later, <kbd>Shift</kbd>+<kbd>K</kbd> earlier.</li>
 <li><b>Sound</b>: VLC's equalizer presets in one click. Hover a preset to see what it does. <b>Custom</b> opens a 10-band equalizer; double-click any slider to reset it to 0 dB, or click <b>Flat</b> to reset them all.</li>
+<li><b>Visualization</b>: a moving picture for songs, from VLC: Spectrum, Scope, VU meter, Spectrometer, Goom or 3D spectrum. It shows instead of the cover while sound without video plays.</li>
+<li><b>Silence</b>: <b>Skip silence at the start and end of songs</b> jumps past the quiet part before the music and moves on when only silence is left.</li>
 <li><b>Every episode</b>: an audio language to pick automatically, such as <code>jpn</code> or <code>eng</code>.</li>
 </ul>
 
@@ -496,7 +498,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
 <li><b>Aspect ratio</b>, <b>Crop and zoom</b>: fix a stretched picture or remove black bars. <kbd>A</kbd> and <kbd>C</kbd> step through them.</li>
 <li><b>Picture</b>: one-click looks (Original, Vivid, Bright, Cinema, Soft, Mono) and sliders for brightness, contrast, saturation, gamma and hue. Each slider's circular arrow resets it.</li>
 <li><b>Sharpen</b>: makes soft or low-resolution video look crisper.</li>
-<li><b>Rotate and flip</b>, and <b>Deinterlace</b> for old TV recordings with comb-like lines.</li>
+<li><b>Rotate and flip</b>: pick a rotation, then <b>Flip H</b> or <b>Flip V</b> to mirror the turned picture. And <b>Deinterlace</b> for old TV recordings with comb-like lines.</li>
 </ul>
 <p>Changing sharpen or rotation restarts the video at the same spot.</p>
 </div></div>
@@ -616,7 +618,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
 <section id="trouble" data-title="Troubleshooting">
 <h2>Troubleshooting</h2>
 <details class="howto"><summary>Pylon says it can't find VLC</summary><p>Install VLC 3 (64-bit on Windows). For a portable VLC, click <b>Locate VLC folder…</b> in the message, or use <b>Preferences > Performance > Use VLC from a folder…</b>. On Linux, use VLC from your distribution, not the Flatpak or Snap version.</p></details>
-<details class="howto"><summary>Green frames, glitches or a black picture</summary><p>Turn off <b>hardware decoding</b> in <b>Preferences > Performance</b>. If you use RTX Video Super Resolution and the picture still goes black (with a panel open, or with a different aspect ratio or crop), turn that option off and tell us on GitHub.</p></details>
+<details class="howto"><summary>Green frames, glitches or a black picture</summary><p>Turn off <b>hardware decoding</b> in <b>Preferences > Performance</b>. Super Resolution only shows a picture while the video covers the whole screen, so in full screen Pylon floats the panels over the video, and when an aspect ratio, crop or fixed zoom leaves black bars it sets Super Resolution aside until the picture fills the screen again. If the picture still goes black, turn the option off and tell us on GitHub.</p></details>
 <details class="howto"><summary>No sound, or Pylon closes at start on Linux</summary><p>Pylon uses VLC's PulseAudio output, which PipeWire also serves. To try another output, start Pylon with <code>PYLON_VLC_ARGS=--aout=pipewire</code> (or <code>alsa</code>).</p></details>
 <details class="howto"><summary>Subtitles aren't found automatically</summary><p>Put them next to the video, or in a <code>Subs</code> or <code>Subtitles</code> folder, with the same name or episode number. Or use <b>Add subtitles…</b> and fix the pairing by hand. <b>Preferences > Subtitles</b> sets how closely names must match.</p></details>
 <details class="howto"><summary>The subtitle look or rotation restarted the video</summary><p>That's expected: VLC reads those settings when its engine starts, so Pylon restarts the video at the same spot.</p></details>

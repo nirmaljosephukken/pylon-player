@@ -8,7 +8,7 @@ from PySide6.QtGui import (QBrush, QColor, QCursor, QFont, QFontMetrics, QLinear
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QSizePolicy, QToolButton, QToolTip,
                                QVBoxLayout, QWidget)
 
-from . import theme
+from . import overlay, theme
 from .icons import icon
 from .util import fmt_delay, fmt_time
 
@@ -385,8 +385,9 @@ class OverlayWindow(QWidget):
     surface (Qt widgets cannot be drawn on top of the VLC video directly)."""
 
     def __init__(self, owner, gradient: str = "none", radius: int = 0, alpha: int = 215):
-        super().__init__(owner, Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint
-                         | Qt.WindowDoesNotAcceptFocus)
+        super().__init__(owner, overlay.flags())
+        self.owner = owner
+        self.docked = False     # a pinned bar sits in the window's layout instead of floating (#81)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setFocusPolicy(Qt.NoFocus)
@@ -394,6 +395,30 @@ class OverlayWindow(QWidget):
         self.radius = radius
         self.alpha = alpha
         self.solid = False      # True: fully opaque bar (controls pinned outside fullscreen)
+
+    def follow_mode(self) -> bool:
+        """Take the current overlay mode's window flags (see overlay.py). Returns True if they changed;
+        the window is hidden then, and is shown again by whoever shows it."""
+        if self.docked or self.windowFlags() == overlay.flags():
+            return False
+        self.setWindowFlags(overlay.flags())
+        return True
+
+    def dock(self, parent: QWidget):
+        """Become an ordinary child of parent, laid out with the rest of the window."""
+        if not self.docked:
+            self.docked = True
+            self.setParent(parent, Qt.Widget)
+            self.clearMask()
+            self.setFixedHeight(self.HEIGHT)
+
+    def undock(self):
+        """Float again as a window of its own over the video."""
+        if self.docked:
+            self.docked = False
+            self.setParent(self.owner, overlay.flags())
+            self.setMinimumHeight(0)
+            self.setMaximumHeight(16777215)
 
     def paintEvent(self, e):
         p = QPainter(self)

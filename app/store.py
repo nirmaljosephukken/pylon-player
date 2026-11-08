@@ -136,6 +136,8 @@ DEFAULT_SETTINGS = {
     "sub_lang": "",             # preferred subtitle language, e.g. "eng"
     "audio_lang": "",
     "hw_decoding": True,
+    "visualizer": "",           # picture to show while sound with no video plays, see engine.VISUALIZERS (#85)
+    "trim_silence": False,      # skip silence at the start and end of songs (#86)
     "rtx_upscale": False,              # Windows: VLC's Super Resolution upscaling (#42)
     "sub_site_star": "",        # preferred subtitle site, starred in Find online; "" = none (#54)
     "onboarded": False,
@@ -145,6 +147,7 @@ DEFAULT_SETTINGS = {
     "seek_waveform": "audio",   # waveform in the seek bar: "audio" (songs), "all" (videos too) or "off"
     "theme": "dark",            # dark | black | warm | midnight | custom
     "theme_tint": "",           # colour for the custom theme
+    "animate_panels": True,     # the library and settings panels slide in and out (#54, #63)
     "pin_controls": False,      # keep the bars shown (and the video clear of them) outside fullscreen
     "check_updates": True,      # ask GitHub once a day whether a newer Pylon is out
     "last_update_check": 0,
