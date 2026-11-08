@@ -347,6 +347,9 @@ class Engine(QObject):
         self.current_title = ""
         self.extra_subs: list[str] = []  # external subtitle files added to this media
         self.sub_style = dict(DEFAULT_SUB_STYLE)
+        saved_style = store.setting("sub_style")
+        if isinstance(saved_style, dict):
+            self.sub_style.update(saved_style)      # before the first build, so VLC starts once (H8)
         self.rotate, self.flip_h, self.flip_v = 0, False, False     # rotate and flip (#83)
         self.sharpen = 0.0             # 0 = off, else VLC sharpen strength (sigma, up to 1.5)
         self.live = {"rate": 1.0, "sub_delay": 0, "audio_delay": 0, "eq": -1, "eq_custom": None,
@@ -643,18 +646,7 @@ class Engine(QObject):
         preset with a different subtitle look is applied before playback)."""
         if vlc is None:
             return
-        vol = self.volume()
-        looking = self._stop_discovery()
-        try:
-            self.player.stop()
-            self.player.release()
-            self.instance.release()
-        except Exception:
-            pass
-        self._build()
-        self._queue_audio(volume=vol)
-        if looking:
-            self.start_discovery()
+        self._renew(self.volume())
 
     def _on_vout(self, _n=0):
         if self.ok and self.live.get("adjust"):

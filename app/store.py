@@ -6,7 +6,7 @@ import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from .util import display_name, is_audio, is_url
+from .util import display_name, is_audio, is_media, is_url
 
 # What the queue does when an item ends (#48), in the order the queue button cycles through them:
 # key -> (short name, what it does, icon)
@@ -152,7 +152,12 @@ DEFAULT_SETTINGS = {
     "check_updates": True,      # ask GitHub once a day whether a newer Pylon is out
     "last_update_check": 0,
     "skipped_version": "",
+    "sub_style": {},            # subtitle look from the Subtitles tab; {} = the engine's default style
 }
+
+# How many files the store remembers positions and play counts for (oldest are dropped first).
+MAX_POSITIONS = 2000
+MAX_PLAYS = 2000
 
 
 def data_dir() -> str:
@@ -176,12 +181,27 @@ def data_dir() -> str:
     return path
 
 
+def _same_type(default, value) -> bool:
+    """Whether a loaded value can stand in for the default: same JSON type (an int may be a float,
+    None defaults take anything)."""
+    if default is None:
+        return True
+    if isinstance(default, bool) or isinstance(value, bool):
+        return isinstance(default, bool) and isinstance(value, bool)
+    if isinstance(default, (int, float)):
+        return isinstance(value, (int, float))
+    return isinstance(value, type(default))
+
+
 class Store(QObject):
     changed = Signal(str)  # section name
 
     def __init__(self, path: str | None = None):
         super().__init__()
         self.path = path or os.path.join(data_dir(), "data.json")
+        self.load_error = ""           # why data.json couldn't be read, if it couldn't
+        self.corrupt_copy = ""         # where the unreadable file was kept
+        self.restored_backup = False   # loaded data.json.bak instead
         self.data = {
             "settings": dict(DEFAULT_SETTINGS),
             "shortcuts": {},
@@ -207,17 +227,72 @@ class Store(QObject):
         self._save_timer.timeout.connect(self.save_now)
 
     # ---------- io ----------
+    def _read(self, path: str):
+        with open(path, encoding="utf-8") as f:
+            loaded = json.load(f)
+        if not isinstance(loaded, dict):
+            raise ValueError("data.json does not hold an object")
+        return loaded
+
     def _load(self):
-        try:
-            with open(self.path, encoding="utf-8") as f:
-                loaded = json.load(f)
-            for k, v in loaded.items():
-                if k == "settings":
-                    self.data["settings"].update(v)
-                else:
-                    self.data[k] = v
-        except (OSError, ValueError):
-            pass
+        """Read data.json. A file that can't be parsed is kept as data.json.corrupt-<time> (so the next
+        save doesn't overwrite the user's library) and the last good copy, data.json.bak, is used."""
+        loaded = None
+        if os.path.exists(self.path):
+            try:
+                loaded = self._read(self.path)
+            except (OSError, ValueError) as e:
+                self.load_error = f"{type(e).__name__}: {e}"
+                kept = f"{self.path}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}"
+                try:
+                    os.replace(self.path, kept)
+                    self.corrupt_copy = kept
+                except OSError:
+                    pass
+                print(f"data.json could not be read ({self.load_error}); kept as {kept}", file=sys.stderr)
+        if loaded is None and os.path.exists(self.path + ".bak"):
+            try:
+                loaded = self._read(self.path + ".bak")
+                self.restored_backup = True
+            except (OSError, ValueError):
+                loaded = None
+        if loaded:
+            self._merge(loaded)
+        self._tidy()
+
+    def _merge(self, loaded: dict):
+        """Take the loaded values whose type matches the default's, so an old or hand-edited file
+        (e.g. "recent": {} or "volume": "80") can't crash code far away from here."""
+        for k, v in loaded.items():
+            if k == "settings":
+                if not isinstance(v, dict):
+                    continue
+                for sk, sv in v.items():
+                    if _same_type(DEFAULT_SETTINGS.get(sk, sv), sv):
+                        self.data["settings"][sk] = sv
+            elif k not in self.data or _same_type(self.data[k], v):
+                self.data[k] = v
+
+    def _tidy(self):
+        """Drop history and queue entries that aren't media (e.g. main.py opened by mistake) or aren't
+        entries at all."""
+        def media(e):
+            p = e.get("path", "") if isinstance(e, dict) else ""
+            return bool(p) and isinstance(p, str) and (is_url(p) or is_media(p))
+        self.data["recent"] = [r for r in self.data["recent"] if media(r)]
+        self.data["queue"] = [q for q in self.data["queue"] if media(q)]
+
+    def _prune(self):
+        """Keep positions and play counts for the most recent files only, so data.json doesn't grow forever."""
+        for key, limit in (("positions", MAX_POSITIONS), ("plays", MAX_PLAYS)):
+            d = self.data.get(key) or {}
+            if len(d) > limit:
+                def when(p):
+                    e = d[p]
+                    t = e.get("t", 0) if isinstance(e, dict) else 0
+                    return t if isinstance(t, (int, float)) else 0
+                keep = set(sorted(d, key=when, reverse=True)[:limit])
+                self.data[key] = {p: e for p, e in d.items() if p in keep}
 
     def save(self, section: str = ""):
         self._save_timer.start()
@@ -225,10 +300,16 @@ class Store(QObject):
             self.changed.emit(section)
 
     def save_now(self):
+        self._prune()
         tmp = self.path + ".tmp"
         try:
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, indent=1)
+            if os.path.exists(self.path):
+                try:
+                    os.replace(self.path, self.path + ".bak")   # the last good copy, used if data.json breaks
+                except OSError:
+                    pass
             os.replace(tmp, self.path)
         except OSError:
             pass

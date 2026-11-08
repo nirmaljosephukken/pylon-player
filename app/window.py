@@ -40,12 +40,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         self.setMinimumSize(640, 400)
         self.setAcceptDrops(True)
 
-        self.engine = Engine(store, self)
-        st = store.setting("sub_style")
-        if isinstance(st, dict):
-            self.engine.sub_style.update(st)
-            if self.engine.ok:
-                self.engine.recreate()
+        self.engine = Engine(store, self)      # starts VLC once, with the saved subtitle style
 
         self.queue: list[dict] = []
         self.qindex = -1

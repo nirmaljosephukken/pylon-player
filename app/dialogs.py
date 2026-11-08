@@ -183,7 +183,7 @@ class SubtitleDialog(QDialog):
     def save(self):
         sm = self.store.data["sub_map"]
         cur = self.win.engine.current
-        applied = 0
+        applied = removed = 0
         for r in range(self.table.rowCount()):
             v = self.table.item(r, 0).toolTip()
             s = self.table.cellWidget(r, 1).currentData()
@@ -193,10 +193,14 @@ class SubtitleDialog(QDialog):
                 if v == cur:
                     self.win.engine.add_subtitle(s, select=True)
                     self.win.sidebar.load_cues()
-            elif v in sm and self.scope.checkedId() != 0:
-                pass
+            elif v in sm:
+                del sm[v]            # "(none)" chosen for a file that had a saved pairing (H7)
+                removed += 1
         self.store.save("subs")
-        self.win.toast(f"Subtitles saved for {applied} file{'s' if applied != 1 else ''}")
+        msg = f"Subtitles saved for {applied} file{'s' if applied != 1 else ''}"
+        if removed:
+            msg += f", removed for {removed}"
+        self.win.toast(msg)
         self.accept()
 
 

@@ -369,7 +369,8 @@ class SettingsSidebar(QWidget):
             cb.setMinimumWidth(0)
         self.refresh_presets()
 
-        self.engine.tracks_changed.connect(self.refresh_tracks, Qt.QueuedConnection)
+        # Track changes reach the sidebar through the window (_on_tracks), once, and only rebuild the
+        # lists while the panel is shown; opening it refreshes them (H9).
         self.engine.media_changed.connect(lambda _: QTimer.singleShot(50, self.on_media_changed))
 
     # ================================================================ subtitles
@@ -1037,13 +1038,25 @@ class SettingsSidebar(QWidget):
             it = QListWidgetItem("No chapters in this file")
             it.setFlags(Qt.NoItemFlags)
             self.ch_list.addItem(it)
+        self._mark_chapters(chs)
+
+    def _mark_chapters(self, chs):
+        """Chapter ticks on the seek bar, which shows even while this panel is hidden."""
         self.win.bottom.seek.chapters = [s for _, _, s in chs if s > 0]
         self.win.bottom.seek.update()
+
+    def refresh_tracks_if_shown(self):
+        """Rebuild the track lists if the panel is open; otherwise only the seek bar's chapter ticks
+        (opening the panel rebuilds everything)."""
+        if self.isVisible():
+            self.refresh_tracks()
+        else:
+            self._mark_chapters(self.engine.chapters())
 
     # ================================================================ shared
     def on_media_changed(self):
         self.refresh_bookmarks()
-        self.refresh_tracks()
+        self.refresh_tracks_if_shown()
         self.refresh_presets()
         self.set_sub_delay_ui(self.engine.live["sub_delay"])
         self.audio_delay.set_value(self.engine.live["audio_delay"])

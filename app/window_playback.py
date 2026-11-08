@@ -528,7 +528,7 @@ class PlaybackMixin:
         t = pick(e.audio_tracks(), audio_name, audio_lang)
         if t is not None:
             e.set_audio(t)
-        self.sidebar.refresh_tracks()
+        self.sidebar.refresh_tracks_if_shown()
 
     def _on_tracks(self):
         if not self._prefs_applied and self.engine.state() == "playing":
@@ -537,8 +537,7 @@ class PlaybackMixin:
         QTimer.singleShot(120, self._refresh_after_tracks)
 
     def _refresh_after_tracks(self):
-        if self.sidebar.isVisible():
-            self.sidebar.refresh_tracks()
+        self.sidebar.refresh_tracks_if_shown()
 
     def _on_state(self, state):
         e = self.engine
@@ -607,7 +606,7 @@ class PlaybackMixin:
             meta_title = e.meta().get("now_playing") or ""
             if meta_title and is_url(e.current):
                 self.top.set_title(f"{e.current_title or display_name(e.current)}  ·  {meta_title}")
-        self.sidebar.refresh_tracks()
+        self.sidebar.refresh_tracks_if_shown()
 
     def _sync_audio_page(self):
         """Sound with no video shows the music page, or the video page while a visualization plays (#85).

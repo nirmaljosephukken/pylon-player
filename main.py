@@ -66,9 +66,12 @@ def _install_error_log():
     if sys.stdout is None:
         sys.stdout = f
 
+    previous = sys.excepthook      # startup.py's hook writes startup.log; keep it working (H6)
+
     def hook(t, v, tb):
         f.write("".join(traceback.format_exception(t, v, tb)))
         f.flush()
+        previous(t, v, tb)
     sys.excepthook = hook
 
 
@@ -93,13 +96,10 @@ def main():
     if os.path.isfile(ico):
         from PySide6.QtGui import QIcon
         app.setWindowIcon(QIcon(ico))
-    store = Store()
-    # tidy history: drop anything that isn't media (e.g. main.py opened by mistake)
-    from app.util import is_media, is_url
-    store.data["recent"] = [r for r in store.data.get("recent", [])
-                            if is_url(r.get("path", "")) or is_media(r.get("path", ""))]
-    store.data["queue"] = [q for q in store.data.get("queue", [])
-                           if is_url(q.get("path", "")) or is_media(q.get("path", ""))]
+    store = Store()       # also drops history and queue entries that aren't media
+    if store.load_error:
+        print(f"data.json was unreadable ({store.load_error}); kept as {store.corrupt_copy or 'is'}"
+              + (", restored data.json.bak" if store.restored_backup else ""), file=sys.stderr, flush=True)
     theme.set_theme(store.setting("theme"), store.setting("theme_tint"))
     theme.set_accent(store.setting("accent"))
     app.setStyleSheet(theme.stylesheet())
