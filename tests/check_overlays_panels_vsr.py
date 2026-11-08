@@ -95,6 +95,11 @@ class OverlayMode(unittest.TestCase):
 class MisplacedBars(Base):
     def show_bars(self):
         w = self.win
+        # The window has to fit on the screen: a window manager keeps a bar that would sit below the
+        # screen's edge on the screen, which is a misplaced bar too. Small or scaled screens need this.
+        room = w.screen().availableGeometry()
+        w.resize(min(900, room.width() * 3 // 4), min(560, room.height() * 3 // 4))
+        wait(100)
         w.stage.setCurrentIndex(PAGE_VIDEO)
         w._app_active = lambda: True
         w._force_show_until = time.monotonic() + 60
@@ -122,8 +127,11 @@ class MisplacedBars(Base):
     def test_bars_where_they_belong_keep_the_window_manager(self):
         w = self.win
         self.show_bars()
+        # The X server reports device pixels, so on a scaled screen (150% here and there) where the bars
+        # belong is their position times the scale, not their position in Qt's own units.
+        dpr = w.devicePixelRatioF() or 1.0
         with patch.object(overlay, "_platform", lambda: "xcb"), \
-                patch.object(overlay, "real_position", lambda bar: (bar.x(), bar.y())):
+                patch.object(overlay, "real_position", lambda bar: (round(bar.x() * dpr), round(bar.y() * dpr))):
             for _ in range(4):
                 w._overlay_geo = None
                 self.tick()
@@ -147,6 +155,17 @@ class MisplacedBars(Base):
         w._moving_until = 0
         self.tick()
         self.assertTrue(w._bars_visible)
+
+
+    @unittest.skipUnless(overlay._platform() == "xcb", "needs X11")
+    def test_real_x11_position_on_a_window_manager_that_obeys(self):
+        """The same with the real X server, at whatever scale the checks run (QT_SCALE_FACTOR=1.5 too)."""
+        w = self.win
+        self.show_bars()
+        for _ in range(4):
+            w._overlay_geo = None
+            self.tick()
+        self.assertFalse(overlay.bypass())
 
 
 class PinnedBars(Base):
