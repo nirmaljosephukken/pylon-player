@@ -15,9 +15,7 @@ from .library_widgets import media_filter
 from .stage import PAGE_AUDIO, PAGE_HOME, PAGE_VIDEO
 from .store import resume_point
 from .updates import fetch_text
-from .util import (SUB_EXTS, PLAYLIST_EXTS, display_name, norm, find_subtitle_candidates, is_disc, is_dvd_folder,
-                   fmt_time, is_audio, is_media, is_url, list_media, match_subtitle, merge_in_name_order, natural_key,
-                   sort_key_by_name, parse_m3u)
+from .util import SUB_EXTS, PLAYLIST_EXTS, display_name, norm, find_subtitle_candidates, is_disc, is_dvd_folder, fmt_time, is_audio, is_media, is_url, list_media, match_subtitle, natural_key, sort_key_by_name, parse_m3u
 
 
 class StreamProbe(QObject):
@@ -47,6 +45,23 @@ class StreamProbe(QObject):
 
 
 class PlaybackMixin:
+    # The queue lives in self.play_queue (app/play_queue.py); these keep the short names working.
+    @property
+    def queue(self) -> list[dict]:
+        return self.play_queue.items
+
+    @queue.setter
+    def queue(self, items):
+        self.play_queue.items = items
+
+    @property
+    def qindex(self) -> int:
+        return self.play_queue.index
+
+    @qindex.setter
+    def qindex(self, i):
+        self.play_queue.index = i
+
     # ================================================================ opening
     def open_file_dialog(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Open", "", media_filter())
@@ -239,13 +254,7 @@ class PlaybackMixin:
             self._shuffle_in(items)
         else:
             # an episode joins the others from its folder in name order, not the end of the queue (#57)
-            cur = self.queue[self.qindex] if 0 <= self.qindex < len(self.queue) else None
-            self.queue = merge_in_name_order(self.queue, items, lambda q: q["path"])
-            if cur is not None:
-                self.qindex = next(i for i, q in enumerate(self.queue) if q is cur)
-            if self.library.shuffled:      # so leaving Shuffle puts it in its place too
-                self.library._unshuffled = merge_in_name_order(self.library._unshuffled, items,
-                                                               lambda q: q["path"])
+            self.play_queue.merge_in_order(items)
         self.library.refresh_queue()
         self.toast(f"Added {len(items)} to the queue" if len(items) > 1 else f"Added “{display_name(items[0]['path'])}” to the queue")
         if not self.engine.current:
@@ -253,17 +262,7 @@ class PlaybackMixin:
                                   else self._first_of(items))
 
     def _shuffle_in(self, items, ordered=True):
-        """In Shuffle mode, added items land at random places after what's playing (#65), not in
-        name order at the end. The order from before shuffling learns them too, so leaving Shuffle
-        still puts each one in its place."""
-        lib = self.library
-        if not lib.shuffled:              # e.g. the queue was empty or cleared: start remembering now
-            lib._unshuffled = list(self.queue)
-        lib._unshuffled = (merge_in_name_order(lib._unshuffled, items, lambda q: q["path"]) if ordered
-                           else lib._unshuffled + list(items))
-        start = self.qindex + 1 if 0 <= self.qindex < len(self.queue) else 0
-        for it in items:
-            self.queue.insert(random.randint(start, len(self.queue)), it)
+        self.play_queue.shuffle_in(items, ordered)
 
     def _first_of(self, items) -> int:
         """Where the first of these items now sits in the queue (the earliest one, when shuffled in)."""
@@ -333,13 +332,8 @@ class PlaybackMixin:
             return True
         cur = self.engine.current
         if cur and not is_url(cur) and (self.store.setting("binge") or user):
-            files = list_media(os.path.dirname(cur))
-            try:
-                idx = files.index(cur)
-            except ValueError:
-                idx = -1
-            if 0 <= idx < len(files) - 1:
-                nxt = files[idx + 1]
+            nxt = self._folder_neighbour(cur, +1)
+            if nxt:
                 self.queue.append({"path": nxt})
                 self.play_queue_index(len(self.queue) - 1)
                 return True
@@ -369,11 +363,17 @@ class PlaybackMixin:
         if self.qindex > 0:
             return "queue", self.qindex - 1
         cur = self.engine.current
-        if cur and not is_url(cur):
-            files = list_media(os.path.dirname(cur))
-            if cur in files and files.index(cur) > 0:
-                return "folder", files[files.index(cur) - 1]
-        return None
+        prev = self._folder_neighbour(cur, -1) if cur and not is_url(cur) else None
+        return ("folder", prev) if prev else None
+
+    @staticmethod
+    def _folder_neighbour(path: str, step: int):
+        """The media file `step` places from `path` in its folder's name order, or None (M14)."""
+        files = list_media(os.path.dirname(path))
+        if path not in files:
+            return None
+        i = files.index(path) + step
+        return files[i] if 0 <= i < len(files) else None
 
     # ---------------------------------------------------------------- playing
     def play_path(self, path, start_ms=None, title=""):

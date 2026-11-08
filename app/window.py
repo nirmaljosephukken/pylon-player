@@ -26,6 +26,7 @@ from .waveform import WaveformMaker
 from .widgets import IconButton, SeekPreview, Toast
 from .window_menus import MenusMixin
 from .window_panels import PanelsMixin
+from .play_queue import PlayQueue
 from .window_playback import PlaybackMixin, StreamProbe
 from .window_system import SystemMixin
 
@@ -46,8 +47,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         self.stream_probe = StreamProbe(self)
         self.stream_probe.finished.connect(self._stream_probed)
 
-        self.queue: list[dict] = []
-        self.qindex = -1
+        self.play_queue = PlayQueue()          # self.queue and self.qindex are its items and index
         self.queue_mode = self.store.setting("queue_mode") if self.store.setting("queue_mode") in QUEUE_MODES else "next"
         self.hide_ui = False
         self._pip = None

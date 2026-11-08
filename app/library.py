@@ -100,7 +100,6 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         qh.addWidget(qt)
         qh.addWidget(self.queue_count)
         qh.addStretch(1)
-        self._unshuffled = None          # the queue's order before shuffling (None = shuffle is off)
         for ic, tip, fn in (("plus", "Add files to the queue", self._add_files_to_queue),
                             ("mode_next", "", win.cycle_queue_mode),
                             ("save", "Save the queue as a playlist, or a list of streams as a channel list", self._save_queue_as_playlist),

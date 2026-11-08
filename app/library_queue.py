@@ -1,6 +1,4 @@
 """Library panel: the queue under the tabs, its menu, shuffle and the queue mode button."""
-import random
-
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QInputDialog, QListWidgetItem, QMenu
 
@@ -128,40 +126,22 @@ class QueueMixin:
 
     @property
     def shuffled(self) -> bool:
-        return self._unshuffled is not None
+        return self.win.play_queue.shuffled
 
     def shuffle_on(self):
         """Mix up everything except what's playing, remembering the original order."""
-        win = self.win
-        q = win.queue
-        cur = q[win.qindex] if 0 <= win.qindex < len(q) else None
-        self._unshuffled = list(q)
-        rest = [x for x in q if x is not cur]
-        random.shuffle(rest)
-        self._reorder(([cur] if cur else []) + rest, cur)
+        self.win.play_queue.shuffle_on()
+        self.refresh_queue()
 
     def shuffle_off(self):
         """Put the original order back. Anything added while shuffled goes after it."""
-        if not self.shuffled:
-            return
-        q = self.win.queue
-        cur = q[self.win.qindex] if 0 <= self.win.qindex < len(q) else None
-        ids = {id(x) for x in q}
-        new = [x for x in self._unshuffled if id(x) in ids]
-        kept = {id(x) for x in new}
-        new += [x for x in q if id(x) not in kept]
-        self._unshuffled = None
-        self._reorder(new, cur)
-
-    def _reorder(self, new, cur):
-        win = self.win
-        win.queue = new
-        win.qindex = next((i for i, x in enumerate(new) if x is cur), -1)
-        self.refresh_queue()
+        if self.shuffled:
+            self.win.play_queue.shuffle_off()
+            self.refresh_queue()
 
     def reset_shuffle(self):
         """A brand-new queue (a folder, a playlist, Clear) forgets the order from before."""
-        self._unshuffled = None
+        self.win.play_queue.reset_shuffle()
 
     def _mode_color(self):
         return theme.MUTED if self.win.queue_mode == "none" else theme.accent()
