@@ -75,6 +75,10 @@ VISUALIZERS = {
     "goom": ("Goom", ["--audio-visual=goom"]),
     "glspectrum": ("3D spectrum", ["--audio-visual=glspectrum"]),
 }
+if sys.platform == "win32":
+    # VLC 3's 3D spectrum crashes on Windows when the song it shows is stopped or changed: libVLC's stop and
+    # set_media end with an access violation, which closes Pylon at the end of every song. Not offered there.
+    del VISUALIZERS["glspectrum"]
 
 def vlc_place(src: tuple[int, int], sar: tuple[int, int], area: tuple[int, int]):
     """The picture size VLC 3 fits into a video area (vout_display_PlacePicture, display.c), with its
@@ -317,6 +321,8 @@ class Engine(QObject):
     def __init__(self, store, parent=None):
         super().__init__(parent)
         self.store = store
+        if (store.setting("visualizer") or "") not in VISUALIZERS:
+            store.set_setting("visualizer", "")      # one this system doesn't offer, such as 3D spectrum on Windows
         self.instance = None
         self.player = None
         self.win_id = None

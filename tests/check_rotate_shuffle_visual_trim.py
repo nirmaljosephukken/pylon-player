@@ -16,6 +16,7 @@ import tempfile
 import unittest
 import wave
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -258,6 +259,24 @@ class Visualizations(Window):
             self.assertIn("--effect-list=spectrum", e._args())
             s.set_setting("visualizer", "goom")
             self.assertIn("--audio-visual=goom", e._args())
+
+    def test_no_3d_spectrum_on_windows(self):
+        """VLC 3's 3D spectrum crashes Pylon on Windows when the song changes (1.7.1)."""
+        src = Path(engine.__file__).read_text(encoding="utf-8")
+        block = src[src.index("VISUALIZERS = {"):src.index("def vlc_place")]
+        for platform, offered in (("win32", False), ("linux", True), ("darwin", True)):
+            ns = {"sys": SimpleNamespace(platform=platform)}
+            exec(block, ns)
+            self.assertEqual("glspectrum" in ns["VISUALIZERS"], offered, platform)
+
+    def test_a_saved_one_that_isnt_offered_is_off(self):
+        with tempfile.TemporaryDirectory() as d, patch.dict(engine.VISUALIZERS):
+            s = Store(str(Path(d) / "data.json"))
+            s.set_setting("visualizer", "glspectrum")
+            engine.VISUALIZERS.pop("glspectrum", None)
+            e = Engine(s)
+            self.assertEqual(s.setting("visualizer"), "")
+            self.assertFalse(any(a.startswith("--audio-visual") for a in e._args()))
 
     def test_audio_tab_lists_them(self):
         w = self.make()
