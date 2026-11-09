@@ -52,6 +52,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
         # Window state that Qt events can read before the rest is built, or that is set on first use.
         self.video = None                # the video page, made below
         self._vsr_late = []              # redraws after a full-screen resize (#42), made below
+        self._vsr_told = False           # a "Super Resolution paused" message is showing for full screen
         self._bars_visible = False
         self._shown_once = False
         self._overlay_fixes = 0          # times the bars were put back since they were last shown (#40)
@@ -178,7 +179,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
         self.engine.picture_changed.connect(self._fit_video)
         self.engine.wake_picture.connect(self._wake_picture)
         self.engine.vout_changed.connect(lambda _n: QTimer.singleShot(250, self._sync_audio_page), Qt.QueuedConnection)
-        # ...and in full screen it needs the picture to cover the whole screen, or it's set aside.
+        # ...and it's set aside where it would go black: bars Pylon made in full screen, upscaling in a window.
         self._vsr_policy_timer = QTimer(self)
         self._vsr_policy_timer.setSingleShot(True)
         self._vsr_policy_timer.setInterval(500)
@@ -910,35 +911,81 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
         w, h = fitted_size(sw, sh, float(shape["aspect"]))
         return abs(w - sw) <= 2 and abs(h - sh) <= 2
 
+    def _picture_as_made(self) -> bool:
+        """The picture is shown the way the file has it: no aspect ratio, crop, zoom, rotation or flip.
+        VLC then adds any black bars itself, exactly as VLC on its own does with a film that isn't the
+        shape of the screen, and Super Resolution keeps working there (#42)."""
+        e = self.engine
+        L = e.live
+        return not (L["aspect"] or L["crop"] or L["zoom"] or e.izoom or e.transform)
+
+    def _picture_upscaled(self):
+        """True if VLC would draw the picture bigger than the video has pixels, which is when it hands
+        the picture to Super Resolution (VLC's own test: a source side shorter than the place it's drawn
+        in); None if not known yet."""
+        e, v = self.engine, self.video
+        if e.izoom:
+            return True
+        if e.live["zoom"]:
+            return e.live["zoom"] > 1
+        shape = e.picture_shape()
+        sw, sh = v.width(), v.height()
+        if shape is None or sw <= 0 or sh <= 0:
+            return None
+        (vw, vh), (left, top, right, bottom) = shape["src"], shape["crop"]
+        cw, ch = vw - left - right, vh - top - bottom
+        if e._turned():
+            cw, ch = ch, cw
+        dpr = v.devicePixelRatioF() or 1.0
+        w, h = fitted_size(round(sw * dpr), round(sh * dpr), float(shape["aspect"]))
+        return cw < w or ch < h
+
     def _vsr_policy(self):
-        """RTX Super Resolution shows a picture only while VLC's video covers the whole screen (#42: in full
-        screen, a panel, a 4:3 aspect or a crop that leaves bars all go black, even with no bars inside
-        VLC's own area). Panels float over the video for that reason. When the picture itself can't cover
-        the screen, Super Resolution is set aside so the picture shows with normal scaling, and it comes
-        back in full screen once the picture covers the screen again. Windowed playback is left as it is:
-        Super Resolution doesn't engage there and the picture shows."""
+        """When RTX Super Resolution can show a picture (#42, #82). It works like VLC on its own: in full
+        screen, with VLC's video covering the whole screen and the picture either filling it or shown as
+        the file has it (VLC adds the bars itself). It goes black in full screen when Pylon changes the
+        picture's shape and leaves bars (an aspect ratio, crop, fixed zoom or turn), and in a window
+        whenever it really upscales (#82). There Super Resolution is set aside, so the picture shows with
+        normal scaling, and it comes back in full screen once it can work there. In a window it upscales
+        nothing while the picture is smaller than the video, so it's left as it is then: each change
+        restarts VLC (it reads the setting only when it starts)."""
         e = self.engine
         if not self._vsr_on() or not e.ok or not e.current or self.stage.currentIndex() != PAGE_VIDEO \
-                or not e.has_video() or not self.isFullScreen() or self._pip:
+                or not e.has_video() or self._pip:
             return
-        fills = self._picture_fills_screen()
-        if fills is None:
+        full = self.isFullScreen()
+        if full:
+            fills = self._picture_fills_screen()
+            if fills is None:
+                return
+            ok = fills or self._picture_as_made()
+        else:
+            up = self._picture_upscaled()
+            if up is None or (not up and e.vsr_paused):
+                return                   # bringing it back would restart VLC to upscale nothing
+            ok = not up
+        if not e.set_vsr_paused(not ok):
             return
-        if e.set_vsr_paused(not fills):
-            self.toast("Super Resolution is back" if fills else
-                       "Super Resolution paused: it only works when the picture fills the screen")
+        if full and not ok:
+            self._vsr_told = True
+            self.toast("Super Resolution paused: it only works when the picture fills the screen")
+        elif ok and self._vsr_told:
+            self._vsr_told = False
+            self.toast("Super Resolution is back")
 
     def _fit_video(self):
         """With Super Resolution on, size VLC's video area to the picture, centred, with Pylon's own black
-        bars around it (#42). VLC goes black as soon as it has to letterbox an upscaled picture, even by
-        one pixel: in full screen with a panel open, in a maximized window, or with an aspect ratio
-        that doesn't match the screen. The engine then picks an aspect ratio that fills the area to the
-        pixel. Without Super Resolution, VLC's area fills the page as before."""
+        bars around it (#42). The engine then picks an aspect ratio that fills the area to the pixel, so a
+        picture that fills the screen covers it with no stray one-pixel bar. In full screen, a picture
+        shown as the file has it that leaves bars gets VLC's area as the whole screen instead, and VLC adds
+        the bars itself, the way VLC on its own does. Without Super Resolution, VLC's area fills the page."""
         if self.video is None:
             return
         v, e = self.video, self.engine
         shape = e.picture_shape() if self._vsr_active() else None
         sw, sh = v.width(), v.height()
+        if shape is not None and self.isFullScreen() and self._picture_fills_screen() is False:
+            shape = None
         if shape is None or sw <= 0 or sh <= 0:
             v.fit_canvas(None)
             e.set_fit(None)
