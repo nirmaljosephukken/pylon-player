@@ -5,11 +5,13 @@ API for the list of releases. Nothing about you or your files is sent: it is a
 plain, anonymous request for the release list. Turn it off in Preferences >
 Privacy.
 
-On Windows, "Update now" downloads the new installer, starts it and closes
-Pylon. The installer goes into the same folder as before, and your library,
+On Windows, "Update now" downloads the new installer, checks it against the
+SHA-256 published with the release (SHA256SUMS.txt), starts it and closes
+Pylon. Prereleases and drafts are never offered. The installer goes into the same folder as before, and your library,
 presets and settings (kept in your user profile, not the install folder) stay
 as they are. On Linux and macOS it opens the download page.
 """
+import hashlib
 import json
 import os
 import re
@@ -55,10 +57,42 @@ def _ssl_context():
     return ctx
 
 
-def _get(url, timeout=15):
-    req = urllib.request.Request(url, headers={"User-Agent": f"Pylon/{APP_VERSION}",
-                                               "Accept": "application/vnd.github+json"})
+def _get(url, timeout=15, accept="application/vnd.github+json"):
+    req = urllib.request.Request(url, headers={"User-Agent": f"Pylon/{APP_VERSION}", "Accept": accept})
     return urllib.request.urlopen(req, timeout=timeout, context=_ssl_context())
+
+
+def fetch_text(url: str, limit: int = 8_000_000, timeout: int = 12) -> str:
+    """Download a small text file (e.g. an online channel list) with Pylon's certificates and name.
+    Blocking: call it from a worker thread."""
+    with _get(url, timeout=timeout, accept="*/*") as r:
+        return r.read(limit).decode("utf-8", "replace")
+
+
+SUMS_NAME = "SHA256SUMS.txt"
+
+
+def parse_sums(text: str) -> dict[str, str]:
+    """{file name: sha256} from a SHA256SUMS file ("<hash>  <name>" or "<hash> *<name>" lines)."""
+    out = {}
+    for line in text.splitlines():
+        parts = line.strip().split(maxsplit=1)
+        if len(parts) == 2 and re.fullmatch(r"[0-9a-fA-F]{64}", parts[0]):
+            out[parts[1].lstrip("*").strip()] = parts[0].lower()
+    return out
+
+
+def expected_sha256(release: dict, asset: dict, fetch=None) -> str:
+    """The SHA-256 the release publishes for `asset`: from its SHA256SUMS.txt, else GitHub's own digest of
+    the file. "" when the release has neither (the installer is then not run)."""
+    fetch = fetch or (lambda url: _get(url).read(65536).decode("utf-8", "replace"))
+    sums = next((a for a in release.get("assets", []) if a.get("name") == SUMS_NAME), None)
+    if sums and sums.get("browser_download_url"):
+        found = parse_sums(fetch(sums["browser_download_url"])).get(asset.get("name", ""))
+        if found:
+            return found
+    digest = asset.get("digest") or ""
+    return digest.split(":", 1)[1].lower() if digest.startswith("sha256:") else ""
 
 
 def installer_asset(release: dict):
@@ -104,8 +138,8 @@ class UpdateChecker(QObject):
                 releases = json.loads(r.read().decode("utf-8"))
             best = None
             for rel in releases:
-                if rel.get("draft"):
-                    continue
+                if rel.get("draft") or rel.get("prerelease"):
+                    continue          # test builds are never offered (H4)
                 if best is None or parse_version(rel.get("tag_name", "")) > parse_version(best.get("tag_name", "")):
                     best = rel
             skipped = self.store.setting("skipped_version") or ""
@@ -121,19 +155,23 @@ class UpdateChecker(QObject):
             self.busy = False
 
     # ------------------------------------------------------------------ download (Windows)
-    def download(self, asset: dict):
+    def download(self, asset: dict, release: dict | None = None):
         self._cancel = threading.Event()
-        threading.Thread(target=self._download, args=(asset, self._cancel), daemon=True).start()
+        threading.Thread(target=self._download, args=(asset, self._cancel, release or {}), daemon=True).start()
 
     def cancel(self):
         self._cancel.set()
 
-    def _download(self, asset, cancel):
+    def _download(self, asset, cancel, release):
         name = os.path.basename(asset.get("name") or "Pylon-Setup.exe")
         out = os.path.join(tempfile.gettempdir(), name)
         part = out + ".part"
         total = int(asset.get("size") or 0)
         try:
+            want = expected_sha256(release, asset)
+            if not want:
+                raise IOError("the release has no checksum for the installer")
+            h = hashlib.sha256()
             with _get(asset["browser_download_url"], timeout=30) as r, open(part, "wb") as f:
                 total = int(r.headers.get("Content-Length") or total)
                 done = 0
@@ -145,12 +183,15 @@ class UpdateChecker(QObject):
                     if not chunk:
                         break
                     f.write(chunk)
+                    h.update(chunk)
                     done += len(chunk)
                     if time.time() - last > 0.1:
                         self.download_progress.emit(done, total)
                         last = time.time()
             if total and os.path.getsize(part) != total:
                 raise IOError("the download was incomplete")
+            if h.hexdigest() != want:
+                raise IOError("the installer didn't match the checksum published with the release")
             os.replace(part, out)
             self.download_progress.emit(total, total)
             self.downloaded.emit(out)

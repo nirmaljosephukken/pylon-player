@@ -12,7 +12,6 @@ from PySide6.QtCore import QEventLoop, QPoint, QTimer
 from PySide6.QtWidgets import QApplication
 from app import engine
 engine.vlc = None
-from app import window as window_mod
 from app.controls import BottomBar, TopBar
 from app.store import Store
 from app.window import PAGE_VIDEO, MainWindow

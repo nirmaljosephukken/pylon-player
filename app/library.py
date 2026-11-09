@@ -12,20 +12,20 @@ import os
 import time
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
                                QPushButton, QSplitter, QStackedWidget, QVBoxLayout, QWidget)
 
 from . import theme
 from .icons import icon
-from .util import (display_name, fmt_time, is_audio, is_disc, is_dvd_folder, is_media, is_url, list_media, merge_in_name_order,
-                   natural_key, norm, parse_m3u, sort_key_by_name)
+from .util import (display_name, fmt_time, is_audio, is_disc, is_dvd_folder, is_media, is_url, list_media,
+                   merge_in_name_order, natural_key, norm, read_playlist, sort_key_by_name, write_m3u)
 from .library_music import MusicMixin
 from .library_queue import QueueMixin
-from .library_widgets import (ROLE_KIND, ROLE_PATH, ChannelListDrop, MediaList, QueueList,  # noqa: F401
-                              SortControl, TwoLineDelegate, _mtime, media_filter, pick_media, reveal, sort_kind,
-                              win_call)
+from .library_widgets import (ROLE_KIND, ROLE_PATH, ChannelListDrop, MediaList, QueueList,
+                              REVEAL_LABEL, SortControl, _mtime, pick_media, reveal, sort_kind)
+from .store import RESUME_MIN_MS
 from .widgets import IconButton
 
 
@@ -41,9 +41,9 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setFixedWidth(self.WIDTH)
         self.folder = None        # current folder in the browser (None = library root)
+        self._queue_shown_index = None   # the queue row last scrolled into view
         self.history: list = []
         self.forward: list = []
-        self.sort_mode = self.store.setting("library_sort") or "name"
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -100,7 +100,6 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         qh.addWidget(qt)
         qh.addWidget(self.queue_count)
         qh.addStretch(1)
-        self._unshuffled = None          # the queue's order before shuffling (None = shuffle is off)
         for ic, tip, fn in (("plus", "Add files to the queue", self._add_files_to_queue),
                             ("mode_next", "", win.cycle_queue_mode),
                             ("save", "Save the queue as a playlist, or a list of streams as a channel list", self._save_queue_as_playlist),
@@ -144,7 +143,7 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
     # ================================================================ sections
     def _nav_clicked(self, key):
         """Clicking the tab you're already on goes back to its start (#35)."""
-        here = self.stack.currentIndex() == self.SECTIONS.index(key)
+        here = self.current_section() == key
         if here and key == "library" and self.folder is not None:
             self.open_folder(None)      # recorded, so Back still returns to the folder
             return
@@ -164,13 +163,15 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
          "playlists": self.refresh_playlists, "streams": self.refresh_streams,
          "music": self._open_music}[key]()
 
+    def current_section(self) -> str:
+        """The tab on show: one of SECTIONS."""
+        return self.SECTIONS[self.stack.currentIndex()]
+
     def _store_changed(self, section):
-        if section in ("recent",) and self.stack.currentIndex() == 1:
-            self.refresh_recent()
-        elif section in ("library",) and self.stack.currentIndex() == 0:
-            self.refresh_library()
-        elif section == "playlists" and self.stack.currentIndex() == 2:
-            self.refresh_playlists()
+        refresh = {"recent": self.refresh_recent, "library": self.refresh_library,
+                   "playlists": self.refresh_playlists}.get(section)
+        if refresh and self.current_section() == section:
+            refresh()
 
     # ---------------------------------------------------------------- library
     def _build_library(self):
@@ -202,29 +203,17 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         self.search.setPlaceholderText("Search")
         self.search.addAction(icon("search", theme.MUTED, 16), QLineEdit.LeadingPosition)
         self.search.textChanged.connect(lambda _: self.refresh_library())
-        self.btn_sort = IconButton("sort", "Sort", size=16)
-        self.btn_sort.setPopupMode(IconButton.InstantPopup)
-        sm = QMenu(self)
-        self.sort_actions = {}
-        for key, label in (("name", "Name"), ("date", "Date modified (newest)"),
-                           ("unwatched", "Unwatched first"), ("watched", "Watched first")):
-            a = QAction(label, sm, checkable=True)
-            a.triggered.connect(lambda _=False, k=key: self._set_sort(k))
-            sm.addAction(a)
-            self.sort_actions[key] = a
-        self.sort_actions.get(self.sort_mode, self.sort_actions["name"]).setChecked(True)
-        self.btn_sort.setMenu(sm)
         self.btn_add = IconButton("plus", "Add", size=16)
         self.btn_add.setPopupMode(IconButton.InstantPopup)
         am = QMenu(self)
         am.addAction(icon("folder_add", theme.TEXT, 16), "Add a folder to the library…", self.add_library_folder)
-        am.addAction(icon("file", theme.TEXT, 16), "Open a file…", lambda: win_call(self.win.open_file_dialog))
-        am.addAction(icon("folder", theme.TEXT, 16), "Open a folder…", lambda: win_call(self.win.open_folder_dialog))
+        am.addAction(icon("file", theme.TEXT, 16), "Open a file…", self.win.open_file_dialog)
+        am.addAction(icon("folder", theme.TEXT, 16), "Open a folder…", self.win.open_folder_dialog)
         self.btn_add.setMenu(am)
         tools.addWidget(self.search, 1)
-        tools.addWidget(self.btn_sort)
         tools.addWidget(self.btn_add)
         lay.addLayout(tools)
+        self._sort_controls(lay, "library", self.refresh_library)     # like the other tabs (M30)
 
         self.lib_list = MediaList()
         self.lib_list.itemDoubleClicked.connect(self._lib_activate)
@@ -233,14 +222,12 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         lay.addWidget(self.lib_list, 1)
         self.stack.addWidget(w)
 
-    def _set_sort(self, key):
-        self.sort_mode = key
-        self.store.set_setting("library_sort", key)
-        for k, a in self.sort_actions.items():
-            a.setChecked(k == key)
-        self.refresh_library()
-        if self.win.home is not None:
-            self.win.home.refresh()
+    @property
+    def sort_mode(self):
+        return self._sort_mode("library")
+
+    def _set_sort(self, mode):
+        self.library_sort.set_mode(self._LEGACY_SORTS.get(mode, mode))
 
     def open_folder(self, folder, record=True):
         if folder:
@@ -317,21 +304,21 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
                 dirs.append(p)
             elif is_media(p):
                 files.append(p)
-        dirs.sort(key=lambda p: natural_key(os.path.basename(p)))
-        files.sort(key=lambda p: natural_key(os.path.basename(p)))
-        if self.sort_mode == "date":
-            files.sort(key=lambda p: -_mtime(p))
-            dirs.sort(key=lambda p: -_mtime(p))
-        elif self.sort_mode in ("unwatched", "watched"):
-            want = self.sort_mode == "watched"
-            files.sort(key=lambda p: (bool(pos.get(p, {}).get("watched")) != want))
+        kind, rev = sort_kind(self.sort_mode)
+        dirs.sort(key=lambda p: natural_key(os.path.basename(p)), reverse=kind == "name" and rev)
+        files.sort(key=lambda p: natural_key(os.path.basename(p)), reverse=kind == "name" and rev)
+        if kind == "date":
+            files.sort(key=lambda p: _mtime(p), reverse=not rev)
+            dirs.sort(key=lambda p: _mtime(p), reverse=not rev)
+        elif kind == "watched":          # least watched first, or (reversed) watched first
+            files.sort(key=lambda p: bool(pos.get(p, {}).get("watched")) != rev)
         for d in dirs:
             self._add_folder_item(d)
         for f in files:
             e = pos.get(f, {})
             watched = e.get("watched")
             prog = ""
-            if not watched and e.get("len") and e.get("pos", 0) > 10_000:
+            if not watched and e.get("len") and e.get("pos", 0) > RESUME_MIN_MS:
                 prog = f"   {fmt_time(e['pos'])} / {fmt_time(e['len'])}"
             name = os.path.basename(f)
             it = QListWidgetItem(name + prog)
@@ -356,10 +343,12 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
 
     def ordered_library_folders(self):
         folders = list(self.store.data["library_folders"])
-        if self.sort_mode == "name":
-            folders.sort(key=lambda p: natural_key(os.path.basename(p)))
-        elif self.sort_mode == "date":
-            folders.sort(key=lambda p: (-_mtime(p), natural_key(os.path.basename(p))))
+        kind, rev = sort_kind(self.sort_mode)
+        if kind == "name":
+            folders.sort(key=lambda p: natural_key(os.path.basename(p)), reverse=rev)
+        elif kind == "date":
+            sign = 1 if rev else -1
+            folders.sort(key=lambda p: (sign * _mtime(p), natural_key(os.path.basename(p))))
         return folders
 
     def _header(self, lst, text):
@@ -418,7 +407,7 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
                         lambda: [self.store.set_watched(f, not watched) for f in files])
             m.addAction(icon("subtitles", theme.TEXT, 16), "Add subtitles for this folder…",
                         lambda: self.win.open_subtitle_dialog(scope="folder", folder=os.path.dirname(path)))
-            m.addAction("Show in Explorer", lambda: reveal(path))
+            m.addAction(REVEAL_LABEL, lambda: reveal(path))
         else:
             m.addAction(icon("disc" if is_dvd_folder(path) else "play", theme.TEXT, 16),
                         "Play DVD" if is_dvd_folder(path) else "Play folder", lambda: self.win.play_folder(path))
@@ -429,7 +418,7 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
             m.addAction(icon("pin", theme.TEXT, 16), "Unpin" if pinned else "Pin to top", lambda: self.toggle_pin(path))
             m.addAction(icon("subtitles", theme.TEXT, 16), "Add subtitles for this folder…",
                         lambda: self.win.open_subtitle_dialog(scope="folder", folder=path))
-            m.addAction("Show in Explorer", lambda: reveal(path))
+            m.addAction(REVEAL_LABEL, lambda: reveal(path))
             if not self.is_library_folder(path):
                 m.addAction(icon("folder_add", theme.TEXT, 16), "Add to library",
                             lambda: self.add_library_path(path))
@@ -444,9 +433,14 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
             self.add_library_path(d)
             self.open_folder(None)
 
+    @staticmethod
+    def _folder_key(path):
+        """One spelling per folder: through links, and without letter case on Windows (M29)."""
+        return os.path.normcase(os.path.realpath(path))
+
     def is_library_folder(self, path):
-        key = os.path.normcase(os.path.realpath(path))
-        return any(os.path.normcase(os.path.realpath(p)) == key for p in self.store.data["library_folders"])
+        key = self._folder_key(path)
+        return any(self._folder_key(p) == key for p in self.store.data["library_folders"])
 
     def add_library_path(self, path):
         path = os.path.normpath(os.path.abspath(path))
@@ -459,7 +453,11 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         return True
 
     def remove_library_folder(self, path):
-        self.store.data["library_folders"] = [f for f in self.store.data["library_folders"] if f != path]
+        """Take a folder out of the library, however it was spelled when added, and unpin it."""
+        key = self._folder_key(path)
+        self.store.data["library_folders"] = [f for f in self.store.data["library_folders"]
+                                              if self._folder_key(f) != key]
+        self.store.data["pinned"] = [p for p in self.store.data["pinned"] if self._folder_key(p) != key]
         self.store.save("library")
         self._music_stale = True
         self.refresh_library()
@@ -525,7 +523,7 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
             watched = self.store.position(path).get("watched")
             m.addAction("Mark as unwatched" if watched else "Mark as watched",
                         lambda: [self.store.set_watched(f, not watched) for f in files])
-            m.addAction("Show in Explorer", lambda: reveal(path))
+            m.addAction(REVEAL_LABEL, lambda: reveal(path))
         m.addSeparator()
         m.addAction(icon("trash", theme.TEXT, 16),
                     "Remove from Recent" if len(paths) == 1 else f"Remove {len(paths)} from Recent",
@@ -549,13 +547,15 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         pm.addSeparator()
         pm.addAction("New playlist…", lambda: self.new_playlist(paths))
 
-    def save_stream(self, url, name=""):
+    def save_stream(self, url, name="", toast=True):
+        """Add a link to Streams (once)."""
         if url in [s["url"] for s in self.store.data["streams"]]:
             return
         self.store.data["streams"].insert(0, {"name": name or display_name(url), "url": url})
         self.store.save("streams")
         self.refresh_streams()
-        self.win.toast("Saved to Streams")
+        if toast:
+            self.win.toast("Saved to Streams")
 
     def _clear_history(self):
         if QMessageBox.question(self, "Clear history", "Forget recent files and where you stopped in each?") == QMessageBox.Yes:
@@ -573,18 +573,23 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         def changed(mode):
             self.store.set_setting(section + "_sort", mode)
             refresh()
-            if section == "playlists" and self.win.home is not None:
-                self.win.home.refresh()              # Home follows the Playlists tab (#37)
+            if section in ("playlists", "library") and self.win.home is not None:
+                self.win.home.refresh()              # Home follows the Playlists and Library tabs (#37)
         choice.changed.connect(changed)
         row.addWidget(choice)
         layout.addLayout(row)
         setattr(self, section + "_count", count)
         setattr(self, section + "_sort", choice)
 
+    # the Library tab's sorts before it had the arrow (M30)
+    _LEGACY_SORTS = {"unwatched": "unfinished", "watched": "finished"}
+
     def _sort_mode(self, section):
         mode = self.store.setting(section + "_sort") or "default"
         if section in ("playlists", "streams") and mode == "default":
             mode = "newest"
+        if section == "library":
+            mode = self._LEGACY_SORTS.get(mode, "name" if mode == "default" else mode)
         return mode
 
     def _ordered(self, items, section, name, count=None, modified=None, newest_first=False,
@@ -786,8 +791,8 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         m.addAction("Add files…", lambda: self._pl_add_files(name))
         if len(self.store.data["playlists"].get(name, [])) > 1:
             m.addAction(icon("sort", theme.TEXT, 16), "Sort by name", lambda: self._pl_sort(name))
-        m.addAction("Rename…", lambda: self._pl_rename(name))
-        m.addAction("Export as .m3u…", lambda: self._pl_export(name))
+        m.addAction("Rename…", lambda: self.rename_playlist(name))
+        m.addAction("Export as .m3u…", lambda: self.export_playlist(name))
         m.addSeparator()
         m.addAction("Delete", lambda: self._pl_delete(name))
         m.exec(self.pl_list.mapToGlobal(pos))
@@ -810,7 +815,7 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
             self.add_to_playlist(name, picked)
             self.refresh_playlists()
 
-    def _pl_rename(self, name):
+    def rename_playlist(self, name):
         new, ok = QInputDialog.getText(self, "Rename playlist", "Name", text=name)
         new = new.strip()
         if not ok or not new or new == name:
@@ -832,13 +837,21 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
             self.store.save("playlists")
             self.refresh_playlists()
 
-    def _pl_export(self, name):
-        path, _ = QFileDialog.getSaveFileName(self, "Export playlist", f"{name}.m3u", "M3U playlist (*.m3u)")
-        if path:
-            with open(path, "w", encoding="utf-8") as f:
-                f.write("#EXTM3U\n")
-                for p in self.store.data["playlists"][name]:
-                    f.write(f"#EXTINF:-1,{display_name(p)}\n{p}\n")
+    def export_playlist(self, name):
+        self._export_m3u("Export playlist", name,
+                         [(display_name(p), p) for p in self.store.data["playlists"][name]], "Playlist exported")
+
+    def _export_m3u(self, caption, name, entries, done):
+        """Ask where to save an .m3u and write it; a folder that can't be written gets a message (M34)."""
+        path, _ = QFileDialog.getSaveFileName(self, caption, f"{name}.m3u", "M3U playlist (*.m3u)")
+        if not path:
+            return
+        try:
+            write_m3u(path, entries)
+        except OSError as e:
+            self.win.toast(f"Couldn't save “{os.path.basename(path)}”: {e.strerror or e}")
+            return
+        self.win.toast(done)
 
     # ---------------------------------------------------------------- streams
     # A saved stream is {"name", "url"}. A channel list (#44) also has "channels": [{"name", "url"}],
@@ -934,7 +947,7 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         if is_url(url):
             m.addAction("Copy link", lambda: self._copy_link(url))
         m.addSeparator()
-        m.addAction(icon("trash", theme.TEXT, 16), "Remove", lambda: self._st_remove(url))
+        m.addAction(icon("trash", theme.TEXT, 16), "Remove", lambda: self.remove_stream(url))
         m.exec(self.st_list.mapToGlobal(pos))
 
     def _st_rename(self, url, name):
@@ -957,7 +970,7 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         QApplication.clipboard().setText(url)
         self.win.toast("Link copied")
 
-    def _st_remove(self, url):
+    def remove_stream(self, url):
         self.store.data["streams"] = [s for s in self.store.data["streams"] if s["url"] != url]
         self._drop_pin("streams", url)
         self.store.save("streams")
@@ -967,18 +980,7 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
     @staticmethod
     def read_channel_file(path):
         """[{name, url}] from an .m3u file, with paths made absolute. Empty if it isn't a list."""
-        try:
-            with open(path, encoding="utf-8-sig", errors="replace") as f:
-                found = parse_m3u(f.read(8_000_000)) or []
-        except OSError:
-            return []
-        base = os.path.dirname(path)
-        out = []
-        for n, u in found:
-            if not is_url(u) and not os.path.isabs(u):
-                u = os.path.normpath(os.path.join(base, u))
-            out.append({"name": n, "url": u})
-        return out
+        return [{"name": n, "url": u} for n, u in read_playlist(path)]
 
     def _import_dialog(self):
         picked, _ = QFileDialog.getOpenFileNames(self, "Import a channel list", "",
@@ -1009,8 +1011,7 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
 
     def save_channel_list(self, items, name):
         """Save queue items ({path, title}) as a channel list in Streams."""
-        import time as _t
-        s = {"name": name, "url": f"pylon-list:{int(_t.time() * 1000)}",
+        s = {"name": name, "url": f"pylon-list:{int(time.time() * 1000)}",
              "channels": [{"name": x.get("title") or display_name(x["path"]), "url": x["path"]} for x in items]}
         self.store.data["streams"].insert(0, s)
         self.store.save("streams")
@@ -1049,10 +1050,5 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         s = self.stream_entry(url)
         if not s or not s.get("channels"):
             return
-        path, _ = QFileDialog.getSaveFileName(self, "Export channel list", f"{s['name']}.m3u", "M3U playlist (*.m3u)")
-        if path:
-            with open(path, "w", encoding="utf-8") as f:
-                f.write("#EXTM3U\n")
-                for c in s["channels"]:
-                    f.write(f"#EXTINF:-1,{c['name']}\n{c['url']}\n")
-            self.win.toast("Channel list exported")
+        self._export_m3u("Export channel list", s["name"], [(c["name"], c["url"]) for c in s["channels"]],
+                         "Channel list exported")

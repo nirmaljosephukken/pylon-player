@@ -3,20 +3,25 @@ stream, keyboard shortcuts, preferences, and the first-run welcome."""
 import os
 import sys
 
-from PySide6.QtCore import QSize, Qt, QUrl, QTimer
-from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QIcon, QPixmap, QPainter
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QFrame,
-                               QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout,
-                               QHeaderView, QKeySequenceEdit, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QSpinBox,
-                               QScrollArea, QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtCore import QEvent, QRect, QSize, QTimer, QUrl, Qt
+from PySide6.QtGui import (QColor, QDesktopServices, QGuiApplication, QIcon, QKeySequence, QPainter,
+                           QPixmap)
+from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDialog,
+                               QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout,
+                               QHBoxLayout, QHeaderView, QKeySequenceEdit, QLabel, QLineEdit,
+                               QListWidget, QListWidgetItem, QMessageBox, QProgressBar, QPushButton,
+                               QRadioButton, QScrollArea, QSpinBox, QStackedWidget, QStyle,
+                               QStyledItemDelegate, QTableWidget, QTableWidgetItem, QTextBrowser,
+                               QVBoxLayout, QWidget)
 
-from . import theme
+from . import theme, APP_VERSION
 from .colour_dialog import choose_colour
 from .icons import icon, pixmap
 from .store import DEFAULT_SHORTCUTS, HOME_SECTIONS, QUEUE_MODES, RATIOS
-from .util import MATCH_LEVELS, SUB_EXTS, auto_match_folder, display_name, is_url, list_media, subtitle_query
-from .widgets import IconButton, subtitle_search_menu
+from .updates import RELEASES_PAGE, installer_asset, run_installer
+from .util import (MATCH_LEVELS, SUB_EXTS, auto_match_folder, is_url, list_media, subtitle_query,
+                   SUBTITLE_SITES)
+from .widgets import IconButton, muted, subtitle_search_menu
 
 SUB_FILTER = "Subtitles (" + " ".join(f"*{e}" for e in sorted(SUB_EXTS)) + ");;All files (*)"
 
@@ -141,7 +146,7 @@ class SubtitleDialog(QDialog):
             found = []
             for root, _, files in os.walk(d):
                 for f in files:
-                    if os.path.splitext(f)[1].lower() in SUB_EXTS - {".txt"}:
+                    if os.path.splitext(f)[1].lower() in SUB_EXTS - {".txt"}:   # .idx kept: VobSub needs it
                         found.append(os.path.join(root, f))
             self.subs = found
             self.rematch()
@@ -183,7 +188,7 @@ class SubtitleDialog(QDialog):
     def save(self):
         sm = self.store.data["sub_map"]
         cur = self.win.engine.current
-        applied = 0
+        applied = removed = 0
         for r in range(self.table.rowCount()):
             v = self.table.item(r, 0).toolTip()
             s = self.table.cellWidget(r, 1).currentData()
@@ -193,10 +198,14 @@ class SubtitleDialog(QDialog):
                 if v == cur:
                     self.win.engine.add_subtitle(s, select=True)
                     self.win.sidebar.load_cues()
-            elif v in sm and self.scope.checkedId() != 0:
-                pass
+            elif v in sm:
+                del sm[v]            # "(none)" chosen for a file that had a saved pairing (H7)
+                removed += 1
         self.store.save("subs")
-        self.win.toast(f"Subtitles saved for {applied} file{'s' if applied != 1 else ''}")
+        msg = f"Subtitles saved for {applied} file{'s' if applied != 1 else ''}"
+        if removed:
+            msg += f", removed for {removed}"
+        self.win.toast(msg)
         self.accept()
 
 
@@ -230,7 +239,6 @@ class StreamDialog(QDialog):
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
-        from PySide6.QtGui import QGuiApplication
         clip = QGuiApplication.clipboard().text().strip()
         if "://" in clip and " " not in clip:
             self.url.setText(clip)
@@ -274,7 +282,8 @@ class ShortcutsDialog(QDialog):
                 e.setMaximumSequenceLength(1)
             except AttributeError:
                 pass
-            e.setClearButtonEnabled(True) if hasattr(e, "setClearButtonEnabled") else None
+            if hasattr(e, "setClearButtonEnabled"):
+                e.setClearButtonEnabled(True)
             self.table.setCellWidget(r, 1, e)
             self.edits[action] = e
             self.table.setRowHeight(r, 34)
@@ -394,20 +403,12 @@ ACCENTS = [("Cone orange", "#FF8800"), ("Amber", "#FFB300"), ("Red", "#F0483E"),
            ("Violet", "#9B6BFF"), ("Blue", "#3D8BFF"), ("Teal", "#1EC7B2"), ("Green", "#52C35A")]
 
 
-def muted_note(text):
-    lab = QLabel(text)
-    lab.setObjectName("Muted")
-    lab.setWordWrap(True)
-    return lab
-
-
 class HomeSectionList(QWidget):
     """Home screen sections (#53): drag the handle to reorder, click the eye to show or hide."""
     ROW = 34
 
     def __init__(self, store, on_change):
         super().__init__()
-        from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem, QStyledItemDelegate
         self.store, self.on_change = store, on_change
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -431,7 +432,6 @@ class HomeSectionList(QWidget):
                 r = opt.rect
                 shown = owner.is_shown(index.data(Qt.UserRole))
                 p.save()
-                from PySide6.QtWidgets import QStyle
                 if opt.state & QStyle.State_MouseOver:
                     p.fillRect(r, QColor(theme.SURFACE_HI))
                 p.drawPixmap(r.x() + 6, r.y() + (r.height() - 16) // 2, pixmap("drag", theme.FAINT, 16))
@@ -449,7 +449,6 @@ class HomeSectionList(QWidget):
 
     @staticmethod
     def eye_rect(r):
-        from PySide6.QtCore import QRect
         return QRect(r.x() + 30, r.y() + (r.height() - 18) // 2, 18, 18)
 
     def is_shown(self, key):
@@ -467,7 +466,6 @@ class HomeSectionList(QWidget):
         self.on_change(None, None)
 
     def eventFilter(self, obj, e):
-        from PySide6.QtCore import QEvent
         if e.type() == QEvent.MouseButtonRelease and e.button() == Qt.LeftButton:
             pos = e.position().toPoint()
             it = self.list.itemAt(pos)
@@ -615,7 +613,7 @@ class PreferencesDialog(QDialog):
         grid.setSpacing(8)
         cur = self.store.setting("accent")
         if theme.is_vibe(self.store.setting("theme")):
-            f.addWidget(muted_note("The current neon theme uses its own colours. Your accent colour returns when you pick a non-neon theme."))
+            f.addWidget(muted("The current neon theme uses its own colours. Your accent colour returns when you pick a non-neon theme."))
         for i, (name, col) in enumerate(ACCENTS):
             b = self._colour_button(name, [col], col.lower() == cur.lower(),
                                     lambda _=False, c=col: self._set_accent(c))
@@ -831,7 +829,6 @@ class PreferencesDialog(QDialog):
         combo.currentIndexChanged.connect(lambda i: self.store.set_setting("sub_match", combo.itemData(i)))
         f.addWidget(combo)
         f.addWidget(info_label("Preferred subtitle site", "Marked with a star in the Find online menu. The menu keeps the same order."))
-        from .util import SUBTITLE_SITES
         site = QComboBox()
         site.addItem("No preference", "")
         for key, name, _u in SUBTITLE_SITES:
@@ -870,13 +867,13 @@ class PreferencesDialog(QDialog):
                 lambda _, c=combo, k=key: self.store.set_setting(k, c.currentData()))
             form.addRow(label, combo)
         f.addLayout(form)
-        f.addWidget(muted_note("These bindings apply over the video. Disable Left double-click for immediate "
+        f.addWidget(muted("These bindings apply over the video. Disable Left double-click for immediate "
                                "single clicks; otherwise Pylon waits for your system's double-click interval. "
                                "Scroll changes volume; right-click opens the menu. Extra buttons must be "
                                "reported by the mouse driver as standard mouse buttons."))
 
     def _privacy(self, f):
-        f.addWidget(muted_note("To hide Continue watching or Recently played from the home screen, use "
+        f.addWidget(muted("To hide Continue watching or Recently played from the home screen, use "
                                "Home screen sections in the Interface tab. Hiding them doesn't delete your history."))
         cb = QCheckBox("Remember recent files and where I stopped")
         cb.setChecked(bool(self.store.setting("remember_history")))
@@ -896,7 +893,7 @@ class PreferencesDialog(QDialog):
         up_row.addWidget(up_now)
         up_row.addStretch(1)
         f.addLayout(up_row)
-        f.addWidget(muted_note("This is the only time Pylon goes online by itself. It's an anonymous request "
+        f.addWidget(muted("This is the only time Pylon goes online by itself. It's an anonymous request "
                                "for the release list on GitHub; nothing about you or your files is sent."))
         lab = QLabel(f"Your data is stored only on this computer:\n{self.store.path}")
         lab.setObjectName("Muted")
@@ -910,6 +907,12 @@ class PreferencesDialog(QDialog):
         folder.setIcon(icon("folder", theme.TEXT, 16))
         folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(self.store.path))))
         f.addWidget(folder)
+
+    def _set_hw_decoding(self, on: bool):
+        """Applies at once, like Super Resolution: VLC restarts and carries on from the same point."""
+        self.store.set_setting("hw_decoding", on)
+        if self.win.engine.ok:
+            self.win.engine.rebuild()
 
     def _set_rtx_upscale(self, on: bool):
         self.store.set_setting("rtx_upscale", on)
@@ -926,12 +929,9 @@ class PreferencesDialog(QDialog):
     def _performance(self, f):
         cb = QCheckBox("Use the graphics card to decode video (hardware decoding)")
         cb.setChecked(bool(self.store.setting("hw_decoding")))
-        cb.toggled.connect(lambda v: self.store.set_setting("hw_decoding", v))
+        cb.toggled.connect(self._set_hw_decoding)
         f.addWidget(cb)
-        lab = QLabel("Turn this off if you see green frames, glitches, or a black picture with subtitles. Takes effect the next time the engine restarts.")
-        lab.setObjectName("Muted")
-        lab.setWordWrap(True)
-        f.addWidget(lab)
+        f.addWidget(muted("Turn this off if you see green frames, glitches, or a black picture with subtitles."))
         if sys.platform == "win32":
             up = QCheckBox("Use RTX Video Super Resolution to upscale video (NVIDIA RTX and Intel graphics)")
             up.setChecked(bool(self.store.setting("rtx_upscale")))
@@ -992,9 +992,16 @@ class WelcomeDialog(QDialog):
         grid = QGridLayout()
         grid.setHorizontalSpacing(16)
         grid.setVerticalSpacing(8)
-        keys = [("Space", "Play / pause"), ("← →", "Jump 10 seconds"), ("F", "Fullscreen"),
-                ("H", "Hide the interface"), ("G  J", "Move subtitles earlier / later"), ("[  ]", "Slower / faster"),
-                ("Ctrl+B", "Bookmark this moment"), ("Ctrl+L", "Library"), ("Ctrl+T", "Settings panel"), ("F1", "All shortcuts")]
+        sc = win.store.shortcut
+        arrows = {"Left": "←", "Right": "→"}
+        keys = [(sc("play_pause"), "Play / pause"),
+                (f"{arrows.get(sc('seek_back'), sc('seek_back'))} {arrows.get(sc('seek_fwd'), sc('seek_fwd'))}",
+                 "Jump 10 seconds"),
+                (sc("fullscreen"), "Fullscreen"), (sc("hide_ui"), "Hide the interface"),
+                (f"{sc('sub_delay_minus')}  {sc('sub_delay_plus')}", "Move subtitles earlier / later"),
+                (f"{sc('speed_down')}  {sc('speed_up')}", "Slower / faster"), (sc("bookmark"), "Bookmark this moment"),
+                (sc("library"), "Library"), (sc("sidebar"), "Settings panel"), (sc("shortcuts"), "All shortcuts")]
+        keys = [(k.strip(), d) for k, d in keys if k.strip()]     # keys you cleared aren't shown
         for i, (k, d) in enumerate(keys):
             kl = QLabel(k)
             kl.setStyleSheet(f"background: {theme.SURFACE}; border: 1px solid {theme.BORDER}; border-radius: 3px;"
@@ -1034,9 +1041,6 @@ class UpdateDialog(QDialog):
 
     def __init__(self, win, release: dict):
         super().__init__(win)
-        from PySide6.QtWidgets import QProgressBar, QTextBrowser
-        from . import APP_VERSION
-        from .updates import installer_asset, RELEASES_PAGE
         self.win = win
         self.release = release
         self.checker = win.updater
@@ -1115,7 +1119,7 @@ class UpdateDialog(QDialog):
         self.bar.show()
         self.status.setText("Downloading the installer…")
         self.status.show()
-        self.checker.download(self.asset)
+        self.checker.download(self.asset, self.release)
 
     def _progress(self, done, total):
         if total > 0:
@@ -1124,7 +1128,6 @@ class UpdateDialog(QDialog):
             self.bar.setFormat(f"{done / 1048576:.1f} of {total / 1048576:.1f} MB")
 
     def _downloaded(self, path):
-        from .updates import run_installer
         self._downloading = False
         self.status.setText("Starting the installer. Pylon will close now.")
         if run_installer(path):

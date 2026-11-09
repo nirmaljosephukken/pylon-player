@@ -5,7 +5,7 @@ Unicode true
 !include "FileFunc.nsh"
 
 !define APP "Pylon"
-!define VERSION "1.7.0"
+!define VERSION "1.7.1"
 !ifndef SRC
   !define SRC "Pylon"
 !endif
@@ -50,11 +50,27 @@ VIAddVersionKey "LegalCopyright" "MIT licence, (c) 2026 Nirmal Joseph Ukken"
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "English"
 
-Function CloseRunningPylon
-  ; a running Pylon locks its files; close copies that run from the install folder
+!include "file-types.nsh"     ; ASSOCIATED_EXTS from app/util.py, written by packaging/sync_metadata.py
+
+; a running Pylon locks its files; close copies that run from the install folder
+!macro CLOSE_RUNNING_PYLON PREFIX
+Function ${PREFIX}CloseRunningPylon
   nsExec::Exec `powershell -NoProfile -Command "Get-Process pythonw,python -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like '$INSTDIR\*' } | Stop-Process -Force"`
   Pop $0
 FunctionEnd
+!macroend
+!insertmacro CLOSE_RUNNING_PYLON ""
+!insertmacro CLOSE_RUNNING_PYLON "un."
+
+!macro RegisterFileType EXT
+  WriteRegStr HKCU "Software\Classes\${EXT}\OpenWithProgids" "Pylon.Media" ""
+  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" "${EXT}" ""
+  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" "${EXT}" "Pylon.Media"
+!macroend
+
+!macro UnregisterFileType EXT
+  DeleteRegValue HKCU "Software\Classes\${EXT}\OpenWithProgids" "Pylon.Media"
+!macroend
 
 Section "Pylon (required)" SecMain
   SectionIn RO
@@ -101,108 +117,7 @@ Section "Offer Pylon for videos and music (Open with)" SecAssoc
   WriteRegStr HKCU "Software\Pylon\Capabilities" "ApplicationDescription" "Pylon media player (VLC engine)"
   WriteRegStr HKCU "Software\Pylon\Capabilities" "ApplicationIcon" "$INSTDIR\pylon.ico,0"
   WriteRegStr HKCU "Software\RegisteredApplications" "Pylon" "Software\Pylon\Capabilities"
-  WriteRegStr HKCU "Software\Classes\.3gp\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".3gp" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".3gp" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.aac\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".aac" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".aac" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.ac3\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".ac3" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".ac3" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.aiff\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".aiff" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".aiff" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.alac\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".alac" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".alac" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.ape\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".ape" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".ape" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.asf\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".asf" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".asf" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.avi\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".avi" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".avi" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.divx\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".divx" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".divx" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.dts\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".dts" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".dts" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.f4v\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".f4v" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".f4v" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.flac\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".flac" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".flac" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.flv\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".flv" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".flv" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.m2ts\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".m2ts" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".m2ts" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.m4a\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".m4a" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".m4a" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.m4v\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".m4v" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".m4v" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.mka\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".mka" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".mka" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.mkv\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".mkv" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".mkv" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.mov\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".mov" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".mov" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.mp3\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".mp3" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".mp3" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.mp4\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".mp4" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".mp4" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.mpeg\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".mpeg" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".mpeg" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.mpg\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".mpg" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".mpg" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.mts\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".mts" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".mts" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.ogg\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".ogg" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".ogg" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.ogv\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".ogv" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".ogv" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.opus\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".opus" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".opus" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.rmvb\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".rmvb" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".rmvb" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.ts\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".ts" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".ts" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.vob\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".vob" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".vob" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.wav\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".wav" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".wav" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.webm\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".webm" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".webm" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.wma\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".wma" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".wma" "Pylon.Media"
-  WriteRegStr HKCU "Software\Classes\.wmv\OpenWithProgids" "Pylon.Media" ""
-  WriteRegStr HKCU "Software\Classes\Applications\Pylon.exe\SupportedTypes" ".wmv" ""
-  WriteRegStr HKCU "Software\Pylon\Capabilities\FileAssociations" ".wmv" "Pylon.Media"
+  !insertmacro FOR_EACH_FILE_TYPE RegisterFileType
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 SectionEnd
 
@@ -245,7 +160,7 @@ SectionEnd
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} "Pylon with its own private copy of Python and Qt (about 90 MB)."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} "Put a Pylon shortcut on your desktop."
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecAssoc} "List Pylon under 'Open with' for 34 video and audio types, so you can make it your default player in Windows Settings. Doesn't change your current default."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecAssoc} "List Pylon under 'Open with' for ${FILE_TYPE_COUNT} video, audio and playlist types, so you can make it your default player in Windows Settings. Doesn't change your current default."
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 Section "Uninstall"
@@ -270,47 +185,10 @@ Section "Uninstall"
   DeleteRegKey HKCU "Software\Classes\Pylon.Media"
   DeleteRegKey HKCU "Software\Classes\Applications\Pylon.exe"
   DeleteRegValue HKCU "Software\RegisteredApplications" "Pylon"
-  DeleteRegValue HKCU "Software\Classes\.3gp\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.aac\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.ac3\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.aiff\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.alac\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.ape\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.asf\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.avi\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.divx\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.dts\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.f4v\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.flac\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.flv\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.m2ts\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.m4a\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.m4v\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.mka\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.mkv\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.mov\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.mp3\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.mp4\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.mpeg\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.mpg\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.mts\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.ogg\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.ogv\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.opus\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.rmvb\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.ts\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.vob\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.wav\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.webm\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.wma\OpenWithProgids" "Pylon.Media"
-  DeleteRegValue HKCU "Software\Classes\.wmv\OpenWithProgids" "Pylon.Media"
+  !insertmacro FOR_EACH_FILE_TYPE UnregisterFileType
+  !insertmacro FOR_EACH_RETIRED_FILE_TYPE UnregisterFileType
   DeleteRegKey HKCU "Software\Pylon"
   DeleteRegKey HKCU "${UNKEY}"
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
   ; your library, history and presets (%APPDATA%\Pylon) are kept
 SectionEnd
-
-Function un.CloseRunningPylon
-  nsExec::Exec `powershell -NoProfile -Command "Get-Process pythonw,python -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like '$INSTDIR\*' } | Stop-Process -Force"`
-  Pop $0
-FunctionEnd

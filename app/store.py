@@ -6,7 +6,8 @@ import time
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from .util import display_name, is_audio, is_url
+from .paths import data_dir
+from .util import display_name, is_audio, is_media, is_url
 
 # What the queue does when an item ends (#48), in the order the queue button cycles through them:
 # key -> (short name, what it does, icon)
@@ -152,36 +153,73 @@ DEFAULT_SETTINGS = {
     "check_updates": True,      # ask GitHub once a day whether a newer Pylon is out
     "last_update_check": 0,
     "skipped_version": "",
+    "sub_style": {},            # subtitle look from the Subtitles tab; {} = the engine's default style
 }
 
+# The resume rule, in one place: a file is offered to resume once it is more than RESUME_MIN_MS in and
+# not yet RESUME_MAX_FRACTION done; it counts as watched past WATCHED_FRACTION.
+RESUME_MIN_MS = 10_000
+RESUME_MAX_FRACTION = 0.93
+WATCHED_FRACTION = 0.9
 
-def data_dir() -> str:
-    """Windows: %APPDATA%\\Pylon   macOS: ~/Library/Application Support/Pylon
-    Linux: $XDG_DATA_HOME/pylon (~/.local/share/pylon)"""
-    home = os.path.expanduser("~")
-    if sys.platform == "win32":
-        base = os.environ.get("APPDATA") or home
-        path = os.path.join(base, "Pylon")
-        legacy = os.path.join(base, "ConePlayer")   # Pylon's earlier name
-        if not os.path.exists(path) and os.path.isdir(legacy):
-            try:
-                os.rename(legacy, path)
-            except OSError:
-                return legacy
-    elif sys.platform == "darwin":
-        path = os.path.join(home, "Library", "Application Support", "Pylon")
-    else:
-        path = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share"), "pylon")
-    os.makedirs(path, exist_ok=True)
-    return path
+
+def is_finished(entry: dict) -> bool:
+    """A positions entry that is watched, or played so far that it wouldn't be resumed."""
+    ln, pos = entry.get("len", 0), entry.get("pos", 0)
+    return bool(entry.get("watched") or (ln and pos >= ln * RESUME_MAX_FRACTION))
+
+
+def resume_point(entry: dict) -> int:
+    """Where to resume a positions entry, in ms, or 0 when it shouldn't be resumed."""
+    ln, pos = entry.get("len", 0), entry.get("pos", 0)
+    if ln and RESUME_MIN_MS < pos < ln * RESUME_MAX_FRACTION and not entry.get("watched"):
+        return int(pos)
+    return 0
+
+
+# How many files the store remembers positions and play counts for (oldest are dropped first).
+MAX_POSITIONS = 2000
+MAX_PLAYS = 2000
+
+
+def _same_type(default, value) -> bool:
+    """Whether a loaded value can stand in for the default: same JSON type (an int may be a float,
+    None defaults take anything)."""
+    if default is None:
+        return True
+    if isinstance(default, bool) or isinstance(value, bool):
+        return isinstance(default, bool) and isinstance(value, bool)
+    if isinstance(default, (int, float)):
+        return isinstance(value, (int, float))
+    return isinstance(value, type(default))
+
+
+def saved_setting(key: str, path: str | None = None):
+    """One saved setting, read without a Store (VLC is loaded before there is one): from data.json, or
+    its last good copy, and only if it has the default's type; otherwise the default."""
+    path = path or os.path.join(data_dir(), "data.json")
+    default = DEFAULT_SETTINGS.get(key)
+    for candidate in (path, path + ".bak"):
+        try:
+            with open(candidate, encoding="utf-8") as f:
+                settings = json.load(f).get("settings", {})
+        except (OSError, ValueError, AttributeError):
+            continue
+        value = settings.get(key, default) if isinstance(settings, dict) else default
+        return value if _same_type(default, value) else default
+    return default
 
 
 class Store(QObject):
-    changed = Signal(str)  # section name
+    changed = Signal(str)                   # a section of data.json changed: "settings", "recent", "library"...
+    setting_changed = Signal(str, object)   # one setting changed: key, new value (M27)
 
     def __init__(self, path: str | None = None):
         super().__init__()
         self.path = path or os.path.join(data_dir(), "data.json")
+        self.load_error = ""           # why data.json couldn't be read, if it couldn't
+        self.corrupt_copy = ""         # where the unreadable file was kept
+        self.restored_backup = False   # loaded data.json.bak instead
         self.data = {
             "settings": dict(DEFAULT_SETTINGS),
             "shortcuts": {},
@@ -207,17 +245,72 @@ class Store(QObject):
         self._save_timer.timeout.connect(self.save_now)
 
     # ---------- io ----------
+    def _read(self, path: str):
+        with open(path, encoding="utf-8") as f:
+            loaded = json.load(f)
+        if not isinstance(loaded, dict):
+            raise ValueError("data.json does not hold an object")
+        return loaded
+
     def _load(self):
-        try:
-            with open(self.path, encoding="utf-8") as f:
-                loaded = json.load(f)
-            for k, v in loaded.items():
-                if k == "settings":
-                    self.data["settings"].update(v)
-                else:
-                    self.data[k] = v
-        except (OSError, ValueError):
-            pass
+        """Read data.json. A file that can't be parsed is kept as data.json.corrupt-<time> (so the next
+        save doesn't overwrite the user's library) and the last good copy, data.json.bak, is used."""
+        loaded = None
+        if os.path.exists(self.path):
+            try:
+                loaded = self._read(self.path)
+            except (OSError, ValueError) as e:
+                self.load_error = f"{type(e).__name__}: {e}"
+                kept = f"{self.path}.corrupt-{time.strftime('%Y%m%d-%H%M%S')}"
+                try:
+                    os.replace(self.path, kept)
+                    self.corrupt_copy = kept
+                except OSError:
+                    pass
+                print(f"data.json could not be read ({self.load_error}); kept as {kept}", file=sys.stderr)
+        if loaded is None and os.path.exists(self.path + ".bak"):
+            try:
+                loaded = self._read(self.path + ".bak")
+                self.restored_backup = True
+            except (OSError, ValueError):
+                loaded = None
+        if loaded:
+            self._merge(loaded)
+        self._tidy()
+
+    def _merge(self, loaded: dict):
+        """Take the loaded values whose type matches the default's, so an old or hand-edited file
+        (e.g. "recent": {} or "volume": "80") can't crash code far away from here."""
+        for k, v in loaded.items():
+            if k == "settings":
+                if not isinstance(v, dict):
+                    continue
+                for sk, sv in v.items():
+                    if _same_type(DEFAULT_SETTINGS.get(sk, sv), sv):
+                        self.data["settings"][sk] = sv
+            elif k not in self.data or _same_type(self.data[k], v):
+                self.data[k] = v
+
+    def _tidy(self):
+        """Drop history and queue entries that aren't media (e.g. main.py opened by mistake) or aren't
+        entries at all."""
+        def media(e):
+            p = e.get("path", "") if isinstance(e, dict) else ""
+            return bool(p) and isinstance(p, str) and (is_url(p) or is_media(p))
+        self.data["recent"] = [r for r in self.data["recent"] if media(r)]
+        self.data["queue"] = [q for q in self.data["queue"] if media(q)]
+
+    def _prune(self):
+        """Keep positions and play counts for the most recent files only, so data.json doesn't grow forever."""
+        for key, limit in (("positions", MAX_POSITIONS), ("plays", MAX_PLAYS)):
+            d = self.data.get(key) or {}
+            if len(d) > limit:
+                def when(p):
+                    e = d[p]
+                    t = e.get("t", 0) if isinstance(e, dict) else 0
+                    return t if isinstance(t, (int, float)) else 0
+                keep = set(sorted(d, key=when, reverse=True)[:limit])
+                self.data[key] = {p: e for p, e in d.items() if p in keep}
 
     def save(self, section: str = ""):
         self._save_timer.start()
@@ -225,10 +318,16 @@ class Store(QObject):
             self.changed.emit(section)
 
     def save_now(self):
+        self._prune()
         tmp = self.path + ".tmp"
         try:
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, indent=1)
+            if os.path.exists(self.path):
+                try:
+                    os.replace(self.path, self.path + ".bak")   # the last good copy, used if data.json breaks
+                except OSError:
+                    pass
             os.replace(tmp, self.path)
         except OSError:
             pass
@@ -238,8 +337,10 @@ class Store(QObject):
         return self.data["settings"].get(key, DEFAULT_SETTINGS.get(key))
 
     def set_setting(self, key, value):
+        """Change a setting, save it and tell everyone showing it. All setting changes go through here."""
         self.data["settings"][key] = value
         self.save("settings")
+        self.setting_changed.emit(key, value)
 
     def shortcut(self, action: str) -> str:
         sc = self.data["shortcuts"]
@@ -250,6 +351,16 @@ class Store(QObject):
         if default and any(k == default for a, k in sc.items() if a != action):
             return ""
         return default
+
+    def menu_label(self, text: str, action: str) -> str:
+        """A menu item's text with the key the user has for `action` on the right (shortcuts can be remapped)."""
+        key = self.shortcut(action)
+        return f"{text}\t{key}" if key else text
+
+    def tip(self, text: str, *actions: str, joiner: str = " and ") -> str:
+        """A tooltip with the keys for `actions`, e.g. "Library (Ctrl+L)"; just the text when none is set."""
+        keys = [k for k in (self.shortcut(a) for a in actions) if k]
+        return f"{text} ({joiner.join(keys)})" if keys else text
 
     # ---------- history ----------
     def add_recent(self, path: str, title: str = ""):
@@ -285,12 +396,16 @@ class Store(QObject):
         if not path or not self.setting("remember_history"):
             return
         entry = self.data["positions"].get(path, {})
-        watched = entry.get("watched", False) or (length > 0 and pos / length > 0.9)
+        watched = entry.get("watched", False) or (length > 0 and pos / length > WATCHED_FRACTION)
         self.data["positions"][path] = {"pos": int(pos), "len": int(length), "watched": watched, "t": time.time()}
         self.save()
 
     def position(self, path: str) -> dict:
         return self.data["positions"].get(path, {})
+
+    def resume_position(self, path: str) -> int:
+        """Where to resume `path` in ms, or 0 (see resume_point)."""
+        return resume_point(self.position(path))
 
     def count_play(self, path: str):
         """One more play of this file (Recently played and Most played in Music)."""
@@ -324,10 +439,9 @@ class Store(QObject):
     def continue_watching(self, limit=12) -> list[dict]:
         out = []
         for p, e in self.data["positions"].items():
-            ln = e.get("len", 0)
             if is_audio(p):
                 continue           # songs have their own row under Music: Continue listening (#55)
-            if ln and 10_000 < e.get("pos", 0) < ln * 0.93 and not e.get("watched"):
+            if resume_point(e):
                 out.append({"path": p, **e})
         out.sort(key=lambda e: -e.get("t", 0))
         return out[:limit]

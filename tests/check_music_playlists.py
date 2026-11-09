@@ -1,12 +1,12 @@
 """Regression checks for collaboration browsing and playlist destinations."""
-import os,sys,tempfile,unittest
+import sys, tempfile, unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from PySide6.QtWidgets import QApplication,QInputDialog,QMessageBox
 from app import engine
 engine.vlc=None
-from app.music import MusicLibrary,credit_artists
+from app.music import credit_artists
 from app.store import Store
 from app.window import MainWindow
 app=QApplication.instance() or QApplication([])

@@ -7,48 +7,75 @@ import time
 
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QCursor, QGuiApplication, QKeySequence, QShortcut, QRegion
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QApplication, QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout,
+                               QWidget)
 
 from . import APP_NAME, overlay, theme
 from .controls import BottomBar, TopBar
-from .engine import NAV_ACTIVATE, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP, Engine
+from .engine import Engine
 from .home import HomePage, NowPlayingPage
 from .library import LibraryPanel
 from .sidebar import SettingsSidebar
 from .store import DEFAULT_SHORTCUTS, QUEUE_MODES
-from .util import fmt_delay, fmt_time, is_audio, is_disc, is_url, win_enable_close, win_set_topmost
+from .util import fmt_time, is_audio, is_disc, is_url, win_enable_close, win_set_topmost
 from .stage import PAGE_AUDIO, PAGE_HOME, PAGE_VIDEO, VideoSurface  # noqa: F401  (tests import these from here)
 from .thumbs import ThumbnailMaker
 from .updates import UpdateChecker
 from .waveform import WaveformMaker
 from .widgets import IconButton, SeekPreview, Toast
+from .window_actions import ActionsMixin
 from .window_menus import MenusMixin
 from .window_panels import PanelsMixin
-from .window_playback import PlaybackMixin
+from .play_queue import PlayQueue
+from .window_playback import PlaybackMixin, StreamProbe
 from .window_system import SystemMixin
 
 VSR_FULLSCREEN_RETRIES_MS = (600, 1500)    # extra Super Resolution redraws in full screen (#42)
 WINDOW_MOVE_HIDE_S = 0.25                   # floating bars stay hidden this long after the window moves (#59)
 
-class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindow):
+
+def fitted_size(sw, sh, aspect, whole=True):
+    """The size of a picture with this aspect ratio fitted inside sw x sh, touching two sides. The one rule
+    for where the picture goes (#42): the Super Resolution area, the "fills the screen" test and the
+    zoom/pan maths all use it. `whole` rounds to whole pixels, at least 1 and never past the area."""
+    if sw / sh > aspect:
+        w, h = sh * aspect, sh
+    else:
+        w, h = sw, sw / aspect
+    if whole:
+        w, h = max(1, min(sw, round(w))), max(1, min(sh, round(h)))
+    return w, h
+
+class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMixin, QMainWindow):
     def __init__(self, store):
         super().__init__()
-        self.store = store
-        theme.set_accent(store.setting("accent"))
+        # Window state that Qt events can read before the rest is built, or that is set on first use.
+        self.video = None                # the video page, made below
+        self._vsr_late = []              # redraws after a full-screen resize (#42), made below
+        self._vsr_told = False           # a "Super Resolution paused" message is showing for full screen
+        self._bars_visible = False
+        self._shown_once = False
+        self._overlay_fixes = 0          # times the bars were put back since they were last shown (#40)
+        self._overlay_checks = 0         # times we asked where the window manager put them (#81)
+        self._pin_state = None           # whether the bars were last laid out pinned (#68)
+        self._moving_until = 0.0         # the window is being dragged until then (#59)
+        self._was_max = False            # maximized before full screen
+        self._cast_menu = None           # the Cast menu while it's open
+        self._shortcuts = []
+        self._resume_title = None        # the DVD/Blu-ray title the resume point belongs to
+        self._action_table = None        # do()'s handlers, by action name
+        self._shut_down = False
+        self.store = store                     # main() has applied the theme and accent already
         self.setWindowTitle(APP_NAME)
         self.resize(1200, 740)
         self.setMinimumSize(640, 400)
         self.setAcceptDrops(True)
 
-        self.engine = Engine(store, self)
-        st = store.setting("sub_style")
-        if isinstance(st, dict):
-            self.engine.sub_style.update(st)
-            if self.engine.ok:
-                self.engine.recreate()
+        self.engine = Engine(store, self)      # starts VLC once, with the saved subtitle style
+        self.stream_probe = StreamProbe(self)
+        self.stream_probe.finished.connect(self._stream_probed)
 
-        self.queue: list[dict] = []
-        self.qindex = -1
+        self.play_queue = PlayQueue()          # self.queue and self.qindex are its items and index
         self.queue_mode = self.store.setting("queue_mode") if self.store.setting("queue_mode") in QUEUE_MODES else "next"
         self.hide_ui = False
         self._pip = None
@@ -64,7 +91,6 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         self._sleep_end_of_file = False
         self._last_saved = 0.0
         self._overlay_geo = None
-        self._bars_visible = False
         self.ab_loop = [None, None]      # A–B repeat: start and end in ms
         self._ab_jumped = 0.0
         self._in_menu = False            # a disc is showing its menu
@@ -141,7 +167,6 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         # In full screen some GPUs are still settling after 150 ms, and the picture stays
         # black (#42), so redraw again a little later. Restarting these on every resize
         # means they run once the panel has finished moving.
-        self._vsr_late = []
         for ms in VSR_FULLSCREEN_RETRIES_MS:
             t = QTimer(self)
             t.setSingleShot(True)
@@ -154,7 +179,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         self.engine.picture_changed.connect(self._fit_video)
         self.engine.wake_picture.connect(self._wake_picture)
         self.engine.vout_changed.connect(lambda _n: QTimer.singleShot(250, self._sync_audio_page), Qt.QueuedConnection)
-        # ...and in full screen it needs the picture to cover the whole screen, or it's set aside.
+        # ...and it's set aside where it would go black: bars Pylon made in full screen, upscaling in a window.
         self._vsr_policy_timer = QTimer(self)
         self._vsr_policy_timer.setSingleShot(True)
         self._vsr_policy_timer.setInterval(500)
@@ -187,7 +212,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         b.sidebar_clicked.connect(lambda: self.toggle_sidebar())
         b.mute_clicked.connect(lambda: self.do("mute", key=False))
         b.resume_clicked.connect(self._accept_resume)
-        b.speed_clicked.connect(lambda: self.open_sidebar_tab(3))
+        b.speed_clicked.connect(lambda: self.open_sidebar_tab("playback"))
         b.seek.seek_requested.connect(self.engine.seek)
         b.seek.hovered.connect(self._seek_hover)
         b.seek.hover_left.connect(self.seek_preview.defer_hide)
@@ -224,7 +249,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
     # ================================================================ startup
     def showEvent(self, e):
         super().showEvent(e)
-        if not getattr(self, "_shown_once", False):
+        if not self._shown_once:
             self._shown_once = True
             self._dark_titlebar()
             self.engine.set_window(int(self.video.canvas.winId()))
@@ -255,7 +280,8 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         self.bottom.apply_glow()
         self.top.update()
         self.osd.update()
-        self.library.refresh_music() if self.library.stack.currentIndex() == 4 else None
+        if self.library.current_section() == "music":
+            self.library.refresh_music()
 
     # ================================================================ pages / panels
     def show_home(self):
@@ -301,14 +327,11 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
     def _picture_rect(self):
         """Where the (cropped) picture sits inside the video surface, letterboxed."""
         e = self.engine
-        vw, vh = e.video_size()
+        vw, vh = (e.izoom["w"], e.izoom["h"]) if e.izoom else e.video_size()
         sw, sh = self.video.width(), self.video.height()
-        if e.izoom:
-            vw, vh = e.izoom["w"], e.izoom["h"]
         if not vw or not vh or not sw or not sh:
             return None
-        k = min(sw / vw, sh / vh)
-        w, h = vw * k, vh * k
+        w, h = fitted_size(sw, sh, vw / vh, whole=False)
         return QRectF((sw - w) / 2, (sh - h) / 2, w, h)
 
     def zoom_video(self, factor, pos=None):
@@ -387,9 +410,9 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         really are, a couple of times after they're shown, and stop asking the window manager if it
         moved them."""
         if (not self._bars_visible or self.top.docked or overlay.bypass()
-                or getattr(self, "_overlay_checks", 0) >= 3):
+                or self._overlay_checks >= 3):
             return
-        self._overlay_checks = getattr(self, "_overlay_checks", 0) + 1
+        self._overlay_checks += 1
         dpr = self.devicePixelRatioF() or 1.0
         want = {self.top: tl, self.bottom: QPoint(tl.x(), tl.y() + h - BottomBar.HEIGHT)}
         for bar, p in want.items():
@@ -443,12 +466,12 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         macOS keeps a window out of the menu bar strip when it is shown, even in full
         screen, which left a gap above the top bar (#40). Put it back, but give up after
         a few tries so a system that insists doesn't cost a move on every tick."""
-        if not self._bars_visible or self.top.docked or getattr(self, "_overlay_fixes", 0) >= 5:
+        if not self._bars_visible or self.top.docked or self._overlay_fixes >= 5:
             return False
         moved = (self.top.pos() != tl or
                  self.bottom.pos() != QPoint(tl.x(), tl.y() + h - BottomBar.HEIGHT))
         if moved:
-            self._overlay_fixes = getattr(self, "_overlay_fixes", 0) + 1
+            self._overlay_fixes += 1
         return moved
 
     def _pinned(self) -> bool:
@@ -458,7 +481,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
 
     def _apply_pin(self):
         pinned = self._pinned()
-        if pinned != getattr(self, "_pin_state", None):
+        if pinned != self._pin_state:
             self._pin_state = pinned
             # Pinned bars are laid out above and below the video as ordinary parts of the window, so the
             # video sits between them (#68) and no window manager can put them anywhere else (#81).
@@ -520,7 +543,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
                 show = True
             elif inside and active and (now - self._last_move < delay or near_bar):
                 show = True
-        if show and not self._pinned() and now < getattr(self, "_moving_until", 0):
+        if show and not self._pinned() and now < self._moving_until:
             show = False                 # the window is being dragged (#59)
         if show and not self._pinned() and overlay.bypass() and not self._app_active():
             show = False                 # bars that bypass the window manager would float over other apps (#81)
@@ -546,7 +569,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
     def moveEvent(self, e):
         super().moveEvent(e)
         self._overlay_geo = None
-        if not hasattr(self, "_bars_visible") or not self.isVisible():
+        if not self.isVisible():
             return
         # The bars are separate windows that the 50 ms tick puts back over the video, so while the
         # window is dragged they trail behind it, more so when VLC keeps Pylon busy reading from a
@@ -578,7 +601,9 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
 
     # ================================================================ shortcuts / actions
     def install_shortcuts(self):
-        for sc in getattr(self, "_shortcuts", []):
+        self.top.label_keys(self.store)
+        self.bottom.label_keys(self.store)
+        for sc in self._shortcuts:
             sc.setEnabled(False)
             sc.deleteLater()
         self._shortcuts = []
@@ -599,219 +624,6 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
                 sc2.setAutoRepeat(False)
                 sc2.activated.connect(lambda a=action: self.do(a))
                 self._shortcuts.append(sc2)
-
-    def _cycle_chip(self, chips, live_key, setter, what):
-        """Step to the next choice in the settings panel's row for this (aspect ratio or crop, #56)."""
-        values = chips.values
-        cur = self.engine.live.get(live_key, "")
-        i = (values.index(cur) + 1) % len(values) if cur in values else 1 % len(values)
-        setter(values[i])
-        chips.select(values[i])
-        return f"{what}: {chips.group.button(i).text()}"
-
-    # keys that move around a disc menu instead of seeking and changing the volume
-    MENU_KEYS = {"seek_back": NAV_LEFT, "seek_fwd": NAV_RIGHT, "vol_up": NAV_UP, "vol_down": NAV_DOWN,
-                 "play_pause": NAV_ACTIVATE, "fullscreen_enter": NAV_ACTIVATE}
-
-    def do(self, action: str, key: bool = True):
-        e = self.engine
-        msg = None
-        if action in self.MENU_KEYS and e.in_menu() and not self._typing(action):
-            e.navigate(self.MENU_KEYS[action])
-            self._poke(1)
-            return
-        if action == "play_pause":
-            if not e.current:
-                if self.queue:
-                    self.play_queue_index(max(0, self.qindex))
-                else:
-                    self.open_file_dialog()
-                return
-            playing = e.is_playing()
-            e.toggle()
-            msg = "Paused" if playing else "Playing"
-            self._poke(1.5)
-        elif action == "stop":
-            self._save_position()
-            e.stop()
-            msg = "Stopped"
-        elif action == "close_media":
-            self.close_media()
-            return
-        elif action in ("seek_fwd", "seek_back", "seek_fwd_long", "seek_back_long"):
-            delta = {"seek_fwd": 10_000, "seek_back": -10_000, "seek_fwd_long": 60_000, "seek_back_long": -60_000}[action]
-            e.seek_by(delta)
-            msg = f"{'+' if delta > 0 else '-'}{abs(delta) // 1000}s   {fmt_time(max(0, e.time() + delta))}"
-            self.bottom.set_time(max(0, e.time() + delta), e.length())
-        elif action == "frame_next":
-            e.next_frame()
-            msg = "Next frame"
-        elif action == "frame_prev":
-            if not e.current:
-                return
-            if e.is_disc():
-                # DVDs can only jump to about every half second, so a frame back isn't possible there
-                msg = "Stepping back a frame doesn't work on DVDs"
-            else:
-                e.prev_frame()
-                self.bottom.set_playing(False)
-                msg = "Previous frame"
-        elif action == "ab_loop":
-            msg = self.ab_step()
-        elif action in ("vol_up", "vol_down"):
-            v = e.volume() + (5 if action == "vol_up" else -5)
-            e.set_volume(v)
-            e.set_muted(False)
-            self.bottom.set_volume(e.volume(), False)
-            msg = f"Volume {e.volume()}%"
-        elif action == "mute":
-            m = not e.is_muted()
-            e.set_muted(m)
-            self.bottom.set_volume(e.volume(), m)
-            msg = "Muted" if m else f"Volume {e.volume()}%"
-        elif action == "next":
-            self.play_next(user=True)
-            return
-        elif action == "prev":
-            self.play_prev()
-            return
-        elif action == "fullscreen":
-            self.toggle_fullscreen()
-            return
-        elif action == "fullscreen_enter":
-            # Enter still works normally while typing or picking from a list
-            from PySide6.QtWidgets import QAbstractItemView, QLineEdit
-            fw = QApplication.focusWidget()
-            if isinstance(fw, QLineEdit):
-                fw.returnPressed.emit()
-                return
-            if isinstance(fw, QAbstractItemView) and fw.currentIndex().isValid():
-                item_fn = getattr(fw, "itemDoubleClicked", None)
-                if item_fn is not None and hasattr(fw, "currentItem") and fw.currentItem() is not None:
-                    item_fn.emit(fw.currentItem())
-                    return
-            if self.stage.currentIndex() == PAGE_HOME:
-                return
-            self.toggle_fullscreen()
-            return
-        elif action == "exit_fullscreen":
-            self._drop_slider_focus()          # Esc gives the arrow keys back to the video too (#79)
-            if self._pip:
-                self.toggle_pip()
-            elif self.isFullScreen():
-                self.toggle_fullscreen()
-            elif self.hide_ui:
-                self.do("hide_ui")
-            return
-        elif action == "pip":
-            self.toggle_pip()
-            return
-        elif action == "hide_ui":
-            self.hide_ui = not self.hide_ui
-            if self.hide_ui:
-                self._set_bars(False)
-                self.toggle_library(False)
-                self.toggle_sidebar(False)
-            msg = "Interface hidden" if self.hide_ui else "Interface shown"
-        elif action in ("speed_up", "speed_down", "speed_reset"):
-            steps = [0.25, 0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0]
-            r = e.rate()
-            if action == "speed_reset":
-                r = 1.0
-            elif action == "speed_up":
-                r = next((s for s in steps if s > r + 1e-6), steps[-1])
-            else:
-                r = next((s for s in reversed(steps) if s < r - 1e-6), steps[0])
-            self.set_rate(r, osd=False)
-            msg = f"Speed {r:g}x"
-        elif action in ("sub_delay_plus", "sub_delay_minus"):
-            d = e.live["sub_delay"] + (50 if action == "sub_delay_plus" else -50)
-            e.set_sub_delay(d)
-            self.sidebar.set_sub_delay_ui(d)
-            msg = f"Subtitle delay {fmt_delay(d)}"
-        elif action in ("audio_delay_plus", "audio_delay_minus"):
-            d = e.live["audio_delay"] + (50 if action == "audio_delay_plus" else -50)
-            e.set_audio_delay(d)
-            self.sidebar.audio_delay.set_value(d)
-            msg = f"Audio delay {fmt_delay(d)}"
-        elif action == "cycle_sub":
-            msg = self._cycle(e.sub_tracks(), e.current_sub(), e.set_sub, "Subtitles")
-        elif action == "cycle_audio":
-            msg = self._cycle(e.audio_tracks(), e.current_audio(), e.set_audio, "Audio")
-        elif action in ("cycle_aspect", "cycle_crop"):
-            if not e.current:
-                return
-            msg = self._cycle_chip(*((self.sidebar.aspect, "aspect", e.set_aspect, "Aspect ratio")
-                                     if action == "cycle_aspect" else
-                                     (self.sidebar.crop, "crop", e.set_crop, "Crop")))
-        elif action == "bookmark":
-            if not e.current:
-                return
-            items = list(self.store.bookmarks(e.current))
-            t = e.time()
-            items.append({"t": t, "name": f"Bookmark {len(items) + 1}"})
-            self.store.set_bookmarks(e.current, items)
-            self.sidebar.refresh_bookmarks()
-            msg = f"Bookmark added at {fmt_time(t)}"
-        elif action == "library":
-            self.toggle_library()
-            return
-        elif action == "sidebar":
-            self.toggle_sidebar()
-            return
-        elif action == "queue":
-            self.toggle_queue()
-            return
-        elif action == "panels":
-            self.toggle_panels()
-            return
-        elif action in ("zoom_in", "zoom_out", "zoom_reset"):
-            if action == "zoom_reset":
-                self.reset_zoom()
-            else:
-                self.zoom_video(1.25 if action == "zoom_in" else 0.8)
-            return
-        elif action == "open_file":
-            self.open_file_dialog()
-            return
-        elif action == "open_folder":
-            self.open_folder_dialog()
-            return
-        elif action == "open_stream":
-            self.open_stream_dialog()
-            return
-        elif action == "snapshot":
-            folder = os.path.join(os.path.expanduser("~"), "Pictures", "Pylon")
-            os.makedirs(folder, exist_ok=True)
-            msg = "Snapshot saved to Pictures\\Pylon" if e.snapshot(folder) else "Couldn't take a snapshot"
-        elif action == "shortcuts":
-            self.show_shortcuts()
-            return
-        elif action == "preferences":
-            self.show_preferences()
-            return
-        if msg:
-            hint = self.store.shortcut(action) if key and self.store.setting("osd_shortcuts") else ""
-            self.toast(msg, hint)
-
-    def _drop_slider_focus(self) -> bool:
-        """A settings slider that was clicked keeps Left and Right (#79). Let go of them."""
-        from .sidebar import KeySlider
-        fw = QApplication.focusWidget()
-        if isinstance(fw, KeySlider):
-            fw.clearFocus()
-            self.setFocus(Qt.OtherFocusReason)
-            return True
-        return False
-
-    def _typing(self, action) -> bool:
-        """The key belongs to a text box, or Enter to a list item, that has the focus."""
-        from PySide6.QtWidgets import QAbstractItemView, QLineEdit
-        fw = QApplication.focusWidget()
-        if isinstance(fw, QLineEdit) and fw.isVisible():
-            return True
-        return (action == "fullscreen_enter" and isinstance(fw, QAbstractItemView) and fw.isVisible()
-                and fw.currentIndex().isValid())
 
     # ---------------------------------------------------------------- A–B repeat
     def ab_step(self) -> str | None:
@@ -948,7 +760,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
 
     # ---------------------------------------------------------------- casting
     def _renderers_changed(self):
-        if getattr(self, "_cast_menu", None) is not None:
+        if self._cast_menu is not None:
             self._fill_cast_menu(self._cast_menu)
 
     def cast_to(self, renderer):
@@ -956,15 +768,6 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         e.cast_to(renderer)
         self.top.set_casting(renderer["name"] if renderer else "")
         self.toast(f"Casting to {renderer['name']}" if renderer else "Playing on this computer")
-
-    def _cycle(self, tracks, current, setter, label):
-        if not tracks:
-            return f"No {label.lower()} tracks"
-        ids = [t for t, _ in tracks]
-        i = ids.index(current) if current in ids else -1
-        tid, name = tracks[(i + 1) % len(tracks)]
-        setter(tid)
-        return f"{label}: {name}"
 
     def set_rate(self, r: float, from_ui=False, osd=True):
         r = max(0.25, min(4.0, float(r)))
@@ -1020,7 +823,10 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         if self._pip:
             self.toggle_pip()
         if self.isFullScreen():
-            self.showMaximized() if getattr(self, "_was_max", False) else self.showNormal()
+            if self._was_max:
+                self.showMaximized()
+            else:
+                self.showNormal()
         else:
             self._was_max = self.isMaximized()
             self.showFullScreen()
@@ -1081,13 +887,15 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
             win_enable_close(int(self.winId()))
             QTimer.singleShot(250, lambda: self._pip is None and win_enable_close(int(self.winId())))
 
-    def _vsr_active(self) -> bool:
-        e = self.engine
-        return (sys.platform == "win32" and bool(self.store.setting("rtx_upscale")) and e.ok and not e.vsr_paused
-                and bool(e.current) and self.stage.currentIndex() == PAGE_VIDEO and e.has_video())
-
     def _vsr_on(self) -> bool:
+        """Super Resolution is switched on (Windows only)."""
         return sys.platform == "win32" and bool(self.store.setting("rtx_upscale"))
+
+    def _vsr_active(self) -> bool:
+        """Super Resolution is on and upscaling a video that's showing now."""
+        e = self.engine
+        return (self._vsr_on() and e.ok and not e.vsr_paused and bool(e.current)
+                and self.stage.currentIndex() == PAGE_VIDEO and e.has_video())
 
     def _picture_fills_screen(self):
         """True if the picture, fitted to the video page, covers it to the pixel; None if not known yet."""
@@ -1100,48 +908,89 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         shape = e.picture_shape()
         if shape is None:
             return None
-        k = float(shape["aspect"])
-        w, h = (round(sh * k), sh) if sw / sh > k else (sw, round(sw / k))
+        w, h = fitted_size(sw, sh, float(shape["aspect"]))
         return abs(w - sw) <= 2 and abs(h - sh) <= 2
 
+    def _picture_as_made(self) -> bool:
+        """The picture is shown the way the file has it: no aspect ratio, crop, zoom, rotation or flip.
+        VLC then adds any black bars itself, exactly as VLC on its own does with a film that isn't the
+        shape of the screen, and Super Resolution keeps working there (#42)."""
+        e = self.engine
+        L = e.live
+        return not (L["aspect"] or L["crop"] or L["zoom"] or e.izoom or e.transform)
+
+    def _picture_upscaled(self):
+        """True if VLC would draw the picture bigger than the video has pixels, which is when it hands
+        the picture to Super Resolution (VLC's own test: a source side shorter than the place it's drawn
+        in); None if not known yet."""
+        e, v = self.engine, self.video
+        if e.izoom:
+            return True
+        if e.live["zoom"]:
+            return e.live["zoom"] > 1
+        shape = e.picture_shape()
+        sw, sh = v.width(), v.height()
+        if shape is None or sw <= 0 or sh <= 0:
+            return None
+        (vw, vh), (left, top, right, bottom) = shape["src"], shape["crop"]
+        cw, ch = vw - left - right, vh - top - bottom
+        if e._turned():
+            cw, ch = ch, cw
+        dpr = v.devicePixelRatioF() or 1.0
+        w, h = fitted_size(round(sw * dpr), round(sh * dpr), float(shape["aspect"]))
+        return cw < w or ch < h
+
     def _vsr_policy(self):
-        """RTX Super Resolution shows a picture only while VLC's video covers the whole screen (#42: in full
-        screen, a panel, a 4:3 aspect or a crop that leaves bars all go black, even with no bars inside
-        VLC's own area). Panels float over the video for that reason. When the picture itself can't cover
-        the screen, Super Resolution is set aside so the picture shows with normal scaling, and it comes
-        back in full screen once the picture covers the screen again. Windowed playback is left as it is:
-        Super Resolution doesn't engage there and the picture shows."""
+        """When RTX Super Resolution can show a picture (#42, #82). It works like VLC on its own: in full
+        screen, with VLC's video covering the whole screen and the picture either filling it or shown as
+        the file has it (VLC adds the bars itself). It goes black in full screen when Pylon changes the
+        picture's shape and leaves bars (an aspect ratio, crop, fixed zoom or turn), and in a window
+        whenever it really upscales (#82). There Super Resolution is set aside, so the picture shows with
+        normal scaling, and it comes back in full screen once it can work there. In a window it upscales
+        nothing while the picture is smaller than the video, so it's left as it is then: each change
+        restarts VLC (it reads the setting only when it starts)."""
         e = self.engine
         if not self._vsr_on() or not e.ok or not e.current or self.stage.currentIndex() != PAGE_VIDEO \
-                or not e.has_video() or not self.isFullScreen() or self._pip:
+                or not e.has_video() or self._pip:
             return
-        fills = self._picture_fills_screen()
-        if fills is None:
+        full = self.isFullScreen()
+        if full:
+            fills = self._picture_fills_screen()
+            if fills is None:
+                return
+            ok = fills or self._picture_as_made()
+        else:
+            up = self._picture_upscaled()
+            if up is None or (not up and e.vsr_paused):
+                return                   # bringing it back would restart VLC to upscale nothing
+            ok = not up
+        if not e.set_vsr_paused(not ok):
             return
-        if e.set_vsr_paused(not fills):
-            self.toast("Super Resolution is back" if fills else
-                       "Super Resolution paused: it only works when the picture fills the screen")
+        if full and not ok:
+            self._vsr_told = True
+            self.toast("Super Resolution paused: it only works when the picture fills the screen")
+        elif ok and self._vsr_told:
+            self._vsr_told = False
+            self.toast("Super Resolution is back")
 
     def _fit_video(self):
         """With Super Resolution on, size VLC's video area to the picture, centred, with Pylon's own black
-        bars around it (#42). VLC goes black as soon as it has to letterbox an upscaled picture, even by
-        one pixel: in full screen with a panel open, in a maximized window, or with an aspect ratio
-        that doesn't match the screen. The engine then picks an aspect ratio that fills the area to the
-        pixel. Without Super Resolution, VLC's area fills the page as before."""
-        if not hasattr(self, "video"):
+        bars around it (#42). The engine then picks an aspect ratio that fills the area to the pixel, so a
+        picture that fills the screen covers it with no stray one-pixel bar. In full screen, a picture
+        shown as the file has it that leaves bars gets VLC's area as the whole screen instead, and VLC adds
+        the bars itself, the way VLC on its own does. Without Super Resolution, VLC's area fills the page."""
+        if self.video is None:
             return
         v, e = self.video, self.engine
         shape = e.picture_shape() if self._vsr_active() else None
         sw, sh = v.width(), v.height()
+        if shape is not None and self.isFullScreen() and self._picture_fills_screen() is False:
+            shape = None
         if shape is None or sw <= 0 or sh <= 0:
             v.fit_canvas(None)
             e.set_fit(None)
             return
-        k = float(shape["aspect"])
-        if sw / sh > k:
-            w, h = max(1, min(sw, round(sh * k))), sh
-        else:
-            w, h = sw, max(1, min(sh, round(sw / k)))
+        w, h = fitted_size(sw, sh, float(shape["aspect"]))
         v.fit_canvas(QRect((sw - w) // 2, (sh - h) // 2, w, h))
         e.set_fit(v.canvas.device_size())
 
@@ -1163,7 +1012,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
         QTimer.singleShot(150, lambda: v.fit_canvas(v.fit_rect))   # VLC checks its area each frame
 
     def _vsr_resized(self):
-        if hasattr(self, "_vsr_late") and self._vsr_active():
+        if self._vsr_active():
             self._vsr_timer.start()
             if self.isFullScreen():
                 for t in self._vsr_late:
@@ -1240,7 +1089,10 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
                     return True
             elif t == QEvent.MouseMove and not e.buttons():
                 cur = self.edge_cursor(self.pip_edges(e.globalPosition().toPoint()))
-                obj.setCursor(cur) if cur is not None else obj.unsetCursor()
+                if cur is not None:
+                    obj.setCursor(cur)
+                else:
+                    obj.unsetCursor()
         return super().eventFilter(obj, e)
 
     def _topmost(self, on: bool):
@@ -1269,14 +1121,23 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, QMainWindo
             win_set_topmost(int(self.winId()), True)
 
     # ================================================================ closing
-    def closeEvent(self, e):
-        self.thumbs.cancel()
-        self.waves.cancel()
-        self.waves.cancel()
+    def shutdown(self):
+        """Save where you are and stop VLC, once: on closing the window, or when the app quits without
+        closing it (log-off). VLC's threads stop before Qt tears down the window VLC draws into."""
+        if self._shut_down:
+            return
+        self._shut_down = True
+        # let the background readers' VLC instances go before VLC and Qt shut down
+        self.thumbs.cancel(wait=True)
+        self.waves.cancel(wait=True)
+        self.library.music.stop(wait=True)
         self._save_position()
         self.store.data["queue"] = [{k: v for k, v in q.items() if k in ("path", "title")} for q in self.queue][:500]
         self.engine.shutdown()
         self.store.save_now()
+
+    def closeEvent(self, e):
+        self.shutdown()
         for w in (self.top, self.bottom, self.osd):
             w.close()
         self.video.unsetCursor()

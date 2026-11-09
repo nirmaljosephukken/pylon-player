@@ -1,13 +1,18 @@
 """Main window: update checks, finding VLC, desktop integration and restarting."""
 import os
+import shutil
+import subprocess
 import sys
 
-from PySide6.QtCore import QTimer, QUrl
+from PySide6.QtCore import QProcess, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtNetwork import QLocalServer
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
+from . import APP_VERSION, theme
 from . import engine as engine_mod
-from . import theme
-from .dialogs import WelcomeDialog
+from .dialogs import UpdateDialog, WelcomeDialog
+from .util import desktop_mime_types
 
 
 class SystemMixin:
@@ -33,7 +38,6 @@ class SystemMixin:
 
     def _update_none(self):
         if self._manual_update_check:
-            from . import APP_VERSION
             QMessageBox.information(self, "No updates", f"You have the latest version of Pylon ({APP_VERSION}).")
 
     def _update_failed(self, why):
@@ -42,7 +46,6 @@ class SystemMixin:
                                 f"Pylon couldn't reach GitHub to check for a new version.\n\n{why}")
 
     def show_update(self, release=None):
-        from .dialogs import UpdateDialog
         release = release or self._update_release
         if release:
             UpdateDialog(self, release).exec()
@@ -76,7 +79,6 @@ class SystemMixin:
         box.addButton(QMessageBox.Close)
         box.exec()
         if box.clickedButton() is get:
-            from PySide6.QtGui import QDesktopServices
             QDesktopServices.openUrl(QUrl(url))
         elif box.clickedButton() is locate:
             self.locate_vlc()
@@ -99,12 +101,8 @@ class SystemMixin:
         here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         png = os.path.join(here, "pylon.png")
         if os.path.isfile(png):
-            import shutil
             shutil.copyfile(png, os.path.join(icons, "pylon.png"))
-        mimes = sorted({"video/mp4", "video/x-matroska", "video/webm", "video/x-msvideo", "video/quicktime",
-                        "video/x-flv", "video/mpeg", "video/mp2t", "video/x-ms-wmv", "video/3gpp", "video/ogg",
-                        "audio/mpeg", "audio/flac", "audio/x-wav", "audio/mp4", "audio/aac", "audio/ogg",
-                        "audio/x-ms-wma", "audio/x-matroska", "audio/opus", "audio/x-mpegurl", "application/vnd.apple.mpegurl"})
+        mimes = desktop_mime_types()
         entry = ("[Desktop Entry]\nType=Application\nName=Pylon\nGenericName=Media Player\n"
                  "Comment=Calmer interface for the VLC engine\n"
                  f"Exec=\"{appimage}\" %F\nIcon=pylon\nTerminal=false\nCategories=AudioVideo;Player;Video;Audio;\n"
@@ -113,7 +111,6 @@ class SystemMixin:
             f.write(entry)
         for cmd in (["update-desktop-database", apps], ["gtk-update-icon-cache", "-q", os.path.join(data, "icons", "hicolor")]):
             try:
-                import subprocess
                 subprocess.run(cmd, timeout=10, capture_output=True)
             except Exception:
                 pass
@@ -134,7 +131,7 @@ class SystemMixin:
             lib = os.path.join(folder, "libvlc.dll" if sys.platform == "win32" else "libvlc.so.5")
         if not folder:
             return
-        if not os.path.isfile(lib) and sys.platform != "linux":
+        if not os.path.isfile(lib) and not sys.platform.startswith("linux"):
             QMessageBox.warning(self, "That's not VLC",
                                 f"{folder}\ndoesn't contain VLC's engine ({os.path.basename(lib)}). "
                                 "Pick the folder VLC is installed in" + (" (it has vlc.exe in it)." if sys.platform == "win32" else "."))
@@ -163,9 +160,6 @@ class SystemMixin:
 
     def restart_app(self):
         """Start a fresh Pylon and close this one (keeps the current file and position)."""
-        from PySide6.QtCore import QProcess
-        from PySide6.QtNetwork import QLocalServer
-        from PySide6.QtWidgets import QApplication
         self._save_position()
         self.store.save_now()
         app = QApplication.instance()

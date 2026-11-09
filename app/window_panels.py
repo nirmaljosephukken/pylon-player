@@ -46,7 +46,8 @@ class PanelSlot(QWidget):
         if on:
             self.panel.show()
             self.show()
-            self.raise_() if self.floating else None
+            if self.floating:
+                self.raise_()
         start = self.width() if self.isVisible() else 0
         end = self.full if on else 0
         if not animate or start == end:
@@ -78,7 +79,8 @@ class PanelSlot(QWidget):
         if not self.is_open:
             self.hide()
             self.panel.hide()
-        self.window()._panel_settled(self) if hasattr(self.window(), "_panel_settled") else None
+        if hasattr(self.window(), "_panel_settled"):
+            self.window()._panel_settled(self)
 
     def set_floating(self, on: bool, rect: QRect | None = None):
         if on:
@@ -156,9 +158,10 @@ class PanelsMixin:
             self.bottom.btn_queue.setChecked(False)
         self.toggle_sidebar(on)
 
-    def open_sidebar_tab(self, idx):
+    def open_sidebar_tab(self, tab):
+        """Open the settings panel on a tab: a name from Sidebar.TABS ("subtitles", "audio"...) or its index."""
         self.toggle_sidebar(True)
-        self.sidebar.tabs.setCurrentIndex(idx)
+        self.sidebar.tabs.setCurrentIndex(self.sidebar.TABS.index(tab) if isinstance(tab, str) else tab)
 
     def _update_panel_minimum(self):
         """Keep both side panels and the compact player inside the window."""

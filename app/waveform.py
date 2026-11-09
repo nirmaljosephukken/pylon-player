@@ -8,7 +8,6 @@ leading and trailing silence ends and starts (#86). Both are kept on disk, so a
 file only has to be read once.
 """
 import array
-import hashlib
 import json
 import os
 import threading
@@ -18,7 +17,7 @@ import wave
 from PySide6.QtCore import QObject, Signal
 
 from . import engine as engine_mod
-from .store import data_dir
+from .background import BackgroundJob, cache_dir, file_key, prune_cache
 
 BARS = 600             # slices along the bar; more than the bar is wide on most screens
 RATE = 2000            # samples a second: plenty for an outline, tiny to write
@@ -31,18 +30,19 @@ TAIL_MS = 400          # and keep this much after it, so a fade ends naturally
 
 
 def _cache_dir() -> str:
-    d = os.path.join(data_dir(), "waves")
-    os.makedirs(d, exist_ok=True)
-    return d
+    return cache_dir("waves")
 
 
-def _key(path: str) -> str:
+def clean_leftovers(max_age_s: int = 600):
+    """Remove reading-*.wav files a waveform reader left behind (Pylon closed or crashed mid-read)."""
+    d = _cache_dir()
     try:
-        st = os.stat(path)
-        sig = f"{os.path.normcase(os.path.abspath(path))}|{st.st_size}|{int(st.st_mtime)}"
+        for f in os.listdir(d):
+            p = os.path.join(d, f)
+            if f.startswith("reading-") and f.endswith(".wav") and time.time() - os.path.getmtime(p) > max_age_s:
+                os.remove(p)
     except OSError:
-        sig = path
-    return hashlib.sha1(sig.encode("utf-8", "replace")).hexdigest()[:20]
+        pass
 
 
 def peaks_from_wav(wav_path: str, bars: int = BARS) -> list[float]:
@@ -96,28 +96,18 @@ def silence_bounds(samples, rate: int = RATE, db: float = SILENCE_DB) -> tuple[i
     return start, end, total
 
 
-def _prune_cache():
-    try:
-        d = _cache_dir()
-        files = sorted((os.path.join(d, f) for f in os.listdir(d) if f.endswith(".json")), key=os.path.getmtime)
-        for f in files[:-CACHE_FILES]:
-            os.remove(f)
-    except OSError:
-        pass
-
-
-class WaveformMaker(QObject):
+class WaveformMaker(QObject, BackgroundJob):
     """Makes the waveform for one file at a time, in the background."""
     ready = Signal(str, list)        # path, bars (0..1)
     silence = Signal(str, int, int, int)   # path, where the sound starts and ends, length (ms) (#86)
 
     def __init__(self, parent=None):
-        super().__init__(parent)
+        QObject.__init__(self, parent)
+        BackgroundJob.__init__(self)
         self.path = None
         self.peaks: list[float] = []
         self.bounds = None               # (start, end, length) ms without the silence at both ends
-        self._thread = None
-        self._stop = threading.Event()
+        clean_leftovers()
 
     def start(self, path: str):
         if path == self.path:
@@ -133,22 +123,18 @@ class WaveformMaker(QObject):
             if self.bounds:
                 self.silence.emit(path, *self.bounds)
             return
-        self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, args=(path, self._stop), daemon=True)
-        self._thread.start()
+        self._start_worker(self._run, path)
 
-    def cancel(self):
-        if self._thread and self._thread.is_alive():
-            self._stop.set()
-            self._thread.join(timeout=3)
-        self._thread = None
+    def cancel(self, wait: bool = False):
+        """Stop reading. The worker finishes on its own, so the window doesn't wait (M33)."""
+        self._stop_worker(wait)
         self.path = None
         self.peaks = []
         self.bounds = None
 
     # ------------------------------------------------------------------ cache
     def _cache_path(self, path):
-        return os.path.join(_cache_dir(), _key(path) + ".json")
+        return os.path.join(_cache_dir(), file_key(path) + ".json")
 
     def _load_cache(self, path):
         try:
@@ -166,13 +152,14 @@ class WaveformMaker(QObject):
         try:
             with open(self._cache_path(path), "w", encoding="utf-8") as f:
                 json.dump({"version": CACHE_VERSION, "peaks": peaks, "trim": list(bounds) if bounds else None}, f)
-            _prune_cache()
+            prune_cache(_cache_dir(), ".json", CACHE_FILES)
         except OSError:
             pass
 
     # ------------------------------------------------------------------ worker
     def _run(self, path, stop):
-        wav = os.path.join(_cache_dir(), f"reading-{_key(path)}.wav")
+        # one file per reader: a cancelled reader may still be finishing while the next one starts
+        wav = os.path.join(_cache_dir(), f"reading-{file_key(path)}-{threading.get_ident()}.wav")
         try:
             if self._decode(path, wav, stop) and not stop.is_set():
                 peaks = peaks_from_wav(wav)

@@ -23,7 +23,7 @@ class MacLoader(unittest.TestCase):
    ns={'os':types.SimpleNamespace(path=os.path,environ={},pathsep=os.pathsep),
        'sys':types.SimpleNamespace(platform='darwin',modules={}),
        'ctypes':types.SimpleNamespace(CDLL=cdll,RTLD_GLOBAL=256),
-       '_MAC_LIBS':[],'vlc':None,'VLC_ERROR':'','VLC_DIR':'',
+       '_MAC_LIBS':[],'vlc':None,'VLC_ERROR':'',
        '__builtins__':dict(vars(builtins),__import__=importing)}
    exec(CODE,ns);ok=ns['load_vlc'](str(folder));return ok,ns['VLC_ERROR'],calls
  def test_core_before_engine(self):self.assertTrue(self.run_loader()[0])

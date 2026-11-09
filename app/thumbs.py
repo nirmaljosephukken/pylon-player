@@ -9,17 +9,16 @@ libVLC 3 has no thumbnail API, which is why this uses its own player. It only
 runs for local video files, and never touches the main player.
 """
 import ctypes
-import hashlib
 import json
 import os
 import threading
 import time
 
-from PySide6.QtCore import QObject, QRect, Qt, Signal
+from PySide6.QtCore import QObject, QRect, Qt
 from PySide6.QtGui import QImage, QPainter
 
 from . import engine as engine_mod
-from .store import data_dir
+from .background import BackgroundJob, cache_dir, file_key, prune_cache
 
 THUMB_W = 320          # pixels; shown at about half size on normal screens
 MAX_THUMBS = 150
@@ -29,49 +28,22 @@ CACHE_FILES = 300      # keep at most this many sheets on disk
 
 
 def _cache_dir() -> str:
-    d = os.path.join(data_dir(), "thumbs")
-    os.makedirs(d, exist_ok=True)
-    return d
+    return cache_dir("thumbs")
 
 
-def _key(path: str) -> str:
-    try:
-        st = os.stat(path)
-        sig = f"{os.path.normcase(os.path.abspath(path))}|{st.st_size}|{int(st.st_mtime)}"
-    except OSError:
-        sig = path
-    return hashlib.sha1(sig.encode("utf-8", "replace")).hexdigest()[:20]
-
-
-def _prune_cache():
-    try:
-        d = _cache_dir()
-        files = sorted((os.path.join(d, f) for f in os.listdir(d) if f.endswith(".jpg")), key=os.path.getmtime)
-        for f in files[:-CACHE_FILES]:
-            for ext in (".jpg", ".json"):
-                try:
-                    os.remove(f[:-4] + ext)
-                except OSError:
-                    pass
-    except OSError:
-        pass
-
-
-class ThumbnailMaker(QObject):
+class ThumbnailMaker(QObject, BackgroundJob):
     """Makes and serves preview frames for one file at a time."""
-    progress = Signal(str, int, int)    # path, done, total
 
     def __init__(self, parent=None):
-        super().__init__(parent)
+        QObject.__init__(self, parent)
+        BackgroundJob.__init__(self)
         self.path = None
         self.step = 0
         self.size = (THUMB_W, 180)
         self.timestamps: dict[int, int] = {}
         self.frames: dict[int, QImage] = {}   # index -> image
         self.total = 0
-        self._thread = None
-        self._stop = threading.Event()
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()         # guards path, frames and timestamps against the worker
 
     # ------------------------------------------------------------------ public
     def start(self, path: str, length_ms: int, video_size: tuple[int, int]):
@@ -82,27 +54,24 @@ class ThumbnailMaker(QObject):
             return
         vw, vh = video_size if video_size and video_size[0] > 0 and video_size[1] > 0 else (16, 9)
         h = max(60, min(320, int(round(THUMB_W * vh / vw / 2)) * 2))
-        self.path = path
+        with self._lock:
+            self.path = path
+            self.frames = {}
+            self.timestamps = {}
         self.size = (THUMB_W, h)
         self.step = max(MIN_STEP_MS, length_ms // MAX_THUMBS)
         self.total = min(MAX_THUMBS, max(1, length_ms // self.step))
-        self.frames = {}
-        self.timestamps = {}
         if self._load_cache():
-            self.progress.emit(path, self.total, self.total)
             return
-        self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, args=(path, self._stop), daemon=True)
-        self._thread.start()
+        self._start_worker(self._run, path)
 
-    def cancel(self):
-        if self._thread and self._thread.is_alive():
-            self._stop.set()
-            self._thread.join(timeout=3)
-        self._thread = None
-        self.path = None
-        self.frames = {}
-        self.timestamps = {}
+    def cancel(self, wait: bool = False):
+        """Stop making previews. The worker finishes on its own, so the window doesn't wait (M33)."""
+        self._stop_worker(wait)
+        with self._lock:
+            self.path = None
+            self.frames = {}
+            self.timestamps = {}
 
     def preview_at(self, ms: int):
         """Image and recorded playback time belonging to the same cached sample."""
@@ -114,13 +83,9 @@ class ThumbnailMaker(QObject):
                 return None, None
             return self.frames[i], self.timestamps.get(i, i * self.step)
 
-    def frame_at(self, ms: int):
-        """Nearest finished preview to `ms`, or None."""
-        return self.preview_at(ms)[0]
-
     # ------------------------------------------------------------------ cache
     def _sheet_paths(self, path):
-        base = os.path.join(_cache_dir(), _key(path))
+        base = os.path.join(_cache_dir(), file_key(path))
         return base + ".jpg", base + ".json"
 
     def _load_cache(self) -> bool:
@@ -164,7 +129,7 @@ class ThumbnailMaker(QObject):
             with open(meta, "w", encoding="utf-8") as f:
                 json.dump({"version": 2, "w": w, "h": h, "step": step,
                            "have": sorted(frames), "timestamps": timestamps}, f)
-            _prune_cache()
+            prune_cache(_cache_dir(), ".jpg", CACHE_FILES, (".json",))
 
     # ------------------------------------------------------------------ worker
     def _order(self):
@@ -181,8 +146,11 @@ class ThumbnailMaker(QObject):
     def _grab(self, path, stop):
         vlc = engine_mod.vlc
         w, h = self.size
-        step, total = self.step, self.total
-        buf = (ctypes.c_ubyte * (w * h * 4))()
+        step = self.step
+        size = w * h * 4
+        buf = (ctypes.c_ubyte * size)()       # VLC decodes into this one
+        shown = (ctypes.c_ubyte * size)()     # the last finished picture, copied under shown_lock
+        shown_lock = threading.Lock()
         count = [0]
 
         @vlc.CallbackDecorators.VideoLockCb
@@ -196,6 +164,9 @@ class ThumbnailMaker(QObject):
 
         @vlc.CallbackDecorators.VideoDisplayCb
         def display(opaque, picture):
+            # Copy the finished picture, so reading it below can't catch VLC halfway through the next (M33)
+            with shown_lock:
+                ctypes.memmove(shown, buf, size)
             count[0] += 1
 
         inst = player = None
@@ -217,7 +188,6 @@ class ThumbnailMaker(QObject):
                 time.sleep(0.02)
             if count[0] == 0:
                 return
-            done = 0
             for i in self._order():
                 if stop.is_set():
                     break
@@ -229,16 +199,15 @@ class ThumbnailMaker(QObject):
                     break
                 time.sleep(0.02)
                 captured_ms = max(0, player.get_time())
-                img = QImage(bytes(buf), w, h, w * 4, QImage.Format_RGB32).copy()
+                with shown_lock:
+                    data = bytes(shown)
+                img = QImage(data, w, h, w * 4, QImage.Format_RGB32).copy()
                 with self._lock:
                     if self.path == path:
                         self.frames[i] = img
                         self.timestamps[i] = captured_ms
                 frames[i] = img
                 timestamps[i] = captured_ms
-                done += 1
-                if done % 8 == 0 or done == total:
-                    self.progress.emit(path, done, total)
                 if player.get_state() in (vlc.State.Ended, vlc.State.Error):
                     player.stop()
                     player.play()

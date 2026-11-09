@@ -2,15 +2,16 @@
 floating overlay windows, the on-screen toast and the subtitle timeline."""
 import time
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import (QBrush, QColor, QCursor, QFont, QFontMetrics, QLinearGradient,
-                           QPainter, QPainterPath, QPen, QPixmap, QPolygonF)
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QSizePolicy, QToolButton, QToolTip,
-                               QVBoxLayout, QWidget)
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, QTimer, QUrl, Qt, Signal
+from PySide6.QtGui import (QBrush, QColor, QDesktopServices, QFont, QFontMetrics, QIcon,
+                           QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPen, QPixmap,
+                           QPolygonF)
+from PySide6.QtWidgets import (QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QPushButton,
+                               QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from . import overlay, theme
-from .icons import icon
-from .util import fmt_delay, fmt_time
+from .icons import icon, pixmap
+from .util import fmt_delay, fmt_time, SUBTITLE_SITES, subtitle_search_url
 
 
 class IconButton(QToolButton):
@@ -32,11 +33,6 @@ class IconButton(QToolButton):
         self._name = name
         self.refresh()
 
-    def set_dot(self, on: bool):
-        """A small accent-coloured dot in the corner, for a mode that is switched on."""
-        self._dot = bool(on)
-        self.update()
-
     def paintEvent(self, e):
         super().paintEvent(e)
         if self.objectName() == "PlayButton" and self.underMouse():
@@ -46,15 +42,6 @@ class IconButton(QToolButton):
             p.setBrush(Qt.NoBrush)
             p.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 8, 8)
             p.end()
-        if getattr(self, "_dot", False):
-            from PySide6.QtGui import QPainter
-            p = QPainter(self)
-            p.setRenderHint(QPainter.Antialiasing)
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor(theme.accent()))
-            r = max(3.0, self.width() / 9)
-            p.drawEllipse(QPointF(self.width() - r - 2, r + 2), r, r)
-            p.end()
 
     def refresh(self):
         c = self._color() if callable(self._color) else self._color
@@ -62,13 +49,6 @@ class IconButton(QToolButton):
             self.setIcon(icon(self._name, c, self._size))
         else:
             self.setIcon(icon(self._name, theme.TEXT, self._size, active=theme.accent()))
-
-
-def hline():
-    from PySide6.QtWidgets import QFrame
-    f = QFrame()
-    f.setObjectName("Divider")
-    return f
 
 
 # ---------------------------------------------------------------- seek bar
@@ -329,7 +309,6 @@ class ConeVolume(QWidget):
         core.lineTo(right, cy + base)
         core.lineTo(left, cy + tip)
         core.closeSubpath()
-        from PySide6.QtGui import QPainterPathStroker
         st = QPainterPathStroker()
         st.setWidth(2 * r)
         st.setJoinStyle(Qt.RoundJoin)
@@ -383,6 +362,7 @@ class ConeVolume(QWidget):
 class OverlayWindow(QWidget):
     """A frameless, translucent window that floats over the native video
     surface (Qt widgets cannot be drawn on top of the VLC video directly)."""
+    HEIGHT = 48             # the height when pinned into the window's layout; each bar sets its own
 
     def __init__(self, owner, gradient: str = "none", radius: int = 0, alpha: int = 215):
         super().__init__(owner, overlay.flags())
@@ -636,7 +616,7 @@ class SubtitleTimeline(QWidget):
             c.setAlpha(230 if active else 110)
             p.setBrush(c)
             p.drawRoundedRect(r, 3, 3)
-            p.setPen(QColor("#111") if active else QColor(theme.TEXT))
+            p.setPen(QColor(theme.on_accent()) if active else QColor(theme.TEXT))
             p.drawText(r.adjusted(5, 2, -4, -2), Qt.AlignLeft | Qt.AlignVCenter,
                        fm.elidedText(text, Qt.ElideRight, int(max(0, r.width() - 9))))
         # playhead
@@ -687,7 +667,6 @@ class Card(QWidget):
     def __init__(self, title: str, subtitle: str = "", icon_name: str = "file", progress: float | None = None,
                  parent=None, picture=None):
         super().__init__(parent)
-        from PySide6.QtWidgets import QFrame
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedSize(210, 128)
         outer = QVBoxLayout(self)
@@ -699,7 +678,6 @@ class Card(QWidget):
         lay.setContentsMargins(12, 12, 12, 10)
         lay.setSpacing(4)
         ic = QLabel()
-        from .icons import pixmap
         if picture is not None and not picture.isNull():     # album cover art
             ic.setPixmap(picture)
         else:
@@ -711,11 +689,12 @@ class Card(QWidget):
         t.setStyleSheet("font-weight: 600; background: transparent; border: none;")
         t.setWordWrap(False)
         fm = QFontMetrics(t.font())
-        t.setText(fm.elidedText(title, Qt.ElideRight, 186))
+        room = self.width() - 2 * 12          # the card's width less the frame's margins
+        t.setText(fm.elidedText(title, Qt.ElideRight, room))
         t.setToolTip(title)
         lay.addWidget(t)
         if subtitle:
-            s = QLabel(fm.elidedText(subtitle, Qt.ElideRight, 186))
+            s = QLabel(fm.elidedText(subtitle, Qt.ElideRight, room))
             s.setStyleSheet(f"color: {theme.MUTED}; font-size: 12px; background: transparent; border: none;")
             lay.addWidget(s)
         self.progress = progress
@@ -754,15 +733,9 @@ class Card(QWidget):
 def subtitle_search_menu(parent, store, query_fn):
     """Menu of subtitle sites for "Find online" (#46). The order never changes; the preferred
     site from Preferences > Subtitles is marked with a star (#54)."""
-    from PySide6.QtCore import QUrl
-    from PySide6.QtGui import QDesktopServices
-    from PySide6.QtWidgets import QMenu
-    from .util import SUBTITLE_SITES, subtitle_search_url
     menu = QMenu(parent)
 
-    from .icons import icon
 
-    from PySide6.QtGui import QIcon, QPixmap
     pm = QPixmap(16, 16)
     pm.fill(Qt.transparent)
     blank = QIcon(pm)
@@ -785,3 +758,71 @@ def subtitle_search_menu(parent, store, query_fn):
     menu.aboutToShow.connect(fill)
     fill()
     return menu
+
+
+def section(text):
+    """A small capitals heading for a group of settings."""
+    lab = QLabel(text.upper())
+    lab.setObjectName("Section")
+    return lab
+
+
+def muted(text):
+    """A wrapped note in the quieter text colour."""
+    lab = QLabel(text)
+    lab.setObjectName("Muted")
+    lab.setWordWrap(True)
+    return lab
+
+
+class ChipGroup(QWidget):
+    """A row/grid of checkable chips acting as a single choice."""
+    picked = Signal(object)
+
+    def __init__(self, options: list[tuple[str, object]], cols=3, icon_name: str | None = None,
+                 tips: dict | None = None):
+        super().__init__()
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(6)
+        self.group = QButtonGroup(self)
+        self.group.setExclusive(True)
+        self.cols, self.icon_name, self.tips = cols, icon_name, tips or {}
+        self.values = []
+        self.set_options(options)
+        self.group.idClicked.connect(lambda i: self.picked.emit(self.values[i]))
+
+    def set_options(self, options: list[tuple[str, object]]):
+        """Replace the chips, keeping the one that was selected (the ratio rows change in Preferences, #62)."""
+        b = self.group.checkedButton()
+        keep = self.values[self.group.id(b)] if b else None
+        for old in self.group.buttons():
+            self.group.removeButton(old)
+            old.deleteLater()
+        self.values = []
+        for i, (label, val) in enumerate(options):
+            b = QPushButton(label)
+            b.setCheckable(True)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setToolTip(self.tips.get(val, label))
+            b.setMinimumWidth(0)
+            b.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            b.setCursor(Qt.PointingHandCursor)
+            if self.icon_name:
+                b.setIcon(icon(self.icon_name, theme.MUTED, 14))
+            self.group.addButton(b, i)
+            self.values.append(val)
+            self.grid.addWidget(b, i // self.cols, i % self.cols)
+        if keep is not None:
+            self.select(keep)
+
+    def select(self, val):
+        for i, v in enumerate(self.values):
+            if v == val:
+                self.group.button(i).setChecked(True)
+                return
+        b = self.group.checkedButton()
+        if b:
+            self.group.setExclusive(False)
+            b.setChecked(False)
+            self.group.setExclusive(True)

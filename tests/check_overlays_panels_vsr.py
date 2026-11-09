@@ -6,8 +6,10 @@
      active app. Pinned bars are now ordinary parts of the window, laid out above and below the video.
 #42: RTX Super Resolution shows a picture only while VLC's video covers the whole screen. In full screen
      with it on, panels float over the video instead of shrinking it, and Super Resolution is set aside
-     while the picture itself can't cover the screen (an aspect ratio, crop or fixed zoom), and comes back
-     when it can.
+     while an aspect ratio, crop or fixed zoom leaves bars, and comes back when the picture fills the
+     screen. 1.7.1: a film that isn't the shape of the screen, shown as it is, keeps Super Resolution, with
+     VLC adding the bars itself as VLC on its own does (#42), and in a window Super Resolution is set
+     aside while it would upscale, where it showed a black picture (#82).
 #54/#63: the side panels slide in and out (Preferences > Interface can turn it off)."""
 import os
 import sys
@@ -312,23 +314,91 @@ class SuperResolution(Base):
         self.shape = self.filling_shape()
         w._vsr_policy()
         self.assertFalse(e.vsr_paused)                     # a picture that fills the screen
+        e.live["aspect"] = "4:3"
         self.shape = {"aspect": Fraction(4, 3), "src": (1440, 1080), "crop": (0, 0, 0, 0)}             # 4:3: bars at the sides
         w._vsr_policy()
         self.assertTrue(e.vsr_paused)
         e.rebuild.assert_called_once()
         self.assertIn("paused", self.toasts[-1])
         self.assertFalse(w._vsr_active())                  # no picture-sized area while it's aside
+        e.live["aspect"] = ""
         self.shape = self.filling_shape()
         w._vsr_policy()
         self.assertFalse(e.vsr_paused)
         self.assertEqual(e.rebuild.call_count, 2)
+        self.assertIn("back", self.toasts[-1])
 
-    def test_a_window_leaves_it_alone(self):
+    def test_a_film_with_its_own_bars_keeps_it_in_full_screen(self):
         w, e = self.win, self.win.engine
-        self.shape = {"aspect": Fraction(4, 3), "src": (1440, 1080), "crop": (0, 0, 0, 0)}
+        self.go_full()
+        self.shape = {"aspect": Fraction(1920, 804), "src": (1920, 804), "crop": (0, 0, 0, 0)}         # 2.39:1, as made
         w._vsr_policy()
         self.assertFalse(e.vsr_paused)
         e.rebuild.assert_not_called()
+        self.assertEqual(self.toasts, [])
+        self.assertTrue(w._vsr_active())
+        w._fit_video()
+        self.assertEqual(w.video.canvas.geometry(), w.video.rect())   # VLC gets the whole screen...
+        self.assertIsNone(e.fit)                                      # ...and adds the bars itself
+
+    def test_a_film_with_its_own_bars_still_paused_when_changed(self):
+        w, e = self.win, self.win.engine
+        self.go_full()
+        self.shape = {"aspect": Fraction(1920, 804), "src": (1920, 804), "crop": (0, 0, 0, 0)}
+        for key, value in (("crop", "2.35:1"), ("zoom", 1.0)):
+            with self.subTest(key=key):
+                e.vsr_paused = False
+                e.live[key] = value
+                w._vsr_policy()
+                self.assertTrue(e.vsr_paused)
+                e.live[key] = "" if key == "crop" else 0.0
+        e.vsr_paused = False
+        e.transform = "hflip"
+        w._vsr_policy()
+        self.assertTrue(e.vsr_paused)
+
+    def test_a_window_leaves_it_on_while_nothing_is_upscaled(self):
+        w, e = self.win, self.win.engine
+        self.shape = {"aspect": Fraction(16, 9), "src": (3840, 2160), "crop": (0, 0, 0, 0)}             # bigger than the page
+        w._vsr_policy()
+        self.assertFalse(e.vsr_paused)
+        e.rebuild.assert_not_called()
+        e.live["aspect"] = "4:3"
+        self.shape = {"aspect": Fraction(4, 3), "src": (3840, 2160), "crop": (0, 0, 0, 0)}
+        w._vsr_policy()
+        self.assertFalse(e.vsr_paused)                     # bars in a window are fine while downscaling
+
+    def test_set_aside_in_a_window_while_upscaling(self):
+        w, e = self.win, self.win.engine
+        self.shape = {"aspect": Fraction(16, 9), "src": (640, 360), "crop": (0, 0, 0, 0)}               # #82: smaller than the page
+        w._vsr_policy()
+        self.assertTrue(e.vsr_paused)
+        e.rebuild.assert_called_once()
+        self.assertEqual(self.toasts, [])                  # quietly: nothing changes that you can see
+        self.shape = {"aspect": Fraction(16, 9), "src": (3840, 2160), "crop": (0, 0, 0, 0)}
+        w._vsr_policy()
+        self.assertTrue(e.vsr_paused)                      # no restart just to upscale nothing
+        e.rebuild.assert_called_once()
+        self.shape = {"aspect": Fraction(16, 9), "src": (640, 360), "crop": (0, 0, 0, 0)}
+        self.go_full()
+        self.shape = self.filling_shape()
+        self.shape["src"] = (640, 360)
+        w._vsr_policy()
+        self.assertFalse(e.vsr_paused)                     # back in full screen
+        self.assertEqual(self.toasts, [])
+
+    def test_upscaling_follows_vlcs_test(self):
+        w, e = self.win, self.win.engine
+        dpr = w.video.devicePixelRatioF()
+        pw, ph = round(w.video.width() * dpr), round(w.video.height() * dpr)
+        self.shape = {"aspect": Fraction(pw, ph), "src": (pw, ph), "crop": (0, 0, 0, 0)}
+        self.assertFalse(w._picture_upscaled())           # drawn at its own size
+        self.shape = {"aspect": Fraction(pw, ph), "src": (pw - 2, ph - 1), "crop": (0, 0, 0, 0)}
+        self.assertTrue(w._picture_upscaled())
+        e.live["zoom"] = 2.0
+        self.assertTrue(w._picture_upscaled())
+        e.live["zoom"] = 0.5
+        self.assertFalse(w._picture_upscaled())
 
     def test_vlc_is_told_only_when_not_paused(self):
         e = self.win.engine

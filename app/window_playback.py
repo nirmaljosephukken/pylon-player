@@ -1,23 +1,69 @@
 """Main window: opening things, the queue, playing a file and what happens when it ends."""
 import os
 import random
+import threading
 import time
 
-from PySide6.QtCore import QPoint, Qt, QTimer
+from PySide6.QtCore import QObject, QPoint, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from . import APP_NAME
 from .dialogs import StreamDialog, SubtitleDialog
 from .engine import MAX_SHARPEN
-from .library import media_filter
+from .library_widgets import media_filter
 from .stage import PAGE_AUDIO, PAGE_HOME, PAGE_VIDEO
-from .util import (SUB_EXTS, PLAYLIST_EXTS, display_name, norm, find_subtitle_candidates, is_disc, is_dvd_folder,
-                   fmt_time, is_audio, is_media, is_url, list_media, match_subtitle, merge_in_name_order, natural_key,
-                   sort_key_by_name, parse_m3u)
+from .store import resume_point
+from .updates import fetch_text
+from .util import (PLAYLIST_EXTS, SUB_EXTS, display_name, find_subtitle_candidates, fmt_time, is_audio, is_disc,
+                   is_dvd_folder, is_media, is_url, list_media, match_subtitle, natural_key, norm, parse_m3u,
+                   read_playlist, sort_key_by_name)
+
+
+class StreamProbe(QObject):
+    """Fetches an online .m3u/.m3u8 in a worker thread to see whether it lists channels."""
+    finished = Signal(str, str, object)       # url, name, [(name, url)] or None (on the GUI thread)
+    _done = Signal(int, str, str, object)     # from the worker thread; Qt queues it to the GUI thread
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._token = 0
+        self._done.connect(self._deliver)
+
+    def start(self, url: str, name: str):
+        self._token += 1
+        threading.Thread(target=self._run, args=(self._token, url, name), daemon=True).start()
+
+    def _run(self, token, url, name):
+        try:
+            channels = parse_m3u(fetch_text(url))
+        except Exception:
+            channels = None
+        self._done.emit(token, url, name, channels)
+
+    def _deliver(self, token, url, name, channels):
+        if token == self._token:              # only the latest request counts
+            self.finished.emit(url, name, channels)
 
 
 class PlaybackMixin:
+    # The queue lives in self.play_queue (app/play_queue.py); these keep the short names working.
+    @property
+    def queue(self) -> list[dict]:
+        return self.play_queue.items
+
+    @queue.setter
+    def queue(self, items):
+        self.play_queue.items = items
+
+    @property
+    def qindex(self) -> int:
+        return self.play_queue.index
+
+    @qindex.setter
+    def qindex(self, i):
+        self.play_queue.index = i
+
     # ================================================================ opening
     def open_file_dialog(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Open", "", media_filter())
@@ -41,10 +87,8 @@ class PlaybackMixin:
         if d.exec() and d.url.text().strip():
             url = d.url.text().strip()
             name = d.name.text().strip() or display_name(url)
-            if d.save.isChecked() and url not in [s["url"] for s in self.store.data["streams"]]:
-                self.store.data["streams"].insert(0, {"name": name, "url": url})
-                self.store.save("streams")
-                self.library.refresh_streams()
+            if d.save.isChecked():
+                self.library.save_stream(url, name, toast=False)
             self.open_stream(url, name)
 
     def open_clipboard(self):
@@ -52,7 +96,10 @@ class PlaybackMixin:
         if not text:
             self.toast("Clipboard is empty")
         elif os.path.exists(text):
-            self.play_folder(text) if os.path.isdir(text) else self.play_from_folder(text)
+            if os.path.isdir(text):
+                self.play_folder(text)
+            else:
+                self.play_from_folder(text)
         elif "://" in text:
             self.open_stream(text)
         else:
@@ -61,41 +108,31 @@ class PlaybackMixin:
     def open_stream(self, url: str, name: str = ""):
         low = url.lower().split("?")[0]
         if low.endswith((".m3u", ".m3u8")) and url.startswith("http"):
-            QApplication.setOverrideCursor(Qt.WaitCursor)
-            try:
-                import urllib.request
-                req = urllib.request.Request(url, headers={"User-Agent": "Pylon/1.0"})
-                with urllib.request.urlopen(req, timeout=12) as r:
-                    text = r.read(8_000_000).decode("utf-8", "replace")
-                channels = parse_m3u(text)
-            except Exception:
-                channels = None
-            finally:
-                QApplication.restoreOverrideCursor()
-            if channels:
-                saved = self.library.stream_entry(url)
-                if saved is not None and saved.get("count") != len(channels):
-                    saved["count"] = len(channels)          # show the channel count in Streams (#44)
-                    self.store.save("streams")
-                    self.library.refresh_streams()
-                self.set_queue([{"path": u, "title": n} for n, u in channels], 0)
-                self.toggle_queue(True)
-                self.toast(f"Loaded {len(channels)} channels into the queue")
-                return
+            # It may be a list of channels: look in a worker thread, so a slow server can't freeze the
+            # window (H3); _stream_probed carries on. A newer open_stream makes this answer stale.
+            self.stream_probe.start(url, name)
+            self.toast("Opening…")
+            return
+        self._play_stream(url, name)
+
+    def _play_stream(self, url: str, name: str = ""):
         self.set_queue([{"path": url, "title": name or display_name(url)}], 0)
 
+    def _stream_probed(self, url: str, name: str, channels):
+        if channels:
+            saved = self.library.stream_entry(url)
+            if saved is not None and saved.get("count") != len(channels):
+                saved["count"] = len(channels)          # show the channel count in Streams (#44)
+                self.store.save("streams")
+                self.library.refresh_streams()
+            self.set_queue([{"path": u, "title": n} for n, u in channels], 0)
+            self.toggle_queue(True)
+            self.toast(f"Loaded {len(channels)} channels into the queue")
+        else:
+            self._play_stream(url, name)                # a plain HLS stream: VLC plays it
+
     def open_playlist_file(self, path):
-        try:
-            with open(path, encoding="utf-8", errors="replace") as f:
-                items = parse_m3u(f.read()) or []
-        except OSError:
-            items = []
-        base = os.path.dirname(path)
-        q = []
-        for n, p in items:
-            if not is_url(p) and not os.path.isabs(p):
-                p = os.path.normpath(os.path.join(base, p))
-            q.append({"path": p, "title": n})
+        q = [{"path": p, "title": n} for n, p in read_playlist(path)]
         if q:
             self.set_queue(q, 0)
             if len(q) > 1 and all(is_url(x["path"]) for x in q):
@@ -207,13 +244,7 @@ class PlaybackMixin:
             self._shuffle_in(items)
         else:
             # an episode joins the others from its folder in name order, not the end of the queue (#57)
-            cur = self.queue[self.qindex] if 0 <= self.qindex < len(self.queue) else None
-            self.queue = merge_in_name_order(self.queue, items, lambda q: q["path"])
-            if cur is not None:
-                self.qindex = next(i for i, q in enumerate(self.queue) if q is cur)
-            if self.library.shuffled:      # so leaving Shuffle puts it in its place too
-                self.library._unshuffled = merge_in_name_order(self.library._unshuffled, items,
-                                                               lambda q: q["path"])
+            self.play_queue.merge_in_order(items)
         self.library.refresh_queue()
         self.toast(f"Added {len(items)} to the queue" if len(items) > 1 else f"Added “{display_name(items[0]['path'])}” to the queue")
         if not self.engine.current:
@@ -221,17 +252,7 @@ class PlaybackMixin:
                                   else self._first_of(items))
 
     def _shuffle_in(self, items, ordered=True):
-        """In Shuffle mode, added items land at random places after what's playing (#65), not in
-        name order at the end. The order from before shuffling learns them too, so leaving Shuffle
-        still puts each one in its place."""
-        lib = self.library
-        if not lib.shuffled:              # e.g. the queue was empty or cleared: start remembering now
-            lib._unshuffled = list(self.queue)
-        lib._unshuffled = (merge_in_name_order(lib._unshuffled, items, lambda q: q["path"]) if ordered
-                           else lib._unshuffled + list(items))
-        start = self.qindex + 1 if 0 <= self.qindex < len(self.queue) else 0
-        for it in items:
-            self.queue.insert(random.randint(start, len(self.queue)), it)
+        self.play_queue.shuffle_in(items, ordered)
 
     def _first_of(self, items) -> int:
         """Where the first of these items now sits in the queue (the earliest one, when shuffled in)."""
@@ -301,13 +322,8 @@ class PlaybackMixin:
             return True
         cur = self.engine.current
         if cur and not is_url(cur) and (self.store.setting("binge") or user):
-            files = list_media(os.path.dirname(cur))
-            try:
-                idx = files.index(cur)
-            except ValueError:
-                idx = -1
-            if 0 <= idx < len(files) - 1:
-                nxt = files[idx + 1]
+            nxt = self._folder_neighbour(cur, +1)
+            if nxt:
                 self.queue.append({"path": nxt})
                 self.play_queue_index(len(self.queue) - 1)
                 return True
@@ -337,11 +353,17 @@ class PlaybackMixin:
         if self.qindex > 0:
             return "queue", self.qindex - 1
         cur = self.engine.current
-        if cur and not is_url(cur):
-            files = list_media(os.path.dirname(cur))
-            if cur in files and files.index(cur) > 0:
-                return "folder", files[files.index(cur) - 1]
-        return None
+        prev = self._folder_neighbour(cur, -1) if cur and not is_url(cur) else None
+        return ("folder", prev) if prev else None
+
+    @staticmethod
+    def _folder_neighbour(path: str, step: int):
+        """The media file `step` places from `path` in its folder's name order, or None (M14)."""
+        files = list_media(os.path.dirname(path))
+        if path not in files:
+            return None
+        i = files.index(path) + step
+        return files[i] if 0 <= i < len(files) else None
 
     # ---------------------------------------------------------------- playing
     def play_path(self, path, start_ms=None, title=""):
@@ -369,8 +391,8 @@ class PlaybackMixin:
         if start_ms is None:
             start_ms = 0
             pos = self.store.position(path)
-            ln, p = pos.get("len", 0), pos.get("pos", 0)
-            if ln and 10_000 < p < ln * 0.93 and not pos.get("watched"):
+            p = resume_point(pos)
+            if p:
                 mode = self.store.setting("resume")
                 if disc:
                     # a disc opens at its menu; its title and time are picked up once it plays
@@ -443,7 +465,7 @@ class PlaybackMixin:
             self.library.refresh_library()
 
     def _accept_resume(self):
-        if self._resume_ms and getattr(self, "_resume_title", None) is not None:
+        if self._resume_ms and self._resume_title is not None:
             self._resume_disc(self._resume_title, self._resume_ms)
         elif self._resume_ms:
             self.engine.seek(self._resume_ms)
@@ -528,7 +550,7 @@ class PlaybackMixin:
         t = pick(e.audio_tracks(), audio_name, audio_lang)
         if t is not None:
             e.set_audio(t)
-        self.sidebar.refresh_tracks()
+        self.sidebar.refresh_tracks_if_shown()
 
     def _on_tracks(self):
         if not self._prefs_applied and self.engine.state() == "playing":
@@ -537,8 +559,7 @@ class PlaybackMixin:
         QTimer.singleShot(120, self._refresh_after_tracks)
 
     def _refresh_after_tracks(self):
-        if self.sidebar.isVisible():
-            self.sidebar.refresh_tracks()
+        self.sidebar.refresh_tracks_if_shown()
 
     def _on_state(self, state):
         e = self.engine
@@ -547,7 +568,7 @@ class PlaybackMixin:
             self._trim_start()
             if not self._live_applied:
                 self._live_applied = True
-                e.apply_live()
+                e.apply_live_once()
                 self.sidebar.sync_from_engine()
                 QTimer.singleShot(900, self._after_start)
             if not self._prefs_applied:
@@ -607,7 +628,7 @@ class PlaybackMixin:
             meta_title = e.meta().get("now_playing") or ""
             if meta_title and is_url(e.current):
                 self.top.set_title(f"{e.current_title or display_name(e.current)}  ·  {meta_title}")
-        self.sidebar.refresh_tracks()
+        self.sidebar.refresh_tracks_if_shown()
 
     def _sync_audio_page(self):
         """Sound with no video shows the music page, or the video page while a visualization plays (#85).
@@ -636,7 +657,10 @@ class PlaybackMixin:
             self.toast("Sleep timer: stopped at the end of the file")
             return
         if self.queue_mode == "loop" and e.current:
-            self.play_queue_index(self.qindex) if self.qindex >= 0 else self.play_path(e.current, start_ms=0)
+            if self.qindex >= 0:
+                self.play_queue_index(self.qindex)
+            else:
+                self.play_path(e.current, start_ms=0)
             return
         if self.queue_mode == "none" or not self.play_next():
             self.bottom.set_playing(False)

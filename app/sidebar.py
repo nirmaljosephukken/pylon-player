@@ -4,34 +4,25 @@ of in a dialog that covers the video. A preset row at the top saves the
 current tweaks for a show and re-applies them on every episode."""
 import os
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont
-from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QFontComboBox,
-                               QGridLayout, QHBoxLayout, QInputDialog, QLabel, QListWidget,
-                               QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QScrollArea,
-                               QSizePolicy, QSlider, QSpinBox, QTabWidget, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QIcon, QPixmap
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFontComboBox, QGridLayout,
+                               QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem, QMenu,
+                               QMessageBox, QPushButton, QRadioButton, QScrollArea, QSizePolicy,
+                               QSlider, QTabWidget, QVBoxLayout, QWidget)
 
 from . import theme
 from .colour_dialog import choose_colour
-from .engine import CUSTOM_EQ, DEFAULT_SUB_STYLE, EQ_RANGE, VISUALIZERS
+from .engine import (CUSTOM_EQ, DEFAULT_SUB_STYLE, EQ_RANGE, NAV_ACTIVATE, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP,
+                     VISUALIZERS)
 from .icons import icon
-from .util import (display_name, subtitle_query, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
+from .util import (SPEED_PRESETS, subtitle_query, find_subtitle_candidates, fmt_delay, fmt_time, is_url,
                    match_subtitle, parse_subtitles)
 from .store import QUEUE_MODES, ratio_label
-from .widgets import IconButton, SubtitleTimeline, hline, subtitle_search_menu
+from .widgets import ChipGroup, IconButton, SubtitleTimeline, muted, section, subtitle_search_menu
 
-
-def section(text):
-    lab = QLabel(text.upper())
-    lab.setObjectName("Section")
-    return lab
-
-
-def muted(text):
-    lab = QLabel(text)
-    lab.setObjectName("Muted")
-    lab.setWordWrap(True)
-    return lab
+# The picture sliders at their middle: no change to the picture (brightness etc. in percent, hue in degrees)
+NEUTRAL_PICTURE = {"brightness": 100, "contrast": 100, "saturation": 100, "gamma": 100, "hue": 0}
 
 
 def scroll_page():
@@ -129,64 +120,9 @@ class ValueSlider(QWidget):
         self.slider.setValue(v)
         self.slider.blockSignals(False)
         self.label.setText(self.fmt(v))
-        if emit and self.slider.value() == v:
-            pass
 
     def value(self):
         return self.slider.value()
-
-
-class ChipGroup(QWidget):
-    """A row/grid of checkable chips acting as a single choice."""
-    picked = Signal(object)
-
-    def __init__(self, options: list[tuple[str, object]], cols=3, icon_name: str | None = None,
-                 tips: dict | None = None):
-        super().__init__()
-        self.grid = QGridLayout(self)
-        self.grid.setContentsMargins(0, 0, 0, 0)
-        self.grid.setSpacing(6)
-        self.group = QButtonGroup(self)
-        self.group.setExclusive(True)
-        self.cols, self.icon_name, self.tips = cols, icon_name, tips or {}
-        self.values = []
-        self.set_options(options)
-        self.group.idClicked.connect(lambda i: self.picked.emit(self.values[i]))
-
-    def set_options(self, options: list[tuple[str, object]]):
-        """Replace the chips, keeping the one that was selected (the ratio rows change in Preferences, #62)."""
-        b = self.group.checkedButton()
-        keep = self.values[self.group.id(b)] if b else None
-        for old in self.group.buttons():
-            self.group.removeButton(old)
-            old.deleteLater()
-        self.values = []
-        for i, (label, val) in enumerate(options):
-            b = QPushButton(label)
-            b.setCheckable(True)
-            b.setFocusPolicy(Qt.NoFocus)
-            b.setToolTip(self.tips.get(val, label))
-            b.setMinimumWidth(0)
-            b.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-            b.setCursor(Qt.PointingHandCursor)
-            if self.icon_name:
-                b.setIcon(icon(self.icon_name, theme.MUTED, 14))
-            self.group.addButton(b, i)
-            self.values.append(val)
-            self.grid.addWidget(b, i // self.cols, i % self.cols)
-        if keep is not None:
-            self.select(keep)
-
-    def select(self, val):
-        for i, v in enumerate(self.values):
-            if v == val:
-                self.group.button(i).setChecked(True)
-                return
-        b = self.group.checkedButton()
-        if b:
-            self.group.setExclusive(False)
-            b.setChecked(False)
-            self.group.setExclusive(True)
 
 
 EQ_TIPS = {   # one line per VLC preset, from the shape of its curve (#38)
@@ -300,6 +236,7 @@ class EqualizerPanel(QWidget):
 
 class SettingsSidebar(QWidget):
     WIDTH = 340
+    TABS = ("subtitles", "audio", "video", "playback", "bookmarks")    # in the order they are shown
 
     def __init__(self, win):
         super().__init__()
@@ -357,7 +294,7 @@ class SettingsSidebar(QWidget):
         self._build_video()
         self._build_playback()
         self._build_bookmarks()
-        tab_names = ("subtitles", "audio", "video", "playback", "bookmarks")
+        tab_names = self.TABS
         selected = self.store.setting("settings_startup_tab")
         if selected == "last":
             selected = self.store.setting("settings_last_tab")
@@ -369,8 +306,25 @@ class SettingsSidebar(QWidget):
             cb.setMinimumWidth(0)
         self.refresh_presets()
 
-        self.engine.tracks_changed.connect(self.refresh_tracks, Qt.QueuedConnection)
+        self.store.setting_changed.connect(self._setting_changed)
+        # Track changes reach the sidebar through the window (_on_tracks), once, and only rebuild the
+        # lists while the panel is shown; opening it refreshes them (H9).
         self.engine.media_changed.connect(lambda _: QTimer.singleShot(50, self.on_media_changed))
+
+    def _setting_changed(self, key, value):
+        """Settings that Preferences edits too: show the new value here (M27)."""
+        if key in ("sub_lang", "audio_lang"):
+            box = self.sub_lang if key == "sub_lang" else self.audio_lang
+            if box.currentText().strip() != value:
+                box.blockSignals(True)
+                box.setCurrentText(value)
+                box.blockSignals(False)
+        elif key in ("binge", "repeat_queue"):
+            box = self.binge if key == "binge" else self.repeat_queue
+            if box.isChecked() != bool(value):
+                box.blockSignals(True)
+                box.setChecked(bool(value))
+                box.blockSignals(False)
 
     # ================================================================ subtitles
     def _build_subtitles(self):
@@ -485,7 +439,6 @@ class SettingsSidebar(QWidget):
             self._paint_color_btn()
 
     def _paint_color_btn(self):
-        from PySide6.QtGui import QIcon, QPixmap
         px = QPixmap(14, 14)
         px.fill(QColor(self._sub_color))
         self.color_btn.setIcon(QIcon(px))
@@ -523,8 +476,7 @@ class SettingsSidebar(QWidget):
 
     def apply_sub_style(self):
         self.engine.sub_style = self.sub_style_from_ui()
-        self.store.data["settings"]["sub_style"] = self.engine.sub_style
-        self.store.save()
+        self.store.set_setting("sub_style", dict(self.engine.sub_style))
         self.engine.rebuild()
         self.win.toast("Subtitle look applied")
 
@@ -737,7 +689,7 @@ class SettingsSidebar(QWidget):
     }
 
     def _pic_preset(self, key):
-        vals = self._PIC[key] or {"brightness": 100, "contrast": 100, "saturation": 100, "gamma": 100, "hue": 0}
+        vals = self._PIC[key] or NEUTRAL_PICTURE
         for k, s in self.adj.items():
             s.set_value(vals[k])
         self._adjust_changed(None, from_preset=key == "orig")
@@ -745,7 +697,7 @@ class SettingsSidebar(QWidget):
 
     def _adjust_changed(self, _v=None, from_preset=False):
         vals = {k: s.value() for k, s in self.adj.items()}
-        if from_preset or vals == {"brightness": 100, "contrast": 100, "saturation": 100, "gamma": 100, "hue": 0}:
+        if from_preset or vals == NEUTRAL_PICTURE:
             self.engine.set_adjust(None)
             return
         self.engine.set_adjust({"brightness": vals["brightness"] / 100, "contrast": vals["contrast"] / 100,
@@ -790,7 +742,7 @@ class SettingsSidebar(QWidget):
         self.speed = ValueSlider(25, 400, 5, 100, lambda v: f"{v / 100:g}x", reset=100)
         self.speed.changed.connect(lambda v: self.win.set_rate(v / 100, from_ui=True))
         lay.addWidget(self.speed)
-        self.speed_chips = ChipGroup([("0.5x", 50), ("0.75x", 75), ("1x", 100), ("1.25x", 125), ("1.5x", 150), ("2x", 200)], cols=3)
+        self.speed_chips = ChipGroup([(f"{r:g}x", round(r * 100)) for r in SPEED_PRESETS], cols=3)
         self.speed_chips.picked.connect(lambda v: self.win.set_rate(v / 100))
         lay.addWidget(self.speed_chips)
 
@@ -841,7 +793,6 @@ class SettingsSidebar(QWidget):
         self.meta = QLabel("Nothing playing")
         self.meta.setWordWrap(True)
         self.meta.setMinimumWidth(10)
-        from PySide6.QtWidgets import QSizePolicy
         self.meta.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.meta.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.meta.setStyleSheet(f"color: {theme.MUTED}; line-height: 150%;")
@@ -875,7 +826,6 @@ class SettingsSidebar(QWidget):
         box.addWidget(self.title_combo)
         pad = QGridLayout()
         pad.setSpacing(4)
-        from .engine import NAV_ACTIVATE, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP
         self.disc_buttons = []
         for label, tip, mode, r, c in (("▲", "Up", NAV_UP, 0, 1), ("◀", "Left", NAV_LEFT, 1, 0),
                                        ("OK", "Choose (Enter)", NAV_ACTIVATE, 1, 1), ("▶", "Right", NAV_RIGHT, 1, 2),
@@ -945,9 +895,10 @@ class SettingsSidebar(QWidget):
     def _build_bookmarks(self):
         page, lay = scroll_page()
         self.tabs.addTab(page, "Bookmarks")
-        add = QPushButton("Add bookmark here   Ctrl+B")
+        add = QPushButton(self._bookmark_label())
+        self._bookmark_button = add
         add.setObjectName("Primary")
-        add.setIcon(icon("bookmark_add", "#111111", 14))
+        add.setIcon(icon("bookmark_add", theme.on_accent(), 14))
         add.clicked.connect(lambda: self.win.do("bookmark", key=False))
         lay.addWidget(add)
         lay.addWidget(muted("Click to jump. Double-click to rename."))
@@ -971,7 +922,12 @@ class SettingsSidebar(QWidget):
         lay.addWidget(self.ch_list)
         lay.addStretch(1)
 
+    def _bookmark_label(self):
+        key = self.store.shortcut("bookmark")
+        return "Add bookmark here" + (f"   {key}" if key else "")
+
     def refresh_bookmarks(self):
+        self._bookmark_button.setText(self._bookmark_label())    # the key may have been changed
         self.bm_list.clear()
         path = self.engine.current
         items = self.store.bookmarks(path) if path else []
@@ -1001,7 +957,6 @@ class SettingsSidebar(QWidget):
             self.refresh_bookmarks()
 
     def _bm_menu(self, pos):
-        from PySide6.QtWidgets import QMenu
         it = self.bm_list.itemAt(pos)
         if not it or it.data(Qt.UserRole) is None:
             return
@@ -1037,13 +992,25 @@ class SettingsSidebar(QWidget):
             it = QListWidgetItem("No chapters in this file")
             it.setFlags(Qt.NoItemFlags)
             self.ch_list.addItem(it)
+        self._mark_chapters(chs)
+
+    def _mark_chapters(self, chs):
+        """Chapter ticks on the seek bar, which shows even while this panel is hidden."""
         self.win.bottom.seek.chapters = [s for _, _, s in chs if s > 0]
         self.win.bottom.seek.update()
+
+    def refresh_tracks_if_shown(self):
+        """Rebuild the track lists if the panel is open; otherwise only the seek bar's chapter ticks
+        (opening the panel rebuilds everything)."""
+        if self.isVisible():
+            self.refresh_tracks()
+        else:
+            self._mark_chapters(self.engine.chapters())
 
     # ================================================================ shared
     def on_media_changed(self):
         self.refresh_bookmarks()
-        self.refresh_tracks()
+        self.refresh_tracks_if_shown()
         self.refresh_presets()
         self.set_sub_delay_ui(self.engine.live["sub_delay"])
         self.audio_delay.set_value(self.engine.live["audio_delay"])
@@ -1199,7 +1166,7 @@ class SettingsSidebar(QWidget):
         i = self.deint.findData(L["deinterlace"])
         self.deint.setCurrentIndex(max(0, i))
         adj = L["adjust"]
-        vals = ({"brightness": 100, "contrast": 100, "saturation": 100, "gamma": 100, "hue": 0} if not adj else
+        vals = (NEUTRAL_PICTURE if not adj else
                 {"brightness": round(adj["brightness"] * 100), "contrast": round(adj["contrast"] * 100),
                  "saturation": round(adj["saturation"] * 100), "gamma": round(adj["gamma"] * 100),
                  "hue": round(adj["hue"])})

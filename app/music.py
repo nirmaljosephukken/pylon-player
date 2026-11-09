@@ -8,16 +8,15 @@ import hashlib
 import json
 import os
 import re
-import threading
 import time
-from urllib.parse import unquote, urlparse
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QImage
 
 from . import engine as engine_mod
+from .background import BackgroundJob, cache_dir
 from .store import data_dir
-from .util import is_audio, natural_key
+from .util import is_audio, natural_key, to_path
 
 UNKNOWN_ARTIST = "Unknown artist"
 COVER_NAMES = ("cover", "folder", "front", "album", "albumart")
@@ -44,9 +43,7 @@ def credit_artists(credit, known=()):
 
 
 def _art_dir():
-    d = os.path.join(data_dir(), "art")
-    os.makedirs(d, exist_ok=True)
-    return d
+    return cache_dir("art")
 
 
 def _int(v):
@@ -62,17 +59,12 @@ def _year(v):
 
 
 def _url_to_path(u):
-    if not u:
-        return ""
-    if u.startswith("file:"):
-        p = unquote(urlparse(u).path)
-        if os.name == "nt" and p.startswith("/") and len(p) > 2 and p[2] == ":":
-            p = p[1:]
-        return os.path.normpath(p)
-    return ""
+    """A local file named by VLC's artwork URL, or "" for anything else."""
+    return to_path(u) if u and u.lower().startswith("file://") else ""
 
 
-def _folder_cover(folder):
+def folder_cover(folder):
+    """The cover picture in a folder (cover.jpg, folder.png, AlbumArt.jpg...), or ""."""
     try:
         names = os.listdir(folder)
     except OSError:
@@ -100,17 +92,17 @@ def _store_art(src, artist, album):
     return out if img.save(out, "JPG", 88) else ""
 
 
-class MusicLibrary(QObject):
+class MusicLibrary(QObject, BackgroundJob):
     progress = Signal(int, int)    # done, total
     finished = Signal()
 
     def __init__(self, store, parent=None):
-        super().__init__(parent)
+        QObject.__init__(self, parent)
         self.store = store
         self.path = os.path.join(data_dir(), "music.json")
         self.songs: dict[str, dict] = {}
-        self._thread = None
-        self._stop = threading.Event()
+        self._present_cache = None     # (songs key, when, set of paths), see _present
+        BackgroundJob.__init__(self)
         self.scanning = False
         self._load()
 
@@ -137,15 +129,12 @@ class MusicLibrary(QObject):
         if self.scanning or engine_mod.vlc is None:
             return
         self.scanning = True
-        self._stop = threading.Event()
         folders = list(self.store.data.get("library_folders", []))
-        self._thread = threading.Thread(target=self._run, args=(folders, dict(self.songs), self._stop), daemon=True)
-        self._thread.start()
+        self._start_worker(self._run, folders, dict(self.songs))
 
-    def stop(self):
-        self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=3)
+    def stop(self, wait: bool = False):
+        """Stop scanning; the scan finishes on its own unless `wait` (M33)."""
+        self._stop_worker(wait)
 
     def _run(self, folders, old, stop):
         try:
@@ -193,6 +182,7 @@ class MusicLibrary(QObject):
                 except Exception:
                     pass
         self.songs = songs
+        self.forget_presence()
         self._save(songs)
         self.progress.emit(total, total)
 
@@ -216,7 +206,7 @@ class MusicLibrary(QObject):
             m.release()
         except Exception:
             art = ""
-        art = art if art and os.path.isfile(art) else _folder_cover(folder)
+        art = art if art and os.path.isfile(art) else folder_cover(folder)
         info["art"] = _store_art(art, info["album_artist"] or info["artist"], info["album"] or folder)
         return info
 
@@ -236,11 +226,29 @@ class MusicLibrary(QObject):
     def album_of(p, s):
         return s.get("album") or os.path.basename(os.path.dirname(p)) or "Unknown album"
 
+    EXISTS_TTL_S = 2.0      # how long a check that the song files still exist is reused
+
+    def _present(self) -> set:
+        """Songs whose file is still there. Checking every file costs a disk access each, and one refresh
+        of the Music tab or Home asks several times, so the answer is reused for a moment (M28)."""
+        key = (id(self.songs), len(self.songs))
+        cached = self._present_cache
+        if cached and cached[0] == key and time.monotonic() - cached[1] < self.EXISTS_TTL_S:
+            return cached[2]
+        present = {p for p in self.songs if os.path.exists(p)}
+        self._present_cache = (key, time.monotonic(), present)
+        return present
+
+    def forget_presence(self):
+        """Check the files again next time (after a scan, or when files were removed)."""
+        self._present_cache = None
+
     def albums(self):
         """[{key, artist, album, year, art, tracks:[path]}] sorted by artist then year."""
         groups = {}
+        present = self._present()
         for p, s in self.songs.items():
-            if not os.path.exists(p):
+            if p not in present:
                 continue
             artist, album = self.artist_of(s), self.album_of(p, s)
             key = f"{artist.lower()}\x00{album.lower()}"
@@ -256,8 +264,9 @@ class MusicLibrary(QObject):
 
     def artists(self):
         """Track artists with their album appearances; album grouping stays intact."""
+        present = self._present()
         credits = [s.get("artist") or s.get("album_artist") or UNKNOWN_ARTIST
-                   for p, s in self.songs.items() if os.path.exists(p)]
+                   for p, s in self.songs.items() if p in present]
         known = {c.strip() for c in credits
                  if not _STRONG_CREDIT.search(c) and not _SOFT_CREDIT.search(c)}
         # Repeated names inside a credit (e.g. A, B, A) establish A as a person

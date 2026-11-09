@@ -6,6 +6,8 @@ import sys
 import time
 import traceback
 
+from .paths import open_log
+
 _log = None  # faulthandler needs this descriptor to remain open until exit
 
 
@@ -13,20 +15,10 @@ def install():
     global _log
     if _log is not None:
         return
-    home = os.path.expanduser("~")
-    if sys.platform == "win32":
-        root = os.path.join(os.environ.get("APPDATA") or home, "Pylon")
-    elif sys.platform == "darwin":
-        root = os.path.join(home, "Library", "Application Support", "Pylon")
-    else:
-        root = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share"), "pylon")
     try:
-        folder = os.path.join(root, "logs")
-        os.makedirs(folder, exist_ok=True)
-        path = os.path.join(folder, "startup.log")
-        if os.path.isfile(path) and os.path.getsize(path) > 1_000_000:
-            os.replace(path, path + ".previous")
-        _log = open(path, "a", encoding="utf-8", buffering=1)
+        _log = open_log("startup.log", next_to_pylon=False)   # in the data folder, as the docs say
+        if _log is None:
+            return
         _log.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
         _log.write(f"Python {sys.version.split()[0]} / {sys.platform} / {platform.machine()}\n")
         _log.write(f"Interpreter: {sys.executable}\n")

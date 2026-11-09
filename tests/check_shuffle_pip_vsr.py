@@ -3,7 +3,7 @@
      them in name order; Play next and the other modes are unchanged.
 #66: picture in picture tells Qt it stays on top as well as Windows, the Windows call has proper argument
      types, and switching to another app says it again.
-(The #42 rebuild checks went in 1.6.5, when the rebuild was replaced: see check_vsr_fit.py.)"""
+(The #42 rebuild checks went in 1.6.5, when the rebuild was replaced: see check_vsr_fit_pin_sliders.py.)"""
 import ctypes
 import ctypes.wintypes
 import random

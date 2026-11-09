@@ -3,16 +3,17 @@ library, playlists, streams) and the Now Playing page used for music."""
 import os
 import time
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea,
-                               QSizePolicy, QVBoxLayout, QWidget, QMenu)
+from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy,
+                               QVBoxLayout, QWidget, QMenu)
 
 from . import theme
 from .icons import icon, pixmap
+from .music import folder_cover
 from .util import display_name, fmt_time, is_audio, is_disc, is_url, pretty_title, to_path, list_media
-from .store import HOME_SECTIONS
-from .widgets import Card, IconButton
+from .store import HOME_SECTIONS, RESUME_MIN_MS, is_finished, resume_point
+from .widgets import Card, IconButton, muted
 
 
 class FlowRow(QWidget):
@@ -48,17 +49,35 @@ class HomePage(QScrollArea):
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # The store says when something Home shows has changed (M7); several changes in a row rebuild
+        # the page once, after the current event (M26). A direct refresh() cancels a pending one.
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(0)
+        self._refresh_timer.timeout.connect(self.refresh)
+        self.store.changed.connect(self._store_changed)
         self.refresh()
+
+    SHOWS = {"recent", "library", "playlists", "streams"}   # store sections the page shows
+
+    def _store_changed(self, section):
+        if section in self.SHOWS:
+            self.refresh_soon()
+
+    def refresh_soon(self):
+        """Rebuild the page once the current event is handled."""
+        self._refresh_timer.start()
 
     def _mark_watched(self, path):
         self.store.set_watched(path, True)
         title = pretty_title(path)
         self.win.toast(f"Marked “{title}” as watched")
-        QTimer.singleShot(0, self.refresh)     # rebuilding the page from inside a click
+        self.refresh_soon()                    # rebuilding the page from inside a click
         if self.win.library.isVisible():
             self.win.library.refresh_queue()
 
     def refresh(self):
+        self._refresh_timer.stop()
         inner = QWidget()
         inner.setObjectName("Home")
         lay = QVBoxLayout(inner)
@@ -67,7 +86,7 @@ class HomePage(QScrollArea):
 
         # header row
         head = QHBoxLayout()
-        lib = IconButton("sidebar_left", "Library (Ctrl+L)", size=20)
+        lib = IconButton("sidebar_left", self.store.tip("Library", "library"), size=20)
         lib.clicked.connect(lambda: self.win.toggle_library())
         logo = QLabel()
         logo.setPixmap(pixmap("cone", theme.accent(), 34))
@@ -113,8 +132,13 @@ class HomePage(QScrollArea):
                 builders[key](lay)
 
         lay.addStretch(1)
-        keys = QLabel("Space play/pause  ·  ←/→ jump 10s  ·  F fullscreen  ·  H hide interface  ·  "
-                      "Ctrl+B bookmark  ·  F1 all shortcuts")
+        sc = self.store.shortcut
+        arrows = {"Left": "←", "Right": "→"}
+        jump = "/".join(k for k in (arrows.get(sc("seek_back"), sc("seek_back")), arrows.get(sc("seek_fwd"), sc("seek_fwd")))
+                        if k)
+        hints = [(sc("play_pause"), "play/pause"), (jump, "jump 10s"), (sc("fullscreen"), "fullscreen"),
+                 (sc("hide_ui"), "hide interface"), (sc("bookmark"), "bookmark"), (sc("shortcuts"), "all shortcuts")]
+        keys = QLabel("  ·  ".join(f"{k} {what}" for k, what in hints if k))
         keys.setStyleSheet(f"color: {theme.FAINT}; font-size: 12px;")
         lay.addWidget(keys)
         old = self.takeWidget()
@@ -170,7 +194,7 @@ class HomePage(QScrollArea):
                 row.add(c)
             lay.addWidget(hscroll(row))
         else:
-            lay.addWidget(self._muted("Add a folder (movies, shows, music) to see it here and in the library panel."))
+            lay.addWidget(muted("Add a folder (movies, shows, music) to see it here and in the library panel."))
 
     def _sec_playlists(self, lay):
         lib = self.win.library
@@ -210,7 +234,7 @@ class HomePage(QScrollArea):
             if is_url(p) or not is_audio(p) or not os.path.exists(p):
                 continue
             ln, pos, t = e.get("len", 0), e.get("pos", 0), e.get("t", 0)
-            done = e.get("watched") or (ln and pos >= ln * 0.93)
+            done = is_finished(e)
             found = album_of.get(key(p))
             k = found[0]["key"] if found else key(p)
             if k in seen:
@@ -224,12 +248,12 @@ class HomePage(QScrollArea):
                     i, pos = i + 1, 0
                     if i >= len(a["tracks"]):
                         continue              # the whole album is finished
-                elif i == 0 and pos < 10_000:
+                elif i == 0 and pos < RESUME_MIN_MS:
                     continue                  # barely started
                 frac = (pos / ln) if (ln and not done) else 0
                 out.append({"key": k, "album": a, "index": i, "path": a["tracks"][i], "pos": pos,
                             "progress": (i + frac) / len(a["tracks"])})
-            elif not done and pos > 10_000 and ln:
+            elif resume_point(e):
                 out.append({"key": k, "album": None, "index": 0, "path": p, "pos": pos, "progress": pos / ln})
             if len(out) >= limit:
                 break
@@ -238,7 +262,7 @@ class HomePage(QScrollArea):
     def _resume_listening(self, item):
         lib = self.win.library
         if item["album"]:
-            self.win.set_queue(lib._queue_items(item["album"]["tracks"]), item["index"], keep_playing=True)
+            self.win.set_queue(lib.queue_items(item["album"]["tracks"]), item["index"], keep_playing=True)
             self.win.play_queue_index(item["index"], start_ms=item["pos"])
         else:
             self.win.play_from_folder(item["path"], start_ms=item["pos"])
@@ -260,7 +284,7 @@ class HomePage(QScrollArea):
             song = lib.music.title_of(p, lib.music.songs.get(p, {})) if a else pretty_title(p)
             if a:
                 n = len(a["tracks"])
-                cover = lib._cover(a["art"], 40).pixmap(40, 40) if a["art"] else None
+                cover = lib.cover(a["art"], 40).pixmap(40, 40) if a["art"] else None
                 sub = f"Song {it['index'] + 1} of {n}  ·  {song}"
                 c = Card(a["album"], sub, "music", progress=it["progress"], picture=cover)
                 self._bind_card_menu(c, "album", a["key"])
@@ -289,7 +313,7 @@ class HomePage(QScrollArea):
         row = FlowRow()
         for a in (first + rest)[:12]:
             n = len(a["tracks"])
-            cover = lib._cover(a["art"], 40).pixmap(40, 40) if a["art"] else None
+            cover = lib.cover(a["art"], 40).pixmap(40, 40) if a["art"] else None
             c = Card(a["album"], f"{a['artist']}  ·  {n} song{'s' if n != 1 else ''}", "music", picture=cover)
             self._bind_card_menu(c, "album", a["key"])
             c.clicked.connect(lambda t=a["tracks"]: lib.play_songs(t))
@@ -311,12 +335,6 @@ class HomePage(QScrollArea):
                 row.add(c)
             lay.addWidget(hscroll(row))
 
-    def _remove_history_item(self, path):
-        self.store.data["recent"] = [r for r in self.store.data["recent"] if r["path"] != path]
-        self.store.data["positions"].pop(path, None)
-        self.store.save("recent")
-        self.win.library.refresh_recent()
-
     def _card_actions(self, kind, value):
         lib, win = self.win.library, self.win
         if kind == "media":
@@ -325,7 +343,7 @@ class HomePage(QScrollArea):
                     ("Add to queue", lambda: win.enqueue([value])),
                     ("Mark as unwatched" if watched else "Mark as watched",
                      lambda: self.store.set_watched(value, not watched)),
-                    ("Remove from history (including resume position)", lambda: self._remove_history_item(value))]
+                    ("Remove from history (including resume position)", lambda: lib.remove_recent([value]))]
         if kind == "folder":
             return [("Open folder", lambda: win.browse_folder(value)),
                     ("Play folder", lambda: win.play_folder(value)),
@@ -341,14 +359,14 @@ class HomePage(QScrollArea):
         if kind == "playlist":
             return [("Play", lambda: win.play_playlist(value)),
                     ("Add to queue", lambda: win.enqueue(self.store.data["playlists"].get(value, []))),
-                    ("Rename…", lambda: lib._pl_rename(value)),
-                    ("Export as .m3u…", lambda: lib._pl_export(value))]
+                    ("Rename…", lambda: lib.rename_playlist(value)),
+                    ("Export as .m3u…", lambda: lib.export_playlist(value))]
         s = lib.stream_entry(value) or {}
         add = ((lambda: win.enqueue_items([{"path": c["url"], "title": c["name"]} for c in s["channels"]]))
                if s.get("channels") else (lambda: win.enqueue([value])))
         return [("Play", lambda: win.play_saved_stream(value)),
                 ("Add to queue", add),
-                ("Remove saved stream", lambda: lib._st_remove(value))]
+                ("Remove saved stream", lambda: lib.remove_stream(value))]
 
     def _bind_card_menu(self, card, kind, value):
         card.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -371,11 +389,6 @@ class HomePage(QScrollArea):
         lab.setContentsMargins(0, 14, 0, 2)
         return lab
 
-    def _muted(self, text):
-        lab = QLabel(text)
-        lab.setObjectName("Muted")
-        lab.setWordWrap(True)
-        return lab
 
 
 def _parent(p):
@@ -427,7 +440,10 @@ class NowPlayingPage(QWidget):
     def mouseMoveEvent(self, e):
         if getattr(self.win, "_pip", None) and not e.buttons():
             cur = self.win.edge_cursor(self.win.pip_edges(e.globalPosition().toPoint()))
-            self.setCursor(cur) if cur is not None else self.setCursor(Qt.OpenHandCursor)
+            if cur is not None:
+                self.setCursor(cur)
+            else:
+                self.setCursor(Qt.OpenHandCursor)
         elif self.cursor().shape() != Qt.ArrowCursor and not getattr(self.win, "_pip", None):
             self.unsetCursor()
         super().mouseMoveEvent(e)
@@ -445,12 +461,9 @@ class NowPlayingPage(QWidget):
         if art:
             pix = QPixmap(to_path(art))
         if (pix is None or pix.isNull()) and not is_url(path):
-            folder = os.path.dirname(path)
-            for name in ("cover.jpg", "cover.png", "folder.jpg", "folder.png", "front.jpg", "AlbumArt.jpg"):
-                p = os.path.join(folder, name)
-                if os.path.isfile(p):
-                    pix = QPixmap(p)
-                    break
+            cover = folder_cover(os.path.dirname(path))
+            if cover:
+                pix = QPixmap(cover)
         self._pix = pix if pix is not None and not pix.isNull() else None
         self._render()
 

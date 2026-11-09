@@ -3,6 +3,7 @@
 Design language from the redesign: orange cone accent, neutral grays and
 black, rectangular shapes that are only slightly rounded.
 """
+from PySide6.QtGui import QColor, QLinearGradient
 
 DEFAULT_ACCENT = "#FF8800"
 
@@ -45,7 +46,6 @@ _panel_grad = None    # (top, bottom) for a gently graded side panel
 
 def tint_palette(color: str) -> dict:
     """Dark shades of any colour, kept dark enough that light text stays readable."""
-    from PySide6.QtGui import QColor
     c = QColor(color)
     if not c.isValid():
         return dict(THEMES["dark"])
@@ -57,7 +57,7 @@ def tint_palette(color: str) -> dict:
 
 
 def set_theme(name: str, tint: str = ""):
-    """Switch the background palette ("dark", "black", "warm", "midnight" or "custom" with a tint colour)."""
+    """Switch the background palette: a key of THEMES, or "custom" with a tint colour."""
     global BG, PANEL, SURFACE, SURFACE_HI, BORDER, _theme, _vibe, _panel_grad
     pal = tint_palette(tint) if name == "custom" and tint else THEMES.get(name, THEMES["dark"])
     _theme = name if (name in THEMES or (name == "custom" and tint)) else "dark"
@@ -99,7 +99,6 @@ def is_vibe(name: str) -> bool:
 
 def brush(x0: float, x1: float):
     """A QBrush/QColor for accent fills: a horizontal gradient on neon themes, else the flat accent."""
-    from PySide6.QtGui import QColor, QLinearGradient
     st = stops()
     if len(st) == 1:
         return QColor(st[0])
@@ -120,9 +119,8 @@ def css_gradient(vertical=False) -> str:
 
 def on_accent() -> str:
     """Dark or white, whichever reads better on the accent colour (a neon theme's first colour)."""
-    c = accent().lstrip("#")
     try:
-        r, g, b = (int(c[i:i + 2], 16) for i in (0, 2, 4))
+        r, g, b = rgb(accent())
     except ValueError:
         return "#111111"
     return "#111111" if (0.299 * r + 0.587 * g + 0.114 * b) > 140 else "#FFFFFF"
@@ -137,6 +135,7 @@ def stylesheet() -> str:
     a = accent()
     a2 = accent2()
     ag = css_gradient()
+    on = on_accent()
     panel = (f"qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {_panel_grad[0]}, stop:1 {_panel_grad[1]})"
              if _panel_grad else PANEL)
     return f"""
@@ -156,11 +155,11 @@ def stylesheet() -> str:
     QPushButton:hover {{ background: {SURFACE_HI}; }}
     QPushButton:pressed {{ background: {BORDER}; }}
     QPushButton:checked {{ border-color: {a2}; color: {a2}; }}
-    QPushButton#Primary {{ background: {ag}; border-color: {a}; color: #111; font-weight: 600; }}
+    QPushButton#Primary {{ background: {ag}; border-color: {a}; color: {on}; font-weight: 600; }}
     QPushButton#Primary:hover {{ background: {ag}; }}
     QPushButton#Chip {{ background: transparent; border: 1px solid {BORDER}; padding: 3px 10px; color: {TEXT}; }}
     QPushButton#Chip:hover {{ border-color: {a}; color: {a}; }}
-    QPushButton#ResumeChip {{ background: {ag}; color: #111; border: none; font-weight: 600; padding: 4px 12px; }}
+    QPushButton#ResumeChip {{ background: {ag}; color: {on}; border: none; font-weight: 600; padding: 4px 12px; }}
 
     QToolButton {{ background: transparent; border: none; border-radius: {RADIUS}px; padding: 4px; }}
     QToolButton:hover {{ background: rgba(255,255,255,0.08); }}

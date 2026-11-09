@@ -4,11 +4,11 @@ from PySide6.QtCore import QPoint
 from PySide6.QtGui import QActionGroup
 from PySide6.QtWidgets import QMenu, QMessageBox
 
-from . import theme
+from . import theme, APP_VERSION
 from .dialogs import PreferencesDialog, ShortcutsDialog
 from .icons import icon
 from .stage import PAGE_AUDIO
-from .util import fmt_time
+from .util import SPEED_PRESETS, fmt_time
 
 
 class MenusMixin:
@@ -37,7 +37,7 @@ class MenusMixin:
         self._track_actions(m, self.engine.sub_tracks(), self.engine.current_sub(), self.engine.set_sub)
         m.addSeparator()
         m.addAction(icon("plus", theme.TEXT, 16), "Add subtitles…", lambda: self.open_subtitle_dialog())
-        m.addAction(icon("tune", theme.TEXT, 16), "Timing and look…", lambda: self.open_sidebar_tab(0))
+        m.addAction(icon("tune", theme.TEXT, 16), "Timing and look…", lambda: self.open_sidebar_tab("subtitles"))
         return m
 
     def build_audio_menu(self, parent=None) -> QMenu:
@@ -51,7 +51,7 @@ class MenusMixin:
         self._track_actions(m, [(d, desc or d or "Default") for d, desc in devs] or [("", "Default output")],
                             cur, self.engine.set_device)
         m.addSeparator()
-        m.addAction(icon("tune", theme.TEXT, 16), "Audio settings…", lambda: self.open_sidebar_tab(1))
+        m.addAction(icon("tune", theme.TEXT, 16), "Audio settings…", lambda: self.open_sidebar_tab("audio"))
         return m
 
     def build_cast_menu(self, parent=None) -> QMenu:
@@ -139,11 +139,12 @@ class MenusMixin:
         self._poke(1)
 
     def _open_menu(self, parent) -> QMenu:
+        k = self.store.menu_label         # with the key the user has for each item
         m = QMenu("Open", parent)
         m.setIcon(icon("folder", theme.TEXT, 16))
-        m.addAction(icon("file", theme.TEXT, 16), "File…\tCtrl+O", self.open_file_dialog)
-        m.addAction(icon("folder", theme.TEXT, 16), "Folder…\tCtrl+F", self.open_folder_dialog)
-        m.addAction(icon("stream", theme.TEXT, 16), "Network stream…\tCtrl+N", self.open_stream_dialog)
+        m.addAction(icon("file", theme.TEXT, 16), k("File…", "open_file"), self.open_file_dialog)
+        m.addAction(icon("folder", theme.TEXT, 16), k("Folder…", "open_folder"), self.open_folder_dialog)
+        m.addAction(icon("stream", theme.TEXT, 16), k("Network stream…", "open_stream"), self.open_stream_dialog)
         m.addAction(icon("globe", theme.TEXT, 16), "Link from clipboard", self.open_clipboard)
         rec = m.addMenu(icon("clock", theme.TEXT, 16), "Recent")
         for r in self.store.data["recent"][:15]:
@@ -154,11 +155,12 @@ class MenusMixin:
 
     def show_main_menu(self, anchor):
         self._poke(30)
+        k = self.store.menu_label
         m = QMenu(self)
         m.addMenu(self._open_menu(m))
         m.addSeparator()
         m.addAction(icon("home", theme.TEXT, 16), "Home", self.show_home)
-        m.addAction(icon("library", theme.TEXT, 16), "Library\tCtrl+L", lambda: self.toggle_library(True))
+        m.addAction(icon("library", theme.TEXT, 16), k("Library", "library"), lambda: self.toggle_library(True))
         if self.engine.ok:
             m.addMenu(self.build_cast_menu(m))
         if self.engine.current:
@@ -166,14 +168,14 @@ class MenusMixin:
             if self.engine.is_disc():
                 m.addMenu(self.build_disc_menu(m))
             m.addAction(icon("subtitles", theme.TEXT, 16), "Add subtitles…", lambda: self.open_subtitle_dialog())
-            m.addAction(icon("bookmark_add", theme.TEXT, 16), "Add bookmark\tCtrl+B", lambda: self.do("bookmark", key=False))
+            m.addAction(icon("bookmark_add", theme.TEXT, 16), k("Add bookmark", "bookmark"), lambda: self.do("bookmark", key=False))
             m.addAction(icon("snapshot", theme.TEXT, 16), "Take a snapshot", lambda: self.do("snapshot", key=False))
-            m.addAction(icon("close", theme.TEXT, 16), "Close the video\tCtrl+W", self.close_media)
+            m.addAction(icon("close", theme.TEXT, 16), k("Close the video", "close_media"), self.close_media)
         m.addSeparator()
         m.addAction(icon("settings", theme.TEXT, 16), "Preferences…", self.show_preferences)
         if self.can_integrate_desktop():
             m.addAction(icon("plus", theme.TEXT, 16), "Add Pylon to the applications menu", self.install_desktop_entry)
-        m.addAction(icon("keyboard", theme.TEXT, 16), "Keyboard shortcuts\tF1", self.show_shortcuts)
+        m.addAction(icon("keyboard", theme.TEXT, 16), k("Keyboard shortcuts", "shortcuts"), self.show_shortcuts)
         if self._update_release:
             tag = (self._update_release.get("tag_name") or "").lstrip("vV")
             m.addAction(icon("arrow_up", theme.accent(), 16), f"Update to Pylon {tag}…", lambda: self.show_update())
@@ -188,14 +190,15 @@ class MenusMixin:
 
     def show_context_menu(self, gpos):
         self._poke(30)
+        k = self.store.menu_label
         e = self.engine
         m = QMenu(self)
         if e.current:
             m.addAction(icon("pause" if e.is_playing() else "play", theme.TEXT, 16),
-                        ("Pause" if e.is_playing() else "Play") + "\tSpace", lambda: self.do("play_pause", key=False))
+                        k("Pause" if e.is_playing() else "Play", "play_pause"), lambda: self.do("play_pause", key=False))
             m.addAction(icon("stop", theme.TEXT, 16), "Stop", lambda: self.do("stop", key=False))
             video = self.stage.currentIndex() != PAGE_AUDIO     # music has its own page (#74)
-            m.addAction(icon("close", theme.TEXT, 16), ("Close the video" if video else "Close") + "\tCtrl+W",
+            m.addAction(icon("close", theme.TEXT, 16), k("Close the video" if video else "Close", "close_media"),
                         self.close_media)
             m.addSeparator()
             if e.is_disc():
@@ -216,10 +219,10 @@ class MenusMixin:
                     grp.addAction(a)
                     a.triggered.connect(lambda _=False, v=v: (e.set_aspect(v), self.sidebar.aspect.select(v)))
                 vm.addSeparator()
-                vm.addAction("Video settings…", lambda: self.open_sidebar_tab(2))
+                vm.addAction("Video settings…", lambda: self.open_sidebar_tab("video"))
             sm = m.addMenu(icon("speed", theme.TEXT, 16), "Speed")
             grp2 = QActionGroup(sm)
-            for r in (0.5, 0.75, 1.0, 1.25, 1.5, 2.0):
+            for r in SPEED_PRESETS:
                 a = sm.addAction(f"{r:g}x")
                 a.setCheckable(True)
                 a.setChecked(abs(e.rate() - r) < 1e-3)
@@ -228,17 +231,17 @@ class MenusMixin:
             m.addMenu(self.build_repeat_menu(m))
             m.addMenu(self.build_cast_menu(m))
             m.addSeparator()
-            m.addAction(icon("bookmark_add", theme.TEXT, 16), "Add bookmark\tCtrl+B", lambda: self.do("bookmark", key=False))
+            m.addAction(icon("bookmark_add", theme.TEXT, 16), k("Add bookmark", "bookmark"), lambda: self.do("bookmark", key=False))
             if video:
                 m.addAction(icon("snapshot", theme.TEXT, 16), "Take a snapshot", lambda: self.do("snapshot", key=False))
             m.addSeparator()
-        m.addAction(icon("sidebar_left", theme.TEXT, 16), "Library and queue\tCtrl+L", lambda: self.toggle_library())
-        m.addAction(icon("sidebar_right", theme.TEXT, 16), "Settings panel\tCtrl+T", lambda: self.toggle_sidebar())
+        m.addAction(icon("sidebar_left", theme.TEXT, 16), k("Library and queue", "library"), lambda: self.toggle_library())
+        m.addAction(icon("sidebar_right", theme.TEXT, 16), k("Settings panel", "sidebar"), lambda: self.toggle_sidebar())
         m.addAction(icon("eye_off", theme.TEXT, 16),
-                    ("Show the interface" if self.hide_ui else "Hide the interface") + "\tH", lambda: self.do("hide_ui", key=False))
+                    k("Show the interface" if self.hide_ui else "Hide the interface", "hide_ui"), lambda: self.do("hide_ui", key=False))
         m.addAction(icon("exit_fullscreen" if self.isFullScreen() else "fullscreen", theme.TEXT, 16),
-                    ("Leave fullscreen" if self.isFullScreen() else "Fullscreen") + "\tF", self.toggle_fullscreen)
-        m.addAction(icon("pip", theme.TEXT, 16), "Picture in picture\tCtrl+P", self.toggle_pip)
+                    k("Leave fullscreen" if self.isFullScreen() else "Fullscreen", "fullscreen"), self.toggle_fullscreen)
+        m.addAction(icon("pip", theme.TEXT, 16), k("Picture in picture", "pip"), self.toggle_pip)
         m.addSeparator()
         m.addMenu(self._open_menu(m))
         m.addAction(icon("settings", theme.TEXT, 16), "Preferences…", self.show_preferences)
@@ -252,7 +255,6 @@ class MenusMixin:
         ShortcutsDialog(self).exec()
 
     def show_about(self):
-        from . import APP_VERSION
         QMessageBox.about(self, "About Pylon",
                           f"<b>Pylon {APP_VERSION}</b><br>A redesigned interface on top of the VLC engine "
                           "(libVLC). Playback, codecs and streaming are all VLC.<br><br>"

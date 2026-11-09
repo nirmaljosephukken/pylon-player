@@ -1,40 +1,14 @@
 """The stage pages and the native video surface VLC draws into."""
-import ctypes
-import ctypes.util
-
 import sys
 
 from PySide6.QtCore import QPoint, QPointF, QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication, QWheelEvent
+from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication, QFrame, QWidget
+
+from .overlay import real_position
 
 
 PAGE_HOME, PAGE_VIDEO, PAGE_AUDIO = 0, 1, 2
-
-_X11 = {}
-
-
-def _x11():
-    """libX11 and a display connection of our own, or None when this isn't X11."""
-    if "lib" not in _X11:
-        _X11["lib"] = _X11["dpy"] = None
-        try:
-            if QGuiApplication.platformName() == "xcb":
-                lib = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
-                lib.XOpenDisplay.restype = ctypes.c_void_p
-                lib.XOpenDisplay.argtypes = [ctypes.c_char_p]
-                lib.XDefaultRootWindow.restype = ctypes.c_ulong
-                lib.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
-                lib.XTranslateCoordinates.argtypes = [
-                    ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_int, ctypes.c_int,
-                    ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_ulong)]
-                dpy = lib.XOpenDisplay(None)
-                if dpy:
-                    _X11["lib"], _X11["dpy"] = lib, dpy
-        except Exception:
-            pass
-    return _X11["lib"], _X11["dpy"]
-
 
 class VideoCanvas(QWidget):
     """The native window VLC draws into. It fills the surface, except with Super Resolution on, where
@@ -98,6 +72,7 @@ class VideoSurface(QFrame):
         self._panned = False
         self._move_from = None
         self._moved = False
+        self._press_pos = None              # where a left press started, to tell a click from a drag
         self._x11_seen = None               # (Qt's position, the X11 position) when they last agreed
         self.setAttribute(Qt.WA_NativeWindow, True)
         self.setAttribute(Qt.WA_DontCreateNativeAncestors, True)
@@ -122,17 +97,10 @@ class VideoSurface(QFrame):
     def x11_drift(self) -> QPoint:
         """How far the window has moved since Qt last heard where it is. While the window manager
         drags a window, Qt on X11 isn't told it moved until the drag ends (#59)."""
-        lib, dpy = _x11()
-        if lib is None:
+        real = real_position(self, visible_only=False)
+        if real is None:
             return QPoint()
-        x, y, child = ctypes.c_int(), ctypes.c_int(), ctypes.c_ulong()
-        try:
-            if not lib.XTranslateCoordinates(dpy, int(self.winId()), lib.XDefaultRootWindow(dpy), 0, 0,
-                                             ctypes.byref(x), ctypes.byref(y), ctypes.byref(child)):
-                return QPoint()
-        except Exception:
-            return QPoint()
-        real, here = (x.value, y.value), self.mapToGlobal(QPoint(0, 0))
+        here = self.mapToGlobal(QPoint(0, 0))
         if self._x11_seen is None or self._x11_seen[0] != here:
             self._x11_seen = (here, real)      # Qt knows where the window is: measure from here
             return QPoint()
@@ -191,7 +159,7 @@ class VideoSurface(QFrame):
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.LeftButton:
             self._move_from = None
-            press, self._press_pos = getattr(self, "_press_pos", None), None
+            press, self._press_pos = self._press_pos, None
             if self._moved:                  # moving or resizing the window is not a click
                 self._moved = False
                 return

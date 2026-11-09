@@ -53,8 +53,7 @@ class Sorting(unittest.TestCase):
         return [lst.item(i).data(ROLE_PATH) for i in range(lst.count()) if lst.item(i).data(ROLE_KIND)]
 
     def set_sort(self, value):
-        combo = self.lib.music_sort
-        combo.setCurrentIndex(combo.findData(value))
+        self.lib.music_sort.set_mode(value)
 
     def test_plays_are_counted_and_forgotten(self):
         s = self.store
@@ -111,11 +110,10 @@ class Sorting(unittest.TestCase):
             self.store.set_watched(p, True)
         for p in files["Half"][:2]:
             self.store.set_watched(p, True)
-        combo = lib.playlists_sort
-        combo.setCurrentIndex(combo.findData("unfinished"))
+        lib.playlists_sort.set_mode("unfinished")
         names = [lib.pl_list.item(i).data(ROLE_PATH) for i in range(lib.pl_list.count())]
         self.assertEqual(names, ["New", "Half", "Done"])
-        combo.setCurrentIndex(combo.findData("finished"))
+        lib.playlists_sort.set_mode("finished")
         names = [lib.pl_list.item(i).data(ROLE_PATH) for i in range(lib.pl_list.count())]
         self.assertEqual(names, ["Done", "Half", "New"])
         half = next(lib.pl_list.item(i) for i in range(lib.pl_list.count()) if lib.pl_list.item(i).data(ROLE_PATH) == "Half")

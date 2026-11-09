@@ -1,6 +1,6 @@
 """Full screen with Super Resolution (#42). 1.5.1 kept the picture one pixel short of the bottom edge,
 which turned it black as soon as full screen started, so that's gone. 1.6.0 to 1.6.4 opened panels in a
-maximized window instead; since 1.6.5 the video area is sized to the picture (check_vsr_fit.py), so
+maximized window instead; since 1.6.5 the video area is sized to the picture (check_vsr_fit_pin_sliders.py), so
 panels open in full screen like they do without Super Resolution."""
 import sys
 import tempfile

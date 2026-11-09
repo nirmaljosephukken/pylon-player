@@ -16,12 +16,13 @@ import tempfile
 import unittest
 import wave
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QEventLoop, QRect, QTimer
 from PySide6.QtWidgets import QApplication
-from app import engine, waveform
+from app import background, engine, waveform
 engine.vlc = None
 from app.engine import VISUALIZERS, VLC_TRANSFORMS, Engine, compose_transform, transform_parts
 from app.stage import PAGE_AUDIO, PAGE_VIDEO
@@ -259,6 +260,24 @@ class Visualizations(Window):
             s.set_setting("visualizer", "goom")
             self.assertIn("--audio-visual=goom", e._args())
 
+    def test_no_3d_spectrum_on_windows(self):
+        """VLC 3's 3D spectrum crashes Pylon on Windows when the song changes (1.7.1)."""
+        src = Path(engine.__file__).read_text(encoding="utf-8")
+        block = src[src.index("VISUALIZERS = {"):src.index("def vlc_place")]
+        for platform, offered in (("win32", False), ("linux", True), ("darwin", True)):
+            ns = {"sys": SimpleNamespace(platform=platform)}
+            exec(block, ns)
+            self.assertEqual("glspectrum" in ns["VISUALIZERS"], offered, platform)
+
+    def test_a_saved_one_that_isnt_offered_is_off(self):
+        with tempfile.TemporaryDirectory() as d, patch.dict(engine.VISUALIZERS):
+            s = Store(str(Path(d) / "data.json"))
+            s.set_setting("visualizer", "glspectrum")
+            engine.VISUALIZERS.pop("glspectrum", None)
+            e = Engine(s)
+            self.assertEqual(s.setting("visualizer"), "")
+            self.assertFalse(any(a.startswith("--audio-visual") for a in e._args()))
+
     def test_audio_tab_lists_them(self):
         w = self.make()
         self.assertEqual(w.sidebar.visualizer.values, list(VISUALIZERS))
@@ -340,7 +359,7 @@ class SilenceBounds(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             song = Path(d) / "a.mp3"
             song.write_bytes(b"x")
-            with patch.object(waveform, "data_dir", lambda: d):
+            with patch.object(background, "data_dir", lambda: d):
                 m = waveform.WaveformMaker()
                 m._save_cache(str(song), [0.5, 1.0], (1850, 7400, 10000))
                 self.assertEqual(m._load_cache(str(song)), ([0.5, 1.0], (1850, 7400, 10000)))

@@ -10,7 +10,6 @@ from PySide6.QtCore import QEventLoop, QPoint, QTimer
 from PySide6.QtWidgets import QApplication
 from app import engine
 engine.vlc = None
-from app import overlay
 from app.store import Store
 from app.window import MainWindow
 
