@@ -132,7 +132,8 @@ class PipOnTop(Base):
         fn = MagicMock(return_value=1)
         windll = MagicMock()
         windll.user32.SetWindowPos = fn
-        with patch.object(util.sys, "platform", "win32"), patch.object(ctypes, "windll", windll, create=True):
+        with patch.object(util.sys, "platform", "win32"), patch.object(ctypes, "windll", windll, create=True), \
+                patch.object(util, "_USER32", None):        # not the real user32 a running Pylon cached
             self.assertTrue(util.win_set_topmost(1234, True))
             self.assertEqual(fn.argtypes[0], ctypes.wintypes.HWND)
             self.assertEqual(fn.argtypes[1], ctypes.wintypes.HWND)

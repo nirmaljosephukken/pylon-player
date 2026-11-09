@@ -98,7 +98,8 @@ class CloseButtonAfterPip(Base):                       # #71
     def test_windows_call_enables_the_close_item(self):
         windll = MagicMock()
         windll.user32.GetSystemMenu.return_value = 77
-        with patch.object(util.sys, "platform", "win32"), patch.object(ctypes, "windll", windll, create=True):
+        with patch.object(util.sys, "platform", "win32"), patch.object(ctypes, "windll", windll, create=True), \
+                patch.object(util, "_USER32", None):        # not the real user32 a running Pylon cached
             self.assertTrue(util.win_enable_close(1234))
             u = windll.user32
             self.assertEqual(u.GetSystemMenu.argtypes[0], ctypes.wintypes.HWND)
