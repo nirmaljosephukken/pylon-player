@@ -164,7 +164,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **Shortcut hints** | On-screen messages show which key you pressed. Every shortcut can be changed (`F1`). |
 | **Themes** | Dark, Pitch black, Warm grey, Midnight blue, a custom tint from any colour, and **neon** themes (Neon, Sunset, Aurora, Synthwave) with glowing gradient highlights. Preferences > General. |
 | **Updates** | Pylon checks once a day whether a new version is out. On Windows, **Update now** downloads and runs the installer for you; on Linux and macOS it opens the download page. Menu > Check for updates. |
-| **Download subtitles** | `Shift+D`, or Find online in the Subtitles tab. Searches OpenSubtitles.com for the file and marks the subtitles made for that exact file. Needs a free OpenSubtitles.com API key: make an account at opensubtitles.com, create a key under your profile's **API consumers**, and paste it in Preferences > Subtitles (signing in there too raises the daily download limit). |
+| **Download subtitles** | `Shift+D`, or Find online in the Subtitles tab. Searches OpenSubtitles.com for the file and marks the subtitles made for that exact file. No setup needed. Without an account OpenSubtitles allows a few downloads a day; sign in with a free OpenSubtitles.com account in Preferences > Subtitles for your account's daily limit. |
 | **Preferences in plain words** | Accent color, auto-hide delay, resume behaviour, subtitle auto-detection, the volume Pylon starts at. Each has an info icon. |
 
 ![Home page](docs/home.png)

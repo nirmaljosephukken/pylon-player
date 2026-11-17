@@ -21,7 +21,7 @@ from .store import DEFAULT_SHORTCUTS, HOME_SECTIONS, MAX_VOLUMES, QUEUE_MODES, R
 from .updates import RELEASES_PAGE, installer_asset, run_installer
 from .util import (MATCH_LEVELS, SUB_EXTS, auto_match_folder, is_url, list_media, subtitle_query,
                    SUBTITLE_SITES)
-from .opensubtitles import KEY_PAGE as OS_KEY_PAGE, Client as OSClient, Job, OpenSubtitlesError, api_key as os_api_key, \
+from .opensubtitles import KEY_PAGE as OS_KEY_PAGE, SIGN_UP_PAGE as OS_SIGN_UP, Client as OSClient, Job, OpenSubtitlesError, api_key as os_api_key, \
     api_language, save_next_to
 from .paths import data_dir
 from .widgets import IconButton, muted, subtitle_search_menu
@@ -1088,15 +1088,14 @@ class PreferencesDialog(QDialog):
         le2.textChanged.connect(lambda t: self.store.set_setting("audio_lang", t.strip()))
         f.addWidget(le2)
         f.addWidget(info_label("Download subtitles in Pylon (OpenSubtitles.com)",
-                               "Make a free account at opensubtitles.com, then create an API key under "
-                               "Profile > API consumers and paste it here. Signing in with your account too "
-                               "gives you your account's daily downloads instead of a few."))
-        link = QLabel(f'<a href="{OS_KEY_PAGE}">Get an API key</a>')
+                               "Works without signing in, for a few downloads a day. Sign in with a free "
+                               "OpenSubtitles.com account to get your account's daily downloads."))
+        link = QLabel(f'<a href="{OS_SIGN_UP}">Make a free account</a>')
         link.setOpenExternalLinks(True)
         f.addWidget(link)
-        for key, holder, secret in (("opensubtitles_key", "API key", False),
-                                    ("opensubtitles_user", "Username (optional)", False),
-                                    ("opensubtitles_password", "Password (optional)", True)):
+        for key, holder, secret in (("opensubtitles_user", "OpenSubtitles.com username (optional)", False),
+                                    ("opensubtitles_password", "Password (optional)", True),
+                                    ("opensubtitles_key", "Your own API key (optional, instead of Pylon's)", False)):
             le3 = QLineEdit(self.store.setting(key))
             le3.setObjectName(key)
             le3.setPlaceholderText(holder)

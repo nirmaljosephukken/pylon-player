@@ -1,7 +1,7 @@
 """1.8.0: subtitles from OpenSubtitles.com inside Pylon.
 
 Nothing here goes to the internet: the API is answered by a fake. Checks the request (API key header, sorted
-lower-case parameters, the file's hash), that subtitles made for the exact file come first and other episodes
+lower-case parameters, the file's hash), Pylon's own key used unless you set yours, that subtitles made for the exact file come first and other episodes
 are dropped, downloading with and without an account, the messages for a missing or wrong key and no
 downloads left, saving next to the video, and the dialogs.
 """
@@ -104,21 +104,22 @@ class Basics(unittest.TestCase):
             self.assertEqual(osub.movie_hash(p), "")             # too small to hash
             self.assertEqual(osub.movie_hash(os.path.join(d, "missing.mkv")), "")
 
-    def test_key_from_preferences_or_environment_never_built_in(self):
+    def test_pylons_key_unless_you_set_your_own(self):
         with tempfile.TemporaryDirectory() as d:
             store = Store(os.path.join(d, "data.json"))
-            with patch.dict(os.environ, {osub.ENV_KEY: ""}):
+            with patch.dict(os.environ, {osub.ENV_KEY: ""}), patch.object(osub, "PYLON_KEY", "PYLONKEY"):
+                self.assertEqual(osub.api_key(store), "PYLONKEY")         # works with no setup
+                store.set_setting("opensubtitles_key", " MYKEY ")
+                self.assertEqual(osub.api_key(store), "MYKEY")            # your own key wins
+                store.set_setting("opensubtitles_key", "")
+            with patch.dict(os.environ, {osub.ENV_KEY: "ENVKEY"}), patch.object(osub, "PYLON_KEY", "PYLONKEY"):
+                self.assertEqual(osub.api_key(store), "ENVKEY")
+            with patch.dict(os.environ, {osub.ENV_KEY: ""}), patch.object(osub, "PYLON_KEY", ""):
                 self.assertEqual(osub.api_key(store), "")
                 with self.assertRaises(osub.OpenSubtitlesError) as ctx:
                     osub.Client("")
                 self.assertIn("Preferences > Subtitles", str(ctx.exception))
-            with patch.dict(os.environ, {osub.ENV_KEY: "ENVKEY"}):
-                self.assertEqual(osub.api_key(store), "ENVKEY")
-                store.set_setting("opensubtitles_key", " MYKEY ")
-                self.assertEqual(osub.api_key(store), "MYKEY")
             store._save_timer.stop()
-        source = Path(osub.__file__).read_text(encoding="utf-8")
-        self.assertNotRegex(source, r'Api-Key"\s*:\s*"[A-Za-z0-9]{10,}')
 
 
 class ClientCalls(unittest.TestCase):
@@ -237,7 +238,7 @@ class Dialogs(unittest.TestCase):
     def test_no_key_says_where_to_get_one(self):
         from app.dialogs import OnlineSubtitlesDialog
         self.store.set_setting("opensubtitles_key", "")
-        with patch.dict(os.environ, {osub.ENV_KEY: ""}):
+        with patch.dict(os.environ, {osub.ENV_KEY: ""}), patch.object(osub, "PYLON_KEY", ""):
             dlg = OnlineSubtitlesDialog(self.win, self.video)
         self.assertIn("Preferences > Subtitles", dlg.note.text())
         self.assertIn(osub.KEY_PAGE, dlg.note.text())

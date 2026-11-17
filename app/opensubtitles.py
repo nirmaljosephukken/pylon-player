@@ -1,9 +1,10 @@
 """Search and download subtitles from OpenSubtitles.com inside Pylon.
 
-OpenSubtitles.com's REST API needs an API key, which you make for free on their site (Profile > API consumers).
-Pylon doesn't ship one: put yours in Preferences > Subtitles, or set PYLON_OPENSUBTITLES_KEY. Without an
-account an API key allows a few downloads a day; signing in with your OpenSubtitles.com account (also in
-Preferences) raises that to your account's limit.
+Like other players, Pylon has its own OpenSubtitles.com API key (PYLON_KEY), so searching and downloading
+works with no setup. Download limits belong to each user, not to the key: without an account OpenSubtitles
+allows a few downloads a day, and signing in with your own free OpenSubtitles.com account (Preferences >
+Subtitles) gives you your account's limit. Someone who wants to can use their own API key instead, in the same
+place or in PYLON_OPENSUBTITLES_KEY.
 
 Results that were made for this exact file (the file's OpenSubtitles hash matches) are marked and listed
 first, so you can pick the one that fits without trying them.
@@ -26,6 +27,10 @@ API = "https://api.opensubtitles.com/api/v1"
 TIMEOUT = 20
 ENV_KEY = "PYLON_OPENSUBTITLES_KEY"
 KEY_PAGE = "https://www.opensubtitles.com/en/consumers"
+SIGN_UP_PAGE = "https://www.opensubtitles.com"
+# Pylon's own API key (the "Pylon" consumer on OpenSubtitles.com). Visible to anyone reading the source, as in
+# every open-source player; if it is ever misused, delete it on KEY_PAGE and put a new one here.
+PYLON_KEY = ""
 
 # Pylon's language setting can be a two- or three-letter code or a name; OpenSubtitles wants two letters
 _LANGS = {
@@ -73,7 +78,8 @@ def movie_hash(path: str) -> str:
 
 
 def api_key(store) -> str:
-    return (store.setting("opensubtitles_key") or os.environ.get(ENV_KEY) or "").strip()
+    """Your own key if you set one, else Pylon's."""
+    return (store.setting("opensubtitles_key") or os.environ.get(ENV_KEY) or PYLON_KEY or "").strip()
 
 
 class Client:
@@ -81,7 +87,8 @@ class Client:
 
     def __init__(self, key: str, username: str = "", password: str = "", opener=None):
         if not key:
-            raise OpenSubtitlesError("No OpenSubtitles.com API key yet. Add yours in Preferences > Subtitles.")
+            raise OpenSubtitlesError("This copy of Pylon has no OpenSubtitles.com API key. "
+                                     "You can add your own in Preferences > Subtitles.")
         self.key = key
         self.username, self.password = username, password
         self.base = API
