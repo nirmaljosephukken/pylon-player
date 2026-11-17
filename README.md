@@ -4,7 +4,7 @@
 
 ### [⬇ Download page: nirmaljosephukken.github.io/pylon-player](https://nirmaljosephukken.github.io/pylon-player/)
 
-**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.7.2.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.7.2-x86_64.AppImage) · [macOS](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.7.2-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
+**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.8.0.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.8.0-x86_64.AppImage) · [macOS](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.8.0-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
 
 **New to Pylon?** The [user guide](https://nirmaljosephukken.github.io/pylon-player/guide.html) shows every screen, panel and setting with pictures and step-by-step how-tos. It's also available as a [PDF](https://nirmaljosephukken.github.io/pylon-player/guide/Pylon-User-Guide.pdf).
@@ -21,7 +21,7 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 
 ## What's new
 
-**1.7.2:** On Windows, a film that starts with the volume above 100% has sound from the start again: Pylon starts it at 100% and goes up to your volume a moment later. The maximum volume can now also be **85%** or **100%** (Preferences > Playback). **.pls** and **.xspf** playlists, and playlists saved by VLC or foobar2000, open properly, and a playlist dropped on the queue brings its entries. A file from another show no longer keeps the last show's aspect ratio, crop, zoom or colours. Plus smaller fixes, and the direct download links above work again.
+**1.8.0:** **Media keys** and your system's media controls work with Pylon: the Windows overlay that appears with the volume keys, Linux desktop widgets and headset buttons (MPRIS), and the keyboard's media keys everywhere. **Night mode** (Settings > Audio, or `Shift+N`) turns loud scenes down and brings quiet talk up. **Hold** the mouse on the video, or `Shift+Space`, for 2× speed until you let go. **Click the time** (or `Ctrl+G`) and type where to go: `1:02:10`, `130`, `+30` or `50%`. **Download subtitles** from OpenSubtitles.com inside Pylon (`Shift+D`), with the ones made for your exact file marked, or for a whole folder at once. Songs with a **.lrc** file show **synced lyrics** next to the cover. Preferences can set the **volume Pylon starts at**. Plus everything from the 1.7.2 fixes: sound from the start above 100% on Windows, **85%** and **100%** volume limits, **.pls**/**.xspf** playlists and VLC/foobar2000 playlists that open properly, and a file from another show no longer keeping the last show's picture settings.
 
 **1.7.1:** With **Super Resolution** on, films that aren't the shape of the screen keep it in full screen, with their own black bars, as in VLC, and a normal window no longer shows a black picture. On Windows, Pylon no longer closes at the end of a song with the 3D spectrum visualization (it's no longer offered there). A damaged settings file is kept and restored from its backup instead of being wiped. Updates are checked against the release's checksums, VLC starts once instead of twice, online channel lists load without freezing the window, and menus show your own shortcuts. The Library tab sorts like the other tabs, snapshots go to your Pictures folder, and Pylon is offered for playlists in "Open with".
 
@@ -98,7 +98,7 @@ Pylon plays everything through **VLC**, which you install yourself (Pylon never 
 | | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ |
 | --- | --- | --- | --- |
 | **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
-| **2. Pylon** | `Pylon-Setup-1.7.2.exe` | `Pylon-1.7.2-x86_64.AppImage` | `Pylon-1.7.2-macOS.zip` |
+| **2. Pylon** | `Pylon-Setup-1.8.0.exe` | `Pylon-1.8.0-x86_64.AppImage` | `Pylon-1.8.0-macOS.zip` |
 | **3. Run** | Run the setup. No admin rights needed. | `chmod +x Pylon-*.AppImage`, then double-click it | Unzip, move **Pylon** to Applications, see the first-launch note below |
 
 Nothing else is needed: each download carries its own Python and Qt.
@@ -141,6 +141,11 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **DVDs** | Open a DVD image (`.iso`) or a copied DVD folder (`VIDEO_TS`) and it starts at the disc's menu: arrow keys to choose, Enter to play. Titles, arrow buttons and Disc menu are in the Playback tab. Pylon remembers the title and time you stopped at. |
 | **Cast** | Menu > Cast to sends the video to a Chromecast on your network, from the point you were at. |
 | **Cone volume** | A volume control shaped like a cone. Click, drag or scroll. Goes to 125%, or to 85%, 100%, 150% or 200% if you change the limit in Preferences > Playback. |
+| **Night mode** | Settings > Audio or `Shift+N`. Pylon reads the file's sound first (a few seconds for a film), then turns loud scenes down before they arrive and brings quiet talk up. Your volume stays where you put it. |
+| **Media keys** | Play/pause, next, previous and stop keys, headset buttons, the Windows media overlay and Linux media widgets (MPRIS). On macOS the media keys work while Pylon is in front. Preferences > Playback can turn it off. |
+| **2× while held** | Hold the left button on the video, or `Shift+Space`, to play at 2× until you let go. |
+| **Go to a time** | Click the time (right-click switches to time left) or press `Ctrl+G`, then type `1:02:10`, `62:10`, `130` (1:30), `+30`, `-10` or `50%`. |
+| **Synced lyrics** | A `.lrc` file with the same name as the song shows its lyrics next to the cover, following the song. Click a line to jump there. |
 | **Subtitle and audio buttons** | Bottom right. Audio also lists output devices (speakers, headphones). |
 | **Queue** | A real queue. Drag files in from the library or from Explorer, and reorder by dragging. Playing a file queues the rest of its folder, so the next episode just plays. Select several items (`Ctrl` or `Shift` click) and right-click to mark them watched or remove them, or press `Delete`. The **queue mode** button cycles through Stop (grey: stop when the item ends), Shuffle, In order and Loop (play the item again). Leaving Shuffle puts the original order back. Choose the starting mode in Preferences. |
 | **Settings sidebar** | `Ctrl+T`. Subtitles, Audio, Video, Playback and Bookmarks tabs, without a dialog covering the video. |
@@ -148,7 +153,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **Subtitle look** | Relative or exact pixel size, font, color, outline, background and position. |
 | **Per-show presets** | Save timing, look, tracks, speed and filters once. Every file in that folder gets them automatically. |
 | **Default tracks** | Pick a subtitle or audio language to switch to on every episode. |
-| **Add subtitles in bulk** | To this file, a whole folder or the whole queue. Files are matched by name or episode number (S01E02, 1x02, E02), you can fix any pairing, and pairings are remembered. "Search online" opens OpenSubtitles. |
+| **Add subtitles in bulk** | To this file, a whole folder or the whole queue. Files are matched by name or episode number (S01E02, 1x02, E02), you can fix any pairing, and pairings are remembered. **Download…** gets them from OpenSubtitles.com, one you pick for a file or the best for every video, and "Search online" opens subtitle sites in your browser. |
 | **Picture and sound presets** | Vivid, Bright, Cinema, Soft, Mono, plus sliders and **Sharpen**. VLC's equalizer presets as one-click chips. Rotate, flip, crop, zoom and aspect ratio. |
 | **Playback** | Speed, sleep timer (including "end of this file"), queue mode, starting the queue again at the end, and media info. |
 | **Music** | Songs from your library folders, sorted by **artist, album and song**, with cover art from the files. Open an album and press Play, or double-click any song. **Shuffle all** plays everything in the view in a random order, and you can sort by Recently played or Most played. |
@@ -159,7 +164,8 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **Shortcut hints** | On-screen messages show which key you pressed. Every shortcut can be changed (`F1`). |
 | **Themes** | Dark, Pitch black, Warm grey, Midnight blue, a custom tint from any colour, and **neon** themes (Neon, Sunset, Aurora, Synthwave) with glowing gradient highlights. Preferences > General. |
 | **Updates** | Pylon checks once a day whether a new version is out. On Windows, **Update now** downloads and runs the installer for you; on Linux and macOS it opens the download page. Menu > Check for updates. |
-| **Preferences in plain words** | Accent color, auto-hide delay, resume behaviour, subtitle auto-detection. Each has an info icon. |
+| **Download subtitles** | `Shift+D`, or Find online in the Subtitles tab. Searches OpenSubtitles.com for the file and marks the subtitles made for that exact file. Needs a free OpenSubtitles.com API key: make an account at opensubtitles.com, create a key under your profile's **API consumers**, and paste it in Preferences > Subtitles (signing in there too raises the daily download limit). |
+| **Preferences in plain words** | Accent color, auto-hide delay, resume behaviour, subtitle auto-detection, the volume Pylon starts at. Each has an info icon. |
 
 ![Home page](docs/home.png)
 
@@ -191,9 +197,14 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | E / Shift+E | Next / previous frame |
 | L | Repeat a part: set start, set end, off |
 | Shift+S | Snapshot (saved to `Pictures\Pylon`) |
+| Shift+Space (hold) | 2× speed while held |
+| Ctrl+G | Type a time to jump to |
+| Shift+N | Night mode |
+| Shift+D | Download subtitles |
+| Media keys | Play / pause, next, previous, stop |
 | F1 | All shortcuts (changeable) |
 
-Mouse: click the video to play or pause, double-click for fullscreen, scroll for volume, right-click for the menu.
+Mouse: click the video to play or pause, hold for 2× speed, double-click for fullscreen, scroll for volume, right-click for the menu. Click the time to type where to go.
 
 ## Good to know
 

@@ -82,7 +82,7 @@ class Peaks(unittest.TestCase):
         with patch.object(background, "data_dir", lambda: str(self.d)):
             m = WaveformMaker()
             m._save_cache(str(song), [0.1, 0.5, 1.0], (150, 2400, 3000))
-            self.assertEqual(m._load_cache(str(song)), ([0.1, 0.5, 1.0], (150, 2400, 3000)))
+            self.assertEqual(m._load_cache(str(song)), ([0.1, 0.5, 1.0], (150, 2400, 3000), b""))
             time.sleep(1.1)
             song.write_bytes(b"changed")                 # a changed file is read again
             self.assertIsNone(m._load_cache(str(song)))

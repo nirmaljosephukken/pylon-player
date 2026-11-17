@@ -462,6 +462,7 @@ class PlaybackMixin:
         self._in_menu = False
 
         shown = title or display_name(path)
+        self.media_keys.update(**self._media_info(path, shown, audio))
         self.top.set_title(shown)
         self.setWindowTitle(f"{shown}  ·  {APP_NAME}")
         self.top.set_folder(os.path.basename(folder) if folder else ("Stream" if is_url(path) else ""))
@@ -480,6 +481,31 @@ class PlaybackMixin:
             QTimer.singleShot(400, lambda: self.toast(f"Preset: {name}"))
         if self.library.isVisible():
             self.library.refresh_library()
+
+    def _media_info(self, path, shown, audio) -> dict:
+        """What the system's media controls show: the song's title and artist, or the video's name and folder."""
+        if audio:
+            m = self.library.music
+            song = m.songs.get(path, {})
+            artist = m.artist_of(song) if song else ""
+            return {"title": m.title_of(path, song) if song else shown, "artist": artist if artist != "Unknown artist"
+                    else "", "audio": True}
+        folder = "" if is_url(path) else os.path.basename(os.path.dirname(path))
+        return {"title": shown, "artist": folder, "audio": False}
+
+    def media_command(self, cmd: str):
+        """A media key or a button in the system's media controls."""
+        e = self.engine
+        if cmd == "raise":
+            if self.isMinimized():
+                self.showNormal()
+            self.raise_()
+            self.activateWindow()
+        elif cmd == "toggle" or (cmd == "play" and not e.is_playing()) or (cmd == "pause" and e.is_playing()):
+            if e.current or self.queue:
+                self.do("play_pause", key=False)
+        elif cmd in ("next", "previous", "stop"):
+            self.do({"previous": "prev"}.get(cmd, cmd), key=False)
 
     def _accept_resume(self):
         if self._resume_ms and self._resume_title is not None:
@@ -578,6 +604,9 @@ class PlaybackMixin:
     def _on_state(self, state):
         e = self.engine
         self.bottom.set_playing(state == "playing")
+        if state in ("playing", "paused", "stopped", "ended", "error"):
+            self.media_keys.update(status={"playing": "playing", "paused": "paused"}.get(state, "stopped"),
+                                   length=e.length(), position=e.time())
         if state == "playing":
             self._trim_start()
             if not self._live_applied:
@@ -698,6 +727,9 @@ class PlaybackMixin:
             return
         if self._bars_visible or self.stage.currentIndex() == PAGE_AUDIO:
             self.bottom.set_time(e.time(), e.length())
+        if self.stage.currentIndex() == PAGE_AUDIO:
+            self.now_playing.set_time(e.time())
+        e.night_tick()
         if self.sidebar.isVisible():
             self.sidebar.tick()
         if e.is_disc():

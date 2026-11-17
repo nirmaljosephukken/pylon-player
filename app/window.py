@@ -17,12 +17,13 @@ from .home import HomePage, NowPlayingPage
 from .library import LibraryPanel
 from .sidebar import SettingsSidebar
 from .store import DEFAULT_SHORTCUTS, QUEUE_MODES
-from .util import fmt_time, is_audio, is_disc, is_url, win_enable_close, win_set_topmost
+from .util import fmt_time, is_audio, parse_jump, is_disc, is_url, win_enable_close, win_set_topmost
 from .stage import PAGE_AUDIO, PAGE_HOME, PAGE_VIDEO, VideoSurface  # noqa: F401  (tests import these from here)
 from .thumbs import ThumbnailMaker
 from .updates import UpdateChecker
 from .waveform import WaveformMaker
-from .widgets import IconButton, SeekPreview, Toast
+from .media_controls import MediaControls
+from .widgets import IconButton, JumpBox, SeekPreview, Toast
 from .window_actions import ActionsMixin
 from .window_menus import MenusMixin
 from .window_panels import PanelsMixin
@@ -45,6 +46,10 @@ def fitted_size(sw, sh, aspect, whole=True):
     if whole:
         w, h = max(1, min(sw, round(w))), max(1, min(sh, round(h)))
     return w, h
+
+MEDIA_KEYS = {Qt.Key_MediaTogglePlayPause: "toggle", Qt.Key_MediaPlay: "toggle", Qt.Key_MediaPause: "pause",
+              Qt.Key_MediaNext: "next", Qt.Key_MediaPrevious: "previous", Qt.Key_MediaStop: "stop"}
+
 
 class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMixin, QMainWindow):
     def __init__(self, store):
@@ -86,6 +91,13 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
         self._resume_ms = 0
         self._track_prefs = ("", "")
         self._live_folder = None        # folder of the file playing, to tell when another show starts (H3)
+        self._hold_rate = None          # the speed to go back to after holding for 2x
+        self._hold_key = None           # the key that started it, whose release ends it
+        self._jump_box = None           # the box for typing a time to jump to
+        self.media_keys = MediaControls(self)     # media keys and the system's media controls
+        self.media_keys.position_source = lambda: self.engine.time() if self.engine.current else 0
+        self.media_keys.command.connect(self.media_command)
+        self.media_keys.seek_to.connect(lambda ms: self.engine.seek(ms) if self.engine.current else None)
         self._prefs_applied = False
         self._live_applied = False
         self._sleep_deadline = None
@@ -123,6 +135,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
         self.waves = WaveformMaker(self)
         self.waves.ready.connect(self._wave_ready, Qt.QueuedConnection)
         self.waves.silence.connect(self._silence_ready, Qt.QueuedConnection)
+        self.waves.loudness.connect(self.engine.set_loudness, Qt.QueuedConnection)    # night mode
         self._trim = None                # (start, end) ms of a song's sound without its silence (#86)
         self._trim_started = self._trim_ended = False
         self.updater = UpdateChecker(self.store, self)
@@ -155,6 +168,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
         # ---------------- wiring
         self.video.action.connect(lambda action: self.do(action, key=False))
         self.video.pressed.connect(self._drop_slider_focus)
+        self.video.hold.connect(lambda on: self.hold_fast(on))
         self.video.context.connect(self.show_context_menu)
         self.video.wheel.connect(lambda d: self.do("vol_up" if d > 0 else "vol_down", key=False))
         self.video.zoom_wheel.connect(self._zoom_wheel)
@@ -214,6 +228,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
         b.mute_clicked.connect(lambda: self.do("mute", key=False))
         b.resume_clicked.connect(self._accept_resume)
         b.speed_clicked.connect(lambda: self.open_sidebar_tab("playback"))
+        b.time_clicked.connect(self.show_jump_box)
         b.seek.seek_requested.connect(self.engine.seek)
         b.seek.hovered.connect(self._seek_hover)
         b.seek.hover_left.connect(self.seek_preview.defer_hide)
@@ -230,6 +245,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
         e.renderers_changed.connect(self._renderers_changed, Qt.QueuedConnection)
 
         self.install_shortcuts()
+        QApplication.instance().installEventFilter(self)    # to see the key held for 2x speed being let go
 
         self._ui_timer = QTimer(self)
         self._ui_timer.setInterval(50)
@@ -254,6 +270,8 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
             self._shown_once = True
             self._dark_titlebar()
             self.engine.set_window(int(self.video.canvas.winId()))
+            if self.store.setting("media_controls"):
+                self.media_keys.start(int(self.winId()))
             if self.can_integrate_desktop() and self.store.setting("desktop_entry") not in (None, "", os.environ.get("APPIMAGE")):
                 self.install_desktop_entry(quiet=True)   # the AppImage was moved or updated
             if not self.engine.ok:
@@ -314,6 +332,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
         self.bottom.set_playing(False)
         self.bottom.set_time(0, 0)
         self.setWindowTitle(APP_NAME)
+        self.media_keys.update(status="stopped", title="", artist="", length=0, position=0)
         self.library.refresh_queue()
         self.library.refresh_library()
         self.show_home()
@@ -625,6 +644,13 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
                 sc2.setAutoRepeat(False)
                 sc2.activated.connect(lambda a=action: self.do(a))
                 self._shortcuts.append(sc2)
+        # the keyboard's media keys, while Pylon is in front (the system's controls cover the rest)
+        for key, cmd in MEDIA_KEYS.items():
+            sc = QShortcut(QKeySequence(key), self)
+            sc.setContext(Qt.WindowShortcut)
+            sc.setAutoRepeat(False)
+            sc.activated.connect(lambda c=cmd: self.media_keys.from_key(c))
+            self._shortcuts.append(sc)
 
     # ---------------------------------------------------------------- A–B repeat
     def ab_step(self) -> str | None:
@@ -686,11 +712,12 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
         return bool(self.store.setting("trim_silence")) and is_audio(cur)
 
     def start_waveform(self):
-        """Read the file's sound in the background, for the waveform in the seek bar and, for songs, for
-        where their silence ends and starts (#86)."""
+        """Read the file's sound in the background, for the waveform in the seek bar, for where a song's
+        silence ends and starts (#86), and for how loud it is when, for night mode."""
         e = self.engine
         cur = e.current
-        if not cur or is_url(cur) or is_disc(cur) or not (self._wants_wave(cur) or self._wants_trim(cur)):
+        if not cur or is_url(cur) or is_disc(cur) or not (self._wants_wave(cur) or self._wants_trim(cur)
+                                                          or self.store.setting("night_mode")):
             self.waves.cancel()
             self.bottom.seek.set_wave([])
             return
@@ -701,6 +728,68 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
             self.bottom.seek.set_wave(peaks if self._wants_wave(path) else [])
 
     # ---------------------------------------------------------------- trim silence (#86)
+    # ---------------------------------------------------------------- type a time to jump to
+    def show_jump_box(self):
+        e = self.engine
+        if not e.current or not e.is_seekable():
+            return
+        if self._jump_box is None:
+            self._jump_box = JumpBox(self)
+            self._jump_box.jump.connect(self.jump_to_text)
+        self._set_bars(True)
+        self._poke(6)
+        self._jump_box.open_at(self.bottom.time, fmt_time(e.time()))
+
+    def jump_to_text(self, text: str):
+        e = self.engine
+        ms = parse_jump(text, e.time(), e.length())
+        if ms is None:
+            if text.strip():
+                self.toast("Type a time like 1:02:10, 130, +30 or 50%")
+            return
+        e.seek(ms)
+        self.bottom.set_time(ms, e.length())
+        self.toast(f"Jumped to {fmt_time(ms)}")
+
+    def set_night_mode(self, on: bool) -> str:
+        """Night mode on or off (#89); the Audio tab's switch and Shift+N come here."""
+        self.engine.set_night_mode(on)
+        if on:
+            self.start_waveform()                 # night mode follows the file's loudness
+            if self.waves.path == self.engine.current and self.waves.level:
+                self.engine.set_loudness(self.waves.path, self.waves.level)
+        box = self.sidebar.night_mode
+        if box.isChecked() != bool(on):
+            box.blockSignals(True)
+            box.setChecked(bool(on))
+            box.blockSignals(False)
+        return "Night mode on: loud and quiet parts evened out" if on else "Night mode off"
+
+    # ---------------------------------------------------------------- hold for 2x speed
+    HOLD_RATE = 2.0
+
+    def hold_fast(self, on: bool, key: bool = False):
+        """Play at 2x while a key or the mouse button is held on the video, then go back to the speed
+        you had. key: started by the hold_fast shortcut, which ends when that key is let go."""
+        e = self.engine
+        if on:
+            if self._hold_rate is not None or not e.current or not e.is_playing():
+                return
+            self._hold_rate = e.live["rate"]
+            self._hold_key = self._shortcut_key("hold_fast") if key else None
+            e.set_rate(self.HOLD_RATE)
+            self.bottom.set_speed(self.HOLD_RATE)
+            self.toast("2× speed while held")
+        elif self._hold_rate is not None:
+            rate, self._hold_rate, self._hold_key = self._hold_rate, None, None
+            e.set_rate(rate)
+            self.bottom.set_speed(rate)
+
+    def _shortcut_key(self, action):
+        """The main key (without Shift, Ctrl…) of an action's shortcut, or None."""
+        seq = QKeySequence(self.store.shortcut(action) or "")
+        return seq[0].key() if seq.count() else None
+
     def set_trim_silence(self, on: bool):
         self.store.set_setting("trim_silence", bool(on))
         cur = self.engine.current
@@ -1083,6 +1172,11 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
         return bool(move and handle.startSystemMove())
 
     def eventFilter(self, obj, e):
+        if self._hold_key is not None and e.type() == QEvent.KeyRelease and not e.isAutoRepeat() \
+                and e.key() == self._hold_key:
+            self.hold_fast(False)           # the held key was let go
+        elif self._hold_rate is not None and e.type() == QEvent.ApplicationDeactivate:
+            self.hold_fast(False)           # switched away while holding: no key release will come
         # In borderless picture in picture the bars' empty areas move the window,
         # and their outer edges resize it.
         if self._pip and obj in (self.top, self.bottom):
@@ -1130,6 +1224,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
         if self._shut_down:
             return
         self._shut_down = True
+        self.media_keys.stop()
         # let the background readers' VLC instances go before VLC and Qt shut down
         self.thumbs.cancel(wait=True)
         self.waves.cancel(wait=True)

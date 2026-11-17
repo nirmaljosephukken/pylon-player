@@ -109,6 +109,10 @@ class TopBar(OverlayWindow):
         self.title.setToolTip(self._full_title)
 
 
+TIME_TIP = {False: "Click to type a time to jump to. Right-click to show the time left.",
+            True: "Click to type a time to jump to. Right-click to show the time played."}
+
+
 class BottomBar(OverlayWindow):
     play_clicked = Signal()
     prev_clicked = Signal()
@@ -120,6 +124,7 @@ class BottomBar(OverlayWindow):
     mute_clicked = Signal()
     resume_clicked = Signal()
     speed_clicked = Signal()
+    time_clicked = Signal()            # type a time to jump to
 
     HEIGHT = 74
 
@@ -143,10 +148,12 @@ class BottomBar(OverlayWindow):
         self.time.setFlat(True)
         self.time.setFocusPolicy(Qt.NoFocus)
         self.time.setCursor(Qt.PointingHandCursor)
-        self.time.setToolTip("Click to show remaining time")
+        self.time.setToolTip(TIME_TIP[False])
         self.time.setStyleSheet(f"QPushButton {{ background: transparent; border: none; color: {theme.TEXT};"
                                 " padding: 0 8px; }")
-        self.time.clicked.connect(self._toggle_remaining)
+        self.time.clicked.connect(self.time_clicked)
+        self.time.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.time.customContextMenuRequested.connect(lambda _p: self._toggle_remaining())
         self.show_remaining = False
 
         self.resume = QPushButton("")
@@ -238,7 +245,7 @@ class BottomBar(OverlayWindow):
 
     def _toggle_remaining(self):
         self.show_remaining = not self.show_remaining
-        self.time.setToolTip("Click to show elapsed time" if self.show_remaining else "Click to show remaining time")
+        self.time.setToolTip(TIME_TIP[self.show_remaining])
         self.set_time(self._pos, self._len)
 
     def set_speed(self, rate: float):

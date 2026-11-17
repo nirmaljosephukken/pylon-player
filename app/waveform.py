@@ -4,10 +4,12 @@ A second libVLC instance converts the file's sound to a tiny mono WAV (2000
 samples a second, no picture), which takes well under a second for a song and
 a few seconds for a film, because VLC writes it as fast as it can decode. The
 loudest sample in each slice becomes one bar. The same sound tells where a song's
-leading and trailing silence ends and starts (#86). Both are kept on disk, so a
-file only has to be read once.
+leading and trailing silence ends and starts (#86), and how loud each quarter
+second is, which night mode follows (night.py). All are kept on disk, so a file
+only has to be read once.
 """
 import array
+import base64
 import json
 import os
 import threading
@@ -17,13 +19,14 @@ import wave
 from PySide6.QtCore import QObject, Signal
 
 from . import engine as engine_mod
+from .night import envelope
 from .background import BackgroundJob, cache_dir, file_key, prune_cache
 
 BARS = 600             # slices along the bar; more than the bar is wide on most screens
 RATE = 2000            # samples a second: plenty for an outline, tiny to write
 MAX_SECONDS = 600      # give up on anything that takes longer than this to read
 CACHE_FILES = 500
-CACHE_VERSION = 2      # 2 adds the silence at both ends (#86)
+CACHE_VERSION = 3      # 2 adds the silence at both ends (#86), 3 the loudness for night mode
 SILENCE_DB = -50       # quieter than this, relative to full scale, counts as silence
 LEAD_IN_MS = 150       # start this much before the sound, so its first note isn't clipped
 TAIL_MS = 400          # and keep this much after it, so a fade ends naturally
@@ -102,6 +105,7 @@ class WaveformMaker(QObject, BackgroundJob):
     """Makes the waveform for one file at a time, in the background."""
     ready = Signal(str, list)        # path, bars (0..1)
     silence = Signal(str, int, int, int)   # path, where the sound starts and ends, length (ms) (#86)
+    loudness = Signal(str, bytes)    # path, loudness every night.STEP_MS
 
     def __init__(self, parent=None):
         QObject.__init__(self, parent)
@@ -109,6 +113,7 @@ class WaveformMaker(QObject, BackgroundJob):
         self.path = None
         self.peaks: list[float] = []
         self.bounds = None               # (start, end, length) ms without the silence at both ends
+        self.level = b""                 # loudness for night mode
         clean_leftovers()
 
     def start(self, path: str):
@@ -120,10 +125,8 @@ class WaveformMaker(QObject, BackgroundJob):
         self.path = path
         cached = self._load_cache(path)
         if cached:
-            self.peaks, self.bounds = cached
-            self.ready.emit(path, self.peaks)
-            if self.bounds:
-                self.silence.emit(path, *self.bounds)
+            self.peaks, self.bounds, self.level = cached
+            self._announce(path)
             return
         self._start_worker(self._run, path)
 
@@ -133,6 +136,14 @@ class WaveformMaker(QObject, BackgroundJob):
         self.path = None
         self.peaks = []
         self.bounds = None
+        self.level = b""
+
+    def _announce(self, path):
+        self.ready.emit(path, self.peaks)
+        if self.bounds:
+            self.silence.emit(path, *self.bounds)
+        if self.level:
+            self.loudness.emit(path, self.level)
 
     # ------------------------------------------------------------------ cache
     def _cache_path(self, path):
@@ -146,14 +157,16 @@ class WaveformMaker(QObject, BackgroundJob):
                 return None
             os.utime(self._cache_path(path))
             trim = info.get("trim")
-            return [float(v) for v in info["peaks"]], (tuple(int(v) for v in trim) if trim else None)
+            return ([float(v) for v in info["peaks"]], (tuple(int(v) for v in trim) if trim else None),
+                    base64.b64decode(info.get("level") or ""))
         except (OSError, ValueError, KeyError, TypeError):
             return None
 
-    def _save_cache(self, path, peaks, bounds=None):
+    def _save_cache(self, path, peaks, bounds=None, level=b""):
         try:
             with open(self._cache_path(path), "w", encoding="utf-8") as f:
-                json.dump({"version": CACHE_VERSION, "peaks": peaks, "trim": list(bounds) if bounds else None}, f)
+                json.dump({"version": CACHE_VERSION, "peaks": peaks, "trim": list(bounds) if bounds else None,
+                           "level": base64.b64encode(level).decode("ascii")}, f)
             prune_cache(_cache_dir(), ".json", CACHE_FILES)
         except OSError:
             pass
@@ -167,13 +180,12 @@ class WaveformMaker(QObject, BackgroundJob):
                 read = read_wav(wav)                 # read once for both (L5)
                 found = peaks(read[0]) if read else []
                 bounds = silence_bounds(*read) if read else None
+                level = envelope(*read) if read else b""
                 if found and not stop.is_set():
-                    self._save_cache(path, found, bounds)
+                    self._save_cache(path, found, bounds, level)
                     if self.path == path:
-                        self.peaks, self.bounds = found, bounds
-                        self.ready.emit(path, found)
-                        if bounds:
-                            self.silence.emit(path, *bounds)
+                        self.peaks, self.bounds, self.level = found, bounds, level
+                        self._announce(path)
         except Exception:
             pass
         finally:

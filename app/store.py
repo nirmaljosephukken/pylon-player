@@ -10,6 +10,7 @@ from .paths import data_dir
 from .util import display_name, is_audio, is_media, is_url
 
 MAX_VOLUMES = (85, 100, 125, 150, 200)   # the volume limits Preferences offers (#47, #89)
+START_VOLUMES = (0, 30, 50, 70, 85, 100)  # "Volume when Pylon starts": 0 = the volume it had when it closed
 
 # What the queue does when an item ends (#48), in the order the queue button cycles through them:
 # key -> (short name, what it does, icon)
@@ -99,6 +100,10 @@ DEFAULT_SHORTCUTS = {
     "preferences": ("Open Preferences", "Ctrl+,"),
     "stop": ("Stop", "S"),
     "close_media": ("Close the video and go home", "Ctrl+W"),   # #61
+    "hold_fast": ("Hold for 2× speed", "Shift+Space"),
+    "go_to_time": ("Type a time to jump to", "Ctrl+G"),
+    "night_mode": ("Night mode (even out loud and quiet)", "Shift+N"),
+    "download_subs": ("Download subtitles (OpenSubtitles.com)", "Shift+D"),
 }
 
 DEFAULT_SETTINGS = {
@@ -141,6 +146,13 @@ DEFAULT_SETTINGS = {
     "hw_decoding": True,
     "visualizer": "",           # picture to show while sound with no video plays, see engine.VISUALIZERS (#85)
     "trim_silence": False,      # skip silence at the start and end of songs (#86)
+    "night_mode": False,        # even out loud and quiet parts with VLC's compressor (#89)
+    "start_volume": 0,          # volume each time Pylon starts; 0 = the volume it had when it closed
+    "media_controls": True,     # media keys and the system's media controls (Windows overlay, MPRIS)
+    "opensubtitles_key": "",    # OpenSubtitles.com API key for downloading subtitles in Pylon
+    "opensubtitles_user": "",   # optional OpenSubtitles.com account, for a higher daily download limit
+    "opensubtitles_password": "",
+    "lyrics": True,             # show synced .lrc lyrics next to a song when there are some
     "rtx_upscale": False,              # Windows: VLC's Super Resolution upscaling (#42)
     "sub_site_star": "",        # preferred subtitle site, starred in Find online; "" = none (#54)
     "onboarded": False,

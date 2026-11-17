@@ -362,7 +362,7 @@ class SilenceBounds(unittest.TestCase):
             with patch.object(background, "data_dir", lambda: d):
                 m = waveform.WaveformMaker()
                 m._save_cache(str(song), [0.5, 1.0], (1850, 7400, 10000))
-                self.assertEqual(m._load_cache(str(song)), ([0.5, 1.0], (1850, 7400, 10000)))
+                self.assertEqual(m._load_cache(str(song)), ([0.5, 1.0], (1850, 7400, 10000), b""))
                 with open(m._cache_path(str(song)), "w") as f:
                     f.write('{"version": 1, "peaks": [1.0]}')        # 1.6 caches are read again
                 self.assertIsNone(m._load_cache(str(song)))

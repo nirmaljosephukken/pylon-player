@@ -17,10 +17,13 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComb
 from . import theme, APP_VERSION
 from .colour_dialog import choose_colour
 from .icons import icon, pixmap
-from .store import DEFAULT_SHORTCUTS, HOME_SECTIONS, MAX_VOLUMES, QUEUE_MODES, RATIOS
+from .store import DEFAULT_SHORTCUTS, HOME_SECTIONS, MAX_VOLUMES, QUEUE_MODES, RATIOS, START_VOLUMES
 from .updates import RELEASES_PAGE, installer_asset, run_installer
 from .util import (MATCH_LEVELS, SUB_EXTS, auto_match_folder, is_url, list_media, subtitle_query,
                    SUBTITLE_SITES)
+from .opensubtitles import KEY_PAGE as OS_KEY_PAGE, Client as OSClient, Job, OpenSubtitlesError, api_key as os_api_key, \
+    api_language, save_next_to
+from .paths import data_dir
 from .widgets import IconButton, muted, subtitle_search_menu
 
 SUB_FILTER = "Subtitles (" + " ".join(f"*{e}" for e in sorted(SUB_EXTS)) + ");;All files (*)"
@@ -96,8 +99,15 @@ class SubtitleDialog(QDialog):
         online.setIcon(icon("globe", theme.TEXT, 16))
         online.setToolTip("Opens a subtitle site in your browser. Download, unzip, then choose the files here.")
         online.setMenu(subtitle_search_menu(online, self.store, self.search_query))
+        download = QPushButton("Download…")
+        download.setIcon(icon("download", theme.TEXT, 16))
+        download.setToolTip("Download from OpenSubtitles.com: pick one for this file, or the best match for every "
+                            "video in the list")
+        download.clicked.connect(self.download)
+        self.download_btn = download
         frow.addWidget(pick_files)
         frow.addWidget(pick_dir)
+        frow.addWidget(download)
         frow.addWidget(online)
         frow.addStretch(1)
         lay.addLayout(frow)
@@ -150,6 +160,66 @@ class SubtitleDialog(QDialog):
                         found.append(os.path.join(root, f))
             self.subs = found
             self.rematch()
+
+    def download(self):
+        """Subtitles from OpenSubtitles.com, matched like files you chose: one you pick for a single file,
+        or the best for each video (made for that file if there is one), then paired as usual."""
+        vids = self.videos()
+        if not vids:
+            return
+        if len(vids) == 1:
+            dlg = OnlineSubtitlesDialog(self.win, vids[0], self)
+            if dlg.exec() and dlg.saved:
+                self.subs = list(dict.fromkeys(self.subs + [dlg.saved]))
+                self.rematch()
+            return
+        try:
+            client = os_client(self.store)
+        except OpenSubtitlesError as err:
+            QMessageBox.information(self, "Download subtitles", str(err))
+            return
+        lang = api_language(self.store.setting("sub_lang"))
+        fallback = os.path.join(data_dir(), "subtitles")
+
+        def work(job):
+            got, misses, stopped = [], 0, ""
+            for i, v in enumerate(vids):
+                if job.cancelled.is_set():
+                    break
+                job.progress.emit(f"Downloading {i + 1} of {len(vids)}: {os.path.basename(v)}")
+                try:
+                    found = client.search(v, language=lang)
+                    if not found:
+                        misses += 1
+                        continue
+                    data, _name = client.download(found[0]["file_id"])
+                    got.append(save_next_to(v, data, lang, fallback))
+                except OpenSubtitlesError as err:
+                    if not got:
+                        raise
+                    stopped = str(err)          # e.g. no downloads left: keep the ones already here
+                    break
+            return got, misses, stopped
+
+        self.download_btn.setEnabled(False)
+        self._job = Job(work, self)
+        self._job.progress.connect(self.note.setText)
+        self._job.done.connect(self._downloaded)
+        self._job.failed.connect(lambda msg: (self.download_btn.setEnabled(True), self.note.setText(msg)))
+        self.finished.connect(lambda _r: self._job.cancelled.set())
+        self._job.start()
+
+    def _downloaded(self, result):
+        got, misses, stopped = result
+        self.download_btn.setEnabled(True)
+        self.subs = list(dict.fromkeys(self.subs + got))
+        self.rematch()
+        extra = f" Downloaded {len(got)}."
+        if misses:
+            extra += f" No subtitles found for {misses}."
+        if stopped:
+            extra += f" Stopped: {stopped}"
+        self.note.setText(self.note.text() + extra)
 
     def search_query(self) -> str:
         vids = self.videos()
@@ -207,6 +277,147 @@ class SubtitleDialog(QDialog):
             msg += f", removed for {removed}"
         self.win.toast(msg)
         self.accept()
+
+
+def os_client(store):
+    return OSClient(os_api_key(store), store.setting("opensubtitles_user") or "",
+                    store.setting("opensubtitles_password") or "")
+
+
+class OnlineSubtitlesDialog(QDialog):
+    """Search OpenSubtitles.com for one video and download the subtitle you pick. Results made for this exact
+    file are marked and come first. The file is saved next to the video as <name>.<language>.srt."""
+
+    def __init__(self, win, video, parent=None):
+        super().__init__(parent or win)
+        self.win, self.store, self.video = win, win.store, video
+        self.saved = ""
+        self._job = None
+        self.setWindowTitle("Download subtitles")
+        self.resize(640, 460)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 18, 20, 16)
+        lay.setSpacing(10)
+        t = QLabel("Download subtitles")
+        t.setObjectName("H1")
+        lay.addWidget(t)
+        lay.addWidget(muted(os.path.basename(video)))
+        row = QHBoxLayout()
+        self.query = QLineEdit(subtitle_query(video))
+        self.query.setPlaceholderText("Title to search for")
+        self.query.returnPressed.connect(self.search)
+        self.lang = QLineEdit(api_language(self.store.setting("sub_lang")))
+        self.lang.setFixedWidth(70)
+        self.lang.setToolTip("Language code, e.g. en, es, ja, hi, ml")
+        self.lang.returnPressed.connect(self.search)
+        self.go = QPushButton("Search")
+        self.go.clicked.connect(self.search)
+        row.addWidget(self.query, 1)
+        row.addWidget(self.lang)
+        row.addWidget(self.go)
+        lay.addLayout(row)
+        self.results = QListWidget()
+        self.results.itemDoubleClicked.connect(lambda _it: self.fetch())
+        lay.addWidget(self.results, 1)
+        self.note = QLabel("")
+        self.note.setObjectName("Muted")
+        self.note.setWordWrap(True)
+        self.note.setOpenExternalLinks(True)
+        lay.addWidget(self.note)
+        bb = QDialogButtonBox()
+        self.get = bb.addButton("Download and use", QDialogButtonBox.AcceptRole)
+        self.get.setObjectName("Primary")
+        self.get.setEnabled(False)
+        bb.addButton(QDialogButtonBox.Cancel)
+        bb.accepted.connect(self.fetch)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+        self.results.currentRowChanged.connect(lambda r: self.get.setEnabled(r >= 0))
+        self.finished.connect(lambda _r: self._job and self._job.cancelled.set())
+        try:
+            self.client = os_client(self.store)
+        except OpenSubtitlesError as err:
+            self.client = None
+            self.note.setText(f'{err} <a href="{OS_KEY_PAGE}">Get an API key</a>')
+            self.go.setEnabled(False)
+            return
+        QTimer.singleShot(0, self.search)
+
+    def _run(self, fn, done):
+        self.go.setEnabled(False)
+        self.get.setEnabled(False)
+        self._job = Job(fn, self)
+        self._job.done.connect(done)
+        self._job.failed.connect(self._failed)
+        self._job.start()
+
+    def _failed(self, msg):
+        self.note.setText(msg)
+        self.go.setEnabled(True)
+        self.get.setEnabled(self.results.currentRow() >= 0)
+
+    def search(self):
+        if not self.client:
+            return
+        query, lang = self.query.text().strip(), self.lang.text().strip() or "en"
+        self.note.setText("Searching…")
+        self._run(lambda _job: self.client.search(self.video, query=query, language=lang), self._show)
+
+    def _show(self, found):
+        self.go.setEnabled(True)
+        self.found = found
+        self.results.clear()
+        for x in found:
+            text = x["release"] or x["name"]
+            if x["episode"]:
+                text += f"   S{x['episode'][0]:02d}E{x['episode'][1]:02d}"
+            text += f"   ·   {x['language']}   ·   {x['downloads']:,} downloads"
+            it = QListWidgetItem(("✓ Made for this file   " if x["match"] else "") + text)
+            if x["match"]:
+                f = it.font()
+                f.setBold(True)
+                it.setFont(f)
+            it.setToolTip(x["name"])
+            self.results.addItem(it)
+        if found:
+            self.results.setCurrentRow(0)
+            matches = sum(1 for x in found if x["match"])
+            self.note.setText(f"{len(found)} found" + (f", {matches} made for this exact file (marked ✓)." if matches
+                                                       else ". None was made for this exact file, so check the timing."))
+        else:
+            self.note.setText("Nothing found. Try another title or language.")
+
+    def fetch(self):
+        row = self.results.currentRow()
+        if not self.client or row < 0:
+            return
+        pick = self.found[row]
+        lang = pick["language"] or self.lang.text().strip() or "en"
+        fallback = os.path.join(data_dir(), "subtitles")
+        self.note.setText("Downloading…")
+
+        def work(_job):
+            data, _name = self.client.download(pick["file_id"])
+            return save_next_to(self.video, data, lang, fallback)
+        self._run(work, self._saved)
+
+    def _saved(self, path):
+        self.saved = path
+        self.accept()
+
+
+def download_subtitle_for_current(win):
+    """The sidebar's and menu's "Download subtitles…": pick one for what's playing, then use it."""
+    cur = win.engine.current
+    if not cur or is_url(cur):
+        return
+    dlg = OnlineSubtitlesDialog(win, cur)
+    if dlg.exec() and dlg.saved:
+        win.engine.add_subtitle(dlg.saved, select=True)
+        win.store.data["sub_map"][cur] = dlg.saved
+        win.store.save("subs")
+        win.sidebar.load_cues()
+        win.toast(f"Subtitles: {os.path.basename(dlg.saved)}")
 
 
 # ====================================================================== streams
@@ -786,6 +997,14 @@ class PreferencesDialog(QDialog):
         vol.setCurrentIndex(max(0, vol.findData(self.win.engine.max_volume())))
         vol.currentIndexChanged.connect(lambda i: self._set_max_volume(vol.itemData(i)))
         f.addWidget(vol)
+        f.addWidget(info_label("Volume when Pylon starts", "So a loud film never starts at full blast."))
+        start = QComboBox()
+        start.setObjectName("start_volume")
+        for v in START_VOLUMES:
+            start.addItem(f"{v}%" if v else "The volume it had when it closed", v)
+        start.setCurrentIndex(max(0, start.findData(self.store.setting("start_volume"))))
+        start.currentIndexChanged.connect(lambda i: self.store.set_setting("start_volume", start.itemData(i)))
+        f.addWidget(start)
         f.addWidget(info_label("Queue mode when Pylon starts",
                                "The button above the queue changes it while you watch: stop, shuffle, in order or loop."))
         qm = QComboBox()
@@ -806,11 +1025,34 @@ class PreferencesDialog(QDialog):
         prev.setChecked(bool(self.store.setting("prev_restarts")))
         prev.toggled.connect(lambda v: self.store.set_setting("prev_restarts", v))
         f.addWidget(prev)
+        keys = QCheckBox("Media keys and the system's media controls")
+        keys.setObjectName("media_controls")
+        keys.setToolTip("Play/pause, next and previous keys on your keyboard or headphones, and the media "
+                        "controls of Windows and Linux desktops, work even while Pylon isn't in front.")
+        keys.setChecked(bool(self.store.setting("media_controls")))
+        keys.toggled.connect(self._set_media_controls)
+        f.addWidget(keys)
+        lyr = QCheckBox("Show synced lyrics next to a song (a .lrc file with the same name)")
+        lyr.setObjectName("lyrics")
+        lyr.setChecked(bool(self.store.setting("lyrics")))
+        lyr.toggled.connect(self._set_lyrics)
+        f.addWidget(lyr)
         f.addWidget(info_label("Aspect ratios and crops to offer",
                                "Choose which shapes appear in the Video tab of the settings panel, the right-click "
                                "menu and the A and C keys. Auto and No crop are always there."))
         self.ratios = RatioPicker(self.store, self.win.sidebar.refresh_ratio_rows)
         f.addWidget(self.ratios)
+
+    def _set_media_controls(self, on):
+        self.store.set_setting("media_controls", on)
+        if on:
+            self.win.media_keys.start(int(self.win.winId()))     # shows what's playing right away
+        else:
+            self.win.media_keys.stop()
+
+    def _set_lyrics(self, on):
+        self.store.set_setting("lyrics", on)
+        self.win.now_playing.reload_lyrics()
 
     def _set_max_volume(self, m: int):
         self.store.set_setting("max_volume", int(m))
@@ -845,6 +1087,23 @@ class PreferencesDialog(QDialog):
         le2 = QLineEdit(self.store.setting("audio_lang"))
         le2.textChanged.connect(lambda t: self.store.set_setting("audio_lang", t.strip()))
         f.addWidget(le2)
+        f.addWidget(info_label("Download subtitles in Pylon (OpenSubtitles.com)",
+                               "Make a free account at opensubtitles.com, then create an API key under "
+                               "Profile > API consumers and paste it here. Signing in with your account too "
+                               "gives you your account's daily downloads instead of a few."))
+        link = QLabel(f'<a href="{OS_KEY_PAGE}">Get an API key</a>')
+        link.setOpenExternalLinks(True)
+        f.addWidget(link)
+        for key, holder, secret in (("opensubtitles_key", "API key", False),
+                                    ("opensubtitles_user", "Username (optional)", False),
+                                    ("opensubtitles_password", "Password (optional)", True)):
+            le3 = QLineEdit(self.store.setting(key))
+            le3.setObjectName(key)
+            le3.setPlaceholderText(holder)
+            if secret:
+                le3.setEchoMode(QLineEdit.Password)
+            le3.textChanged.connect(lambda t, k=key: self.store.set_setting(k, t.strip()))
+            f.addWidget(le3)
 
     def _controls(self, f):
         b = QPushButton("Edit keyboard shortcuts…")

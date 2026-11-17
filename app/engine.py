@@ -14,8 +14,9 @@ from fractions import Fraction
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
+from .night import Leveller, scaled_volume
 from .paths import APP_ROOT, log_dir, rotate
-from .store import MAX_VOLUMES, saved_setting
+from .store import MAX_VOLUMES, START_VOLUMES, saved_setting
 from .util import disc_mrl, is_disc, is_url
 
 
@@ -326,6 +327,9 @@ class Engine(QObject):
         self.store = store
         if (store.setting("visualizer") or "") not in VISUALIZERS:
             store.set_setting("visualizer", "")      # one this system doesn't offer, such as 3D spectrum on Windows
+        start = store.setting("start_volume")
+        if start in START_VOLUMES and start:          # "Volume when Pylon starts"
+            store.set_setting("volume", min(int(start), self.max_volume()))
         self.instance = None
         self.player = None
         self.win_id = None
@@ -348,6 +352,8 @@ class Engine(QObject):
         self._boost_held = False       # Windows: a new audio output is starting, so stay at 100% or below (#82)
         self._boost_later = None       # the volume above 100% to apply once it has started
         self._boost_gen = 0            # which hold a release timer belongs to, so an old one can't end a new hold
+        self.leveller = Leveller()     # night mode: the current file's loudness, and the gain it is playing at
+        self._user_volume = None       # the volume you set, while night mode plays VLC at another
         self._held_ms = None           # position shown while a media is opened paused
         self._settle = None            # reopening paused: where to return once it plays (#36)
         self._settling = None          # that settle while it pauses and jumps back
@@ -515,6 +521,10 @@ class Engine(QObject):
             self._renew(self.volume())
         if not is_url(target):
             target = os.path.normpath(os.path.abspath(target))
+        if self.leveller.path != target:          # night mode starts each file at the volume you set
+            self.leveller.clear()
+            if self._user_volume is not None and "volume" not in self._audio_pending:
+                self._queue_audio(volume=self._user_volume)
         self.current = target
         self.current_title = title
         disc = is_disc(target)
@@ -629,6 +639,30 @@ class Engine(QObject):
             return True
         self._args_stale = True
         return False
+
+    def set_night_mode(self, on: bool):
+        """Night mode on or off: loud parts turned down and quiet talk brought up (see night.py)."""
+        self.store.set_setting("night_mode", bool(on))
+        if not on:
+            self.leveller.gain_db = 0.0
+            if self._user_volume is not None and "volume" not in self._audio_pending:
+                self._queue_audio(volume=self._user_volume)
+
+    def set_loudness(self, path: str, env: bytes):
+        """The loudness of a file, from the waveform reader. Night mode follows it while that file plays."""
+        if path == self.current and env != self.leveller.env:
+            self.leveller.load(path, env)
+
+    def night_tick(self):
+        """Every quarter second: move VLC's volume against the loudness just ahead."""
+        lv = self.leveller
+        if (not self.ok or not self.store.setting("night_mode") or lv.path != self.current or not lv.env
+                or not self.is_playing()):
+            return
+        before = lv.gain_db
+        after = lv.step(self.time())
+        if abs(after - before) >= 0.25 and "volume" not in self._audio_pending and not self._boost_held:
+            self._queue_audio(volume=self.volume())
 
     def set_vsr_paused(self, on: bool) -> bool:
         """Set Super Resolution aside, or bring it back (#42). VLC reads its upscaling mode only when the
@@ -864,9 +898,15 @@ class Engine(QObject):
         if "volume" in pending:
             v = int(pending["volume"])
             self._boost_later = None
-            if self._boost_held and v > START_VOLUME_CAP:
-                self._boost_later, v = v, START_VOLUME_CAP
-            self.player.audio_set_volume(v)
+            self._user_volume = None
+            play = v
+            if self.store.setting("night_mode") and self.leveller.gain_db:
+                self._user_volume = v
+                play = min(scaled_volume(v, self.leveller.gain_db, cubic=sys.platform == "win32"),
+                           max(v, self.max_volume()))
+            if self._boost_held and play > START_VOLUME_CAP:
+                self._boost_later, play = v, START_VOLUME_CAP     # the volume you set, applied once started
+            self.player.audio_set_volume(play)
         if "mute" in pending:
             self.player.audio_set_mute(bool(pending["mute"]))
 
@@ -901,6 +941,8 @@ class Engine(QObject):
     def volume(self) -> int:
         if self.ok and "volume" in self._audio_pending:
             return int(self._audio_pending["volume"])
+        if self._user_volume is not None and self.ok:
+            return int(self._user_volume)          # night mode is playing VLC at another volume
         if self.ok and self._boost_later is not None:
             return int(self._boost_later)
         v = self.player.audio_get_volume() if self.ok else -1

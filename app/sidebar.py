@@ -343,7 +343,8 @@ class SettingsSidebar(QWidget):
         online = QPushButton("Find online")
         online.setIcon(icon("globe", theme.TEXT, 14))
         online.setToolTip("Search a subtitle site for this title in your browser")
-        online.setMenu(subtitle_search_menu(online, self.store, lambda: subtitle_query(self.engine.current or "")))
+        online.setMenu(subtitle_search_menu(online, self.store, lambda: subtitle_query(self.engine.current or ""),
+                                            self.download_subtitles))
         row.addWidget(add)
         row.addWidget(online)
         lay.addLayout(row)
@@ -497,6 +498,17 @@ class SettingsSidebar(QWidget):
         self.audio_delay = ValueSlider(-5000, 5000, 50, 0, fmt_delay, nudge=50, reset=0)
         self.audio_delay.changed.connect(self.engine.set_audio_delay)
         lay.addWidget(self.audio_delay)
+        lay.addWidget(section("Night mode"))
+        # loud scenes turned down, quiet talk brought up (night.py)
+        self.night_mode = QCheckBox("Even out loud and quiet parts")
+        self.night_mode.setToolTip("Pylon reads the file's sound first (a few seconds for a film), then turns "
+                                   "loud scenes down before they arrive and brings quiet talk up. Not for "
+                                   "streams or discs.")
+        self.night_mode.setChecked(bool(self.store.setting("night_mode")))
+        self.night_mode.toggled.connect(lambda on: self.win.toast(self.win.set_night_mode(on)))
+        lay.addWidget(self.night_mode)
+        lay.addWidget(muted("Quiet dialogue comes up and loud scenes come down, so you don't have to keep "
+                            "changing the volume. What's playing continues from the same spot."))
         lay.addWidget(section("Sound"))
         names = self.engine.eq_presets()
         short = {"Full bass and treble": "Bass and treble", "Full bass": "Bass boost", "Full treble": "Treble boost"}
@@ -1016,6 +1028,10 @@ class SettingsSidebar(QWidget):
         self.set_sub_delay_ui(self.engine.live["sub_delay"])
         self.audio_delay.set_value(self.engine.live["audio_delay"])
         self.load_cues()
+
+    def download_subtitles(self):
+        from .dialogs import download_subtitle_for_current      # dialogs imports widgets that import us
+        download_subtitle_for_current(self.win)
 
     def load_cues(self):
         subs = self.engine.extra_subs
