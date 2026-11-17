@@ -30,7 +30,7 @@ KEY_PAGE = "https://www.opensubtitles.com/en/consumers"
 SIGN_UP_PAGE = "https://www.opensubtitles.com"
 # Pylon's own API key (the "Pylon" consumer on OpenSubtitles.com). Visible to anyone reading the source, as in
 # every open-source player; if it is ever misused, delete it on KEY_PAGE and put a new one here.
-PYLON_KEY = ""
+PYLON_KEY = "ST7wPyjzg80sx0OMga2k76uDWGO2cfvm"
 
 # Pylon's language setting can be a two- or three-letter code or a name; OpenSubtitles wants two letters
 _LANGS = {
