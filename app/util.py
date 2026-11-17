@@ -115,6 +115,8 @@ def to_path(s: str) -> str:
         path = unquote(p.path)
         if os.name == "nt" and re.match(r"^/[A-Za-z]:", path):
             path = path[1:]
+        elif p.netloc and p.netloc.lower() != "localhost":
+            path = "//" + p.netloc + path          # file://server/share/x is a network share
         return os.path.normpath(path)
     return s
 
@@ -406,17 +408,101 @@ def parse_m3u(text: str) -> list[tuple[str, str]] | None:
 
 
 
-def read_playlist(path: str) -> list[tuple[str, str]]:
-    """[(name, path or link)] from an .m3u file, with relative paths made absolute. Empty if the file
-    can't be read or isn't a list (an HLS stream, a .pls or .xspf file: VLC opens those itself)."""
+def parse_pls(text: str) -> list[tuple[str, str]]:
+    """[(name, entry)] from a .pls playlist (FileN= and TitleN= keys, in N order)."""
+    files, titles = {}, {}
+    for raw in text.splitlines():
+        m = re.match(r"\s*(File|Title)(\d+)\s*=(.*)$", raw, re.I)
+        if m:
+            (files if m.group(1).lower() == "file" else titles)[int(m.group(2))] = m.group(3).strip()
+    return [(titles.get(n) or display_name(files[n]), files[n]) for n in sorted(files) if files[n]]
+
+
+def parse_xspf(text: str) -> list[tuple[str, str]]:
+    """[(name, entry)] from an .xspf playlist: each track's <location> and <title>."""
+    import xml.etree.ElementTree as ET
     try:
-        with open(path, encoding="utf-8-sig", errors="replace") as f:
-            found = parse_m3u(f.read(8_000_000)) or []
+        root = ET.fromstring(text.encode("utf-8"))
+    except ET.ParseError:
+        return []
+    out = []
+    for track in root.iter():
+        if track.tag.rsplit("}", 1)[-1] != "track":
+            continue
+        loc = title = ""
+        for child in track:
+            tag = child.tag.rsplit("}", 1)[-1]
+            if tag == "location" and not loc:
+                loc = (child.text or "").strip()
+            elif tag == "title":
+                title = (child.text or "").strip()
+        if loc:
+            out.append((title, loc))
+    return out
+
+
+def _playlist_entry(entry: str, base: str) -> str:
+    """A playlist entry as Pylon plays it: links stay links, file: URIs become paths, and relative
+    paths (or relative URIs, as .xspf has them) are made absolute against the playlist's folder."""
+    if entry.lower().startswith("file:"):
+        if not entry.lower().startswith("file://"):        # file:relative/name.mp3
+            entry = unquote(entry[5:])
+        else:
+            return to_path(entry)
+    if is_url(entry):
+        return entry
+    if os.path.isabs(entry) or re.match(r"^[A-Za-z]:[\\/]", entry) or entry.startswith(("\\\\", "//")):
+        return os.path.normpath(entry)
+    return os.path.normpath(os.path.join(base, entry))
+
+
+def _playlist_text(path: str) -> str:
+    """A playlist's text: UTF-8 (with or without a BOM), else the system's own encoding, which older
+    players use for .m3u and .pls."""
+    with open(path, "rb") as f:
+        data = f.read(8_000_000)
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        import locale
+        return data.decode(locale.getpreferredencoding(False) or "latin-1", errors="replace")
+
+
+def read_playlist(path: str) -> list[tuple[str, str]]:
+    """[(name, path or link)] from an .m3u, .m3u8, .pls or .xspf file, with file: URIs and relative
+    paths turned into absolute paths. Empty if the file can't be read or isn't a list (an HLS stream)."""
+    try:
+        text = _playlist_text(path)
     except OSError:
         return []
-    base = os.path.dirname(path)
-    return [(n, u if is_url(u) or os.path.isabs(u) else os.path.normpath(os.path.join(base, u)))
-            for n, u in found]
+    head = text.lstrip()[:2000].lower()
+    ext = os.path.splitext(path)[1].lower()
+    if head.startswith("[playlist]") or (ext == ".pls" and not head.startswith("#")):
+        found = parse_pls(text)
+    elif head.startswith("<?xml") or head.startswith("<playlist") or ext == ".xspf":
+        found = parse_xspf(text)
+    else:
+        found = parse_m3u(text) or []
+    base = os.path.dirname(os.path.abspath(path))
+    out = []
+    for name, entry in found:
+        target = _playlist_entry(entry, base)
+        if not name or name == display_name(entry):         # no title of its own: name it from the file
+            name = display_name(target)
+        out.append((name, target))
+    return out
+
+
+def expand_playlists(paths) -> list[tuple[str, str]]:
+    """[(name, path or link)] for files picked or dropped together: each playlist among them is replaced,
+    in place, by its entries, and every other path is kept as it is (with an empty name)."""
+    out = []
+    for p in paths:
+        if not is_url(p) and os.path.splitext(p)[1].lower() in PLAYLIST_EXTS and os.path.isfile(p):
+            out += read_playlist(p)
+        else:
+            out.append(("", p))
+    return out
 
 
 def write_m3u(path: str, entries) -> None:

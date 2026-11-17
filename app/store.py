@@ -405,10 +405,6 @@ class Store(QObject):
     def position(self, path: str) -> dict:
         return self.data["positions"].get(path, {})
 
-    def resume_position(self, path: str) -> int:
-        """Where to resume `path` in ms, or 0 (see resume_point)."""
-        return resume_point(self.position(path))
-
     def count_play(self, path: str):
         """One more play of this file (Recently played and Most played in Music)."""
         if not path or not self.setting("remember_history"):

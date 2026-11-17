@@ -45,40 +45,42 @@ def clean_leftovers(max_age_s: int = 600):
         pass
 
 
-def peaks_from_wav(wav_path: str, bars: int = BARS) -> list[float]:
-    """The loudest sample in each of `bars` slices, scaled so the loudest slice is 1.0."""
-    with wave.open(wav_path, "rb") as w:
-        if w.getsampwidth() != 2:
-            return []
-        channels = max(1, w.getnchannels())
-        data = array.array("h", w.readframes(w.getnframes()))
-    if channels > 1:
-        data = data[::channels]
-    n = len(data)
-    if n == 0:
-        return []
-    bars = min(bars, n)
-    out = []
-    for i in range(bars):
-        part = data[i * n // bars:(i + 1) * n // bars]
-        out.append(max(max(part), -min(part)) if part else 0)
-    top = max(out) or 1
-    # square root so quiet passages still show, as in most audio editors
-    return [round((v / top) ** 0.5, 3) for v in out]
-
-
-def silence_from_wav(wav_path: str) -> tuple[int, int, int] | None:
-    """(where the sound starts, where it ends, length), in ms, ignoring silence at both ends (#86).
-    None for a file that is silent all through."""
+def read_wav(wav_path: str):
+    """(first channel's 16-bit samples, sample rate) of a WAV file, or None for another sample size."""
     with wave.open(wav_path, "rb") as w:
         if w.getsampwidth() != 2:
             return None
         channels = max(1, w.getnchannels())
         rate = w.getframerate() or RATE
         data = array.array("h", w.readframes(w.getnframes()))
-    if channels > 1:
-        data = data[::channels]
-    return silence_bounds(data, rate)
+    return (data[::channels] if channels > 1 else data), rate
+
+
+def peaks(samples, bars: int = BARS) -> list[float]:
+    """The loudest sample in each of `bars` slices, scaled so the loudest slice is 1.0."""
+    n = len(samples)
+    if n == 0:
+        return []
+    bars = min(bars, n)
+    out = []
+    for i in range(bars):
+        part = samples[i * n // bars:(i + 1) * n // bars]
+        out.append(max(max(part), -min(part)) if part else 0)
+    top = max(out) or 1
+    # square root so quiet passages still show, as in most audio editors
+    return [round((v / top) ** 0.5, 3) for v in out]
+
+
+def peaks_from_wav(wav_path: str, bars: int = BARS) -> list[float]:
+    read = read_wav(wav_path)
+    return peaks(read[0], bars) if read else []
+
+
+def silence_from_wav(wav_path: str) -> tuple[int, int, int] | None:
+    """(where the sound starts, where it ends, length), in ms, ignoring silence at both ends (#86).
+    None for a file that is silent all through."""
+    read = read_wav(wav_path)
+    return silence_bounds(*read) if read else None
 
 
 def silence_bounds(samples, rate: int = RATE, db: float = SILENCE_DB) -> tuple[int, int, int] | None:
@@ -162,13 +164,14 @@ class WaveformMaker(QObject, BackgroundJob):
         wav = os.path.join(_cache_dir(), f"reading-{file_key(path)}-{threading.get_ident()}.wav")
         try:
             if self._decode(path, wav, stop) and not stop.is_set():
-                peaks = peaks_from_wav(wav)
-                bounds = silence_from_wav(wav)
-                if peaks and not stop.is_set():
-                    self._save_cache(path, peaks, bounds)
+                read = read_wav(wav)                 # read once for both (L5)
+                found = peaks(read[0]) if read else []
+                bounds = silence_bounds(*read) if read else None
+                if found and not stop.is_set():
+                    self._save_cache(path, found, bounds)
                     if self.path == path:
-                        self.peaks, self.bounds = peaks, bounds
-                        self.ready.emit(path, peaks)
+                        self.peaks, self.bounds = found, bounds
+                        self.ready.emit(path, found)
                         if bounds:
                             self.silence.emit(path, *bounds)
         except Exception:

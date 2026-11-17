@@ -305,6 +305,7 @@ class SettingsSidebar(QWidget):
             cb.setMinimumContentsLength(8)
             cb.setMinimumWidth(0)
         self.refresh_presets()
+        self.load_sub_style(self.engine.sub_style)    # the saved look shows before anything has played (M1)
 
         self.store.setting_changed.connect(self._setting_changed)
         # Track changes reach the sidebar through the window (_on_tracks), once, and only rebuild the

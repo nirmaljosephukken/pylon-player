@@ -21,7 +21,7 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 
 ## What's new
 
-**1.7.2:** On Windows, a film that starts with the volume above 100% has sound from the start again: Pylon starts it at 100% and goes up to your volume a moment later. The maximum volume can now also be **85%** or **100%** (Preferences > Playback), and the direct download links above work again.
+**1.7.2:** On Windows, a film that starts with the volume above 100% has sound from the start again: Pylon starts it at 100% and goes up to your volume a moment later. The maximum volume can now also be **85%** or **100%** (Preferences > Playback). **.pls** and **.xspf** playlists, and playlists saved by VLC or foobar2000, open properly, and a playlist dropped on the queue brings its entries. A file from another show no longer keeps the last show's aspect ratio, crop, zoom or colours. Plus smaller fixes, and the direct download links above work again.
 
 **1.7.1:** With **Super Resolution** on, films that aren't the shape of the screen keep it in full screen, with their own black bars, as in VLC, and a normal window no longer shows a black picture. On Windows, Pylon no longer closes at the end of a song with the 3D spectrum visualization (it's no longer offered there). A damaged settings file is kept and restored from its backup instead of being wiped. Updates are checked against the release's checksums, VLC starts once instead of twice, online channel lists load without freezing the window, and menus show your own shortcuts. The Library tab sorts like the other tabs, snapshots go to your Pictures folder, and Pylon is offered for playlists in "Open with".
 

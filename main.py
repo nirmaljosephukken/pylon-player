@@ -111,7 +111,9 @@ def main():
         sock.write(("\n".join(args) or "<show>").encode("utf-8"))
         sock.flush()
         sock.waitForBytesWritten(1000)
-        sock.disconnectFromServer()
+        sock.disconnectFromServer()          # sends what is still buffered before closing
+        if sock.state() != QLocalSocket.UnconnectedState:
+            sock.waitForDisconnected(1000)   # quit only once the open Pylon has everything (M3)
         return
 
     startup.mark("Importing player and VLC")
@@ -147,6 +149,7 @@ def main():
             buf.extend(bytes(conn.readAll()))
 
         def done():
+            buf.extend(bytes(conn.readAll()))     # anything that arrived with the disconnect (M3)
             data = buf.decode("utf-8", "replace").strip()
             if not data:                 # another Pylon only checking that this one is alive
                 conn.deleteLater()

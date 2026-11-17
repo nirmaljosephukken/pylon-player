@@ -202,15 +202,14 @@ class HomePage(QScrollArea):
         if pls:
             lay.addWidget(self._section("Playlists"))
             row = FlowRow()
-            positions = self.store.data["positions"]
             ordered = lib.ordered_playlists()           # follow the Playlists tab (#37, #63)
             first, rest = lib.with_pins("playlists", ordered, lambda x: x[0])     # pinned first (#52)
             for name, items in first + rest:
-                done = sum(1 for p in items if positions.get(p, {}).get("watched"))
+                done, _files, frac = lib.playlist_progress(items)     # counted as the Playlists tab does (M7)
                 sub = f"{len(items)} item{'s' if len(items) != 1 else ''}"
                 if done:
                     sub += f"  ·  {done} watched"
-                c = Card(name, sub, "playlist", progress=done / len(items) if items and done else None)
+                c = Card(name, sub, "playlist", progress=frac if done else None)
                 self._bind_card_menu(c, "playlist", name)
                 c.clicked.connect(lambda n=name: self.win.play_playlist(n))
                 row.add(c)
@@ -354,7 +353,7 @@ class HomePage(QScrollArea):
             tracks = album["tracks"] if album else []
             pinned = lib.is_pinned("albums", value)
             return [("Play", lambda: lib.play_songs(tracks)),
-                    ("Add to queue", lambda: win.enqueue(tracks)),
+                    ("Add to queue", lambda: win.enqueue_entries(lib.queue_items(tracks))),
                     ("Unpin" if pinned else "Pin to top", lambda: lib.toggle_item_pin("albums", value))]
         if kind == "playlist":
             return [("Play", lambda: win.play_playlist(value)),

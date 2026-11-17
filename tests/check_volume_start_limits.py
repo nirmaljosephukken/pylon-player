@@ -79,6 +79,12 @@ class FakePlayer:
     def audio_set_track(self, t):
         self.track = t
 
+    def audio_output_device_set(self, _module, device):
+        self.device = device
+
+    def stop(self):
+        pass
+
     def set_media(self, _m):
         pass
 
@@ -156,6 +162,45 @@ class StartVolume(unittest.TestCase):
             self.assertTrue(wait_for(lambda: self.p.volumes[-1] == 150, BOOST_DELAY_MS + 1000))
             self.e.set_audio(2)                                # a new track starts a new audio output
             self.assertEqual(self.p.track, 2)
+            self.assertEqual(self.p.volumes[-1], 100)
+            self.assertTrue(wait_for(lambda: self.p.volumes[-1] == 150, BOOST_DELAY_MS + 1500))
+
+    def test_next_file_soon_after_the_last_started(self):
+        """The release set for the last file mustn't end the next file's hold (review H1)."""
+        with patch.object(Engine, "BOOST_HOLD", True):
+            self.start(150)
+            self.e.state_changed.emit("playing")
+            wait(200)
+            self.e.open(self.media + "2")                      # Next, 0.2 s after the first file played
+            self.assertEqual(self.p.volumes[-1], 100)
+            wait(BOOST_DELAY_MS)                               # the first file's release time has passed
+            self.assertEqual(self.p.volumes[-1], 100)          # still held: the new output hasn't started
+            self.assertEqual(self.e.volume(), 150)
+            self.e.state_changed.emit("playing")
+            self.assertTrue(wait_for(lambda: self.p.volumes[-1] == 150, BOOST_DELAY_MS + 1000))
+
+    def test_failed_file_doesnt_keep_the_cap(self):
+        with patch.object(Engine, "BOOST_HOLD", True):
+            self.start(150)
+            self.e.state_changed.emit("error")                 # never plays
+            wait(50)
+            self.e.set_volume(140)
+            self.assertEqual(self.p.volumes[-1], 140)
+
+    def test_closing_ends_the_hold(self):
+        with patch.object(Engine, "BOOST_HOLD", True):
+            self.start(150)
+            self.e.close()
+            self.e.set_volume(130)
+            self.assertEqual(self.p.volumes[-1], 130)
+
+    def test_changing_audio_device(self):
+        with patch.object(Engine, "BOOST_HOLD", True):
+            self.start(150)
+            self.e.state_changed.emit("playing")
+            self.assertTrue(wait_for(lambda: self.p.volumes[-1] == 150, BOOST_DELAY_MS + 1000))
+            self.e.set_device("headphones")                    # a new device starts a new output
+            self.assertEqual(self.p.device, "headphones")
             self.assertEqual(self.p.volumes[-1], 100)
             self.assertTrue(wait_for(lambda: self.p.volumes[-1] == 150, BOOST_DELAY_MS + 1500))
 

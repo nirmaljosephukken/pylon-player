@@ -14,7 +14,7 @@ from fractions import Fraction
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
-from .paths import log_dir, rotate
+from .paths import APP_ROOT, log_dir, rotate
 from .store import MAX_VOLUMES, saved_setting
 from .util import disc_mrl, is_disc, is_url
 
@@ -123,11 +123,10 @@ def _saved_vlc_dir() -> str:
 
 def _windows_candidates() -> list[str]:
     """Folders where a Windows VLC might be, most specific first."""
-    app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     cands = [os.environ.get("PYLON_VLC_DIR", ""), _installer_vlc_dir()]
     # VLC inside Pylon's folder, or next to it, or next to any folder above it
     # (setup's Browse button adds "\Pylon", e.g. E:\Apps\Pylon-1.1\Pylon with E:\Apps\VLC).
-    d = app_root
+    d = APP_ROOT
     for _ in range(4):
         cands += [os.path.join(d, "VLC"), os.path.join(d, "VideoLAN", "VLC")]
         parent = os.path.dirname(d)
@@ -163,8 +162,7 @@ def _windows_candidates() -> list[str]:
 def _installer_vlc_dir() -> str:
     """Setup writes the VLC folder it found to vlc-path.txt next to Pylon."""
     try:
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        with open(os.path.join(root, "vlc-path.txt"), encoding="utf-8-sig") as f:
+        with open(os.path.join(APP_ROOT, "vlc-path.txt"), encoding="utf-8-sig") as f:
             return f.read().strip().strip('"')
     except OSError:
         return ""
@@ -288,6 +286,8 @@ CUSTOM_EQ = -2     # live["eq"] value for the user's own 10-band curve (#38)
 EQ_RANGE = 20.0    # VLC's equalizer works in -20..+20 dB
 MAX_ZOOM = 8.0         # interactive zoom limit (#39)
 AUDIO_WARMUP = 0.6     # seconds to wait before the first volume change on Linux (#28)
+# The picture settings a per-show preset can change, as they are with no preset: aspect, crop, zoom, colours
+PICTURE_DEFAULTS = {"aspect": "", "crop": "", "zoom": 0.0, "adjust": None}
 START_VOLUME_CAP = 100  # Windows: highest volume an audio output may start at, or it can stay silent (#82)
 BOOST_DELAY_MS = 500   # Windows: wait this long after playback starts before going above 100% (#82)
 
@@ -339,8 +339,7 @@ class Engine(QObject):
         self.rotate, self.flip_h, self.flip_v = 0, False, False     # rotate and flip (#83)
         self.sharpen = 0.0             # 0 = off, else VLC sharpen strength (sigma, up to 1.5)
         self.live = {"rate": 1.0, "sub_delay": 0, "audio_delay": 0, "eq": -1, "eq_custom": None,
-                     "aspect": "", "crop": "", "zoom": 0.0, "deinterlace": "",
-                     "adjust": None}
+                     "deinterlace": "", **PICTURE_DEFAULTS}
         self._cb = []
         self._live_pending = False     # re-apply live settings once the new player plays
         self._live_done = False        # live settings were applied to the media playing now (M16)
@@ -348,8 +347,10 @@ class Engine(QObject):
         self._audio_pending = {}       # volume/mute changes waiting for that
         self._boost_held = False       # Windows: a new audio output is starting, so stay at 100% or below (#82)
         self._boost_later = None       # the volume above 100% to apply once it has started
+        self._boost_gen = 0            # which hold a release timer belongs to, so an old one can't end a new hold
         self._held_ms = None           # position shown while a media is opened paused
         self._settle = None            # reopening paused: where to return once it plays (#36)
+        self._settling = None          # that settle while it pauses and jumps back
         self.izoom = None              # interactive zoom (#39): {"z", "x", "y", "w", "h"} in video pixels
         self.fit = None                # (w, h) device pixels of a video area sized to the picture (#42)
         self._fit_turn = 0             # which of the equivalent fill ratios is in use
@@ -524,7 +525,7 @@ class Engine(QObject):
         if start_ms > 0 and not disc:     # a disc starts at its menu; the window resumes the title
             media.add_option(f":start-time={start_ms / 1000:.3f}")
         self._held_ms = None
-        self._settle = None
+        self._settle = self._settling = None
         self.izoom = None              # each new file starts unzoomed
         self._live_done = False
         if paused:
@@ -674,12 +675,19 @@ class Engine(QObject):
             self._audio_ready_at = 0      # the output is running, so changes are safe now
             self._flush_audio()
             if self._boost_held:
-                QTimer.singleShot(BOOST_DELAY_MS, self._release_boost)
+                gen = self._boost_gen
+                QTimer.singleShot(BOOST_DELAY_MS, lambda: self._release_boost(gen))
+        elif state == "error":
+            self._release_boost()         # nothing will play, so don't keep later volume changes capped
         if state == "playing" and self._settle:
             settle, self._settle = self._settle, None
+            self._settling = settle
             self.player.set_pause(1)
             def back():
-                self.player.set_time(settle["ms"])     # redraws the paused picture there
+                if self._settling is not settle:
+                    return                             # another file opened meanwhile
+                self._settling = None
+                self.player.set_time(settle["ms"])     # redraws the paused picture there (or where you seeked)
                 QTimer.singleShot(150, lambda: self._queue_audio(volume=max(0, settle["vol"])))
             QTimer.singleShot(50, back)
         # a media reopened paused (#36) never reaches "playing", so apply there too
@@ -706,8 +714,7 @@ class Engine(QObject):
         self.set_eq(L["eq"])
         self._apply_crop()
         self.player.video_set_deinterlace(L["deinterlace"] or None)
-        if L["adjust"]:
-            self.set_adjust(L["adjust"])
+        self.set_adjust(L["adjust"])        # None switches off colours left from the last file
 
     # ------------------------------------------------------------------ transport
     def play(self):
@@ -740,7 +747,8 @@ class Engine(QObject):
         self.extra_subs = []
         self.izoom = None
         self._held_ms = None
-        self._settle = None
+        self._settle = self._settling = None
+        self._release_boost()
 
     def is_playing(self) -> bool:
         return bool(self.ok and self.player.is_playing())
@@ -753,6 +761,9 @@ class Engine(QObject):
     def time(self) -> int:
         if not self.ok:
             return 0
+        pending = self._settle or self._settling
+        if pending:
+            return pending["ms"]       # reopened paused: where it is going back to, not the brief play (L4)
         t = int(self.player.get_time() or 0)
         # VLC reports 0 for a media opened paused until it plays; show where it is
         if self._held_ms is not None:
@@ -780,6 +791,9 @@ class Engine(QObject):
         ms = max(0, min(int(ms), ln - 500 if ln else int(ms)))
         if self._held_ms is not None:
             self._held_ms = ms
+        for pending in (self._settle, self._settling):
+            if pending:
+                pending["ms"] = ms     # the jump back after a paused reopen goes here instead (L4)
         now = time.monotonic()
         wait = 0.12 - (now - self._last_seek_t)
         if wait > 0:
@@ -867,13 +881,17 @@ class Engine(QObject):
             return
         v = self.volume()
         self._boost_held = True
+        self._boost_gen += 1           # a release still pending for an earlier output no longer applies
         if v > START_VOLUME_CAP and "volume" not in self._audio_pending:
             self._queue_audio(volume=v)
         if release_ms:
-            QTimer.singleShot(release_ms, self._release_boost)
+            gen = self._boost_gen
+            QTimer.singleShot(release_ms, lambda: self._release_boost(gen))
 
-    def _release_boost(self):
-        if not self._boost_held:
+    def _release_boost(self, gen: int | None = None):
+        """End the hold and apply the real volume. A timer passes the hold it was set for (gen) and is
+        ignored once a newer output has started holding."""
+        if not self._boost_held or (gen is not None and gen != self._boost_gen):
             return
         self._boost_held = False
         later, self._boost_later = self._boost_later, None
@@ -948,6 +966,7 @@ class Engine(QObject):
 
     def set_device(self, device_id: str):
         if self.ok:
+            self._hold_boost(release_ms=BOOST_DELAY_MS + 300)     # a new device starts a new audio output (#82)
             self.player.audio_output_device_set(None, device_id)
 
     def eq_presets(self) -> list[str]:
@@ -1284,7 +1303,7 @@ class Engine(QObject):
     def set_adjust(self, adj: dict | None, force: bool = False):
         """adj: {brightness, contrast, saturation, hue, gamma} or None to disable."""
         self.live["adjust"] = adj
-        if not self.ok:
+        if not self.ok or vlc is None:
             return
         A = vlc.VideoAdjustOption
         if not adj:

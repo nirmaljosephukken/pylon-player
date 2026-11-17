@@ -261,7 +261,7 @@ class MusicMixin:
             self._music_item(f"Play all\n{n} songs", "play_artist", name, icon("play", theme.accent(), 44))
             for a in self._ordered(albums, "music", lambda a: a["album"], lambda a: len(a["tracks"]),
                                    lambda a: max((songs.get(p, {}).get("mtime", 0) for p in a["tracks"]), default=0),
-                                   played=lambda a: self._last_played_of(a["tracks"]),
+                                   played=lambda a: self.last_played_of(a["tracks"]),
                                    plays=lambda a: self._play_count_of(a["tracks"])):
                 if q and q not in a["album"].lower():
                     continue
@@ -275,7 +275,7 @@ class MusicMixin:
             artists = [x for x in self._ordered(m.artists(), "music", lambda x: x[0],
                        lambda x: sum(len(a["tracks"]) for a in x[1]),
                        lambda x: max((songs.get(p, {}).get("mtime", 0) for a in x[1] for p in a["tracks"]), default=0),
-                       played=lambda x: self._last_played_of(p for a in x[1] for p in a["tracks"]),
+                       played=lambda x: self.last_played_of(p for a in x[1] for p in a["tracks"]),
                        plays=lambda x: self._play_count_of(p for a in x[1] for p in a["tracks"]))
                        if not q or q in x[0].lower()]
 
@@ -291,7 +291,7 @@ class MusicMixin:
             lst.setIconSize(QSize(44, 44))
             albums = [a for a in self._ordered(m.albums(), "music", lambda a: a["album"], lambda a: len(a["tracks"]),
                       lambda a: max((songs.get(p, {}).get("mtime", 0) for p in a["tracks"]), default=0),
-                      played=lambda a: self._last_played_of(a["tracks"]),
+                      played=lambda a: self.last_played_of(a["tracks"]),
                       plays=lambda a: self._play_count_of(a["tracks"]))
                       if not q or q in f"{a['album']} {a['artist']}".lower()]
 
@@ -314,9 +314,6 @@ class MusicMixin:
 
     def _play_count(self, path):
         return self.store.plays(path).get("n", 0)
-
-    def _last_played_of(self, paths):
-        return max((self._last_played(p) for p in paths), default=0)
 
     def _play_count_of(self, paths):
         return sum(self._play_count(p) for p in paths)
@@ -392,9 +389,10 @@ class MusicMixin:
             paths = self._selected_files(self.music_list) or [val]
         m = QMenu(self)
         m.addAction(icon("play", theme.TEXT, 16), "Play", lambda: self.play_songs(paths))
+        # queued songs show "Title · Artist", as they do when played (L1)
         m.addAction(icon("queue", theme.TEXT, 16), "Add to queue",
-                    lambda: self.win.enqueue(paths))
-        m.addAction("Play next", lambda: self.win.enqueue(paths, play_next=True))
+                    lambda: self.win.enqueue_entries(self.queue_items(paths)))
+        m.addAction("Play next", lambda: self.win.enqueue_entries(self.queue_items(paths), play_next=True))
         if len(paths) > 1:
             m.addAction(icon("shuffle", theme.TEXT, 16), "Shuffle",
                         lambda: self.play_songs(random.sample(paths, len(paths))))

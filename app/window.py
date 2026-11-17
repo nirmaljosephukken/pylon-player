@@ -85,6 +85,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
         self._resume_until = 0.0
         self._resume_ms = 0
         self._track_prefs = ("", "")
+        self._live_folder = None        # folder of the file playing, to tell when another show starts (H3)
         self._prefs_applied = False
         self._live_applied = False
         self._sleep_deadline = None
@@ -835,10 +836,12 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
 
     def toggle_pip(self):
         if self._pip is None:
+            # from full screen, come back to the window as it was before full screen: maximized or not (L2)
+            was_max = self._was_max if self.isFullScreen() else self.isMaximized()
             if self.isFullScreen():
                 self.showNormal()
             self._pip = {"geo": self.saveGeometry(), "lib": self.lib_slot.is_open,
-                         "side": self.side_slot.is_open, "max": self.isMaximized(),
+                         "side": self.side_slot.is_open, "max": was_max,
                          "flags": self.windowFlags()}
             self.lib_slot.set_open(False, False)
             self.side_slot.set_open(False, False)
