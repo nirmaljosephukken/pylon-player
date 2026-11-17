@@ -271,7 +271,7 @@ class SeekBar(QWidget):
 class ConeVolume(QWidget):
     """Volume as a traffic cone lying on its side: narrow tip = quiet,
     wide base = loud. Fills with the accent color, white reflective bands
-    keep the cone look. Goes up to 125% by default, or 150% or 200% (#47)."""
+    keep the cone look. Goes up to 125% by default, or 85%, 100%, 150% or 200% (#47, #89)."""
     volume_changed = Signal(int)
 
     MAX = 125
@@ -316,7 +316,7 @@ class ConeVolume(QWidget):
 
     def _set_from_x(self, x):
         v = round(max(0, min(1, (x - 1) / (self.width() - 2))) * self.MAX)
-        if abs(v - 100) <= 3:
+        if abs(v - 100) <= 3 and self.MAX > 100:
             v = 100  # snap to 100%
         self.set_value(v)
         self.volume_changed.emit(self.value)
@@ -347,13 +347,14 @@ class ConeVolume(QWidget):
         p.setBrush(QColor(theme.FAINT) if self.muted else theme.brush(0, self.width()))
         p.drawPath(shape)
         p.restore()
-        # 100% mark: a thin gap across the cone
-        x100 = 1 + w * (100 / self.MAX)
-        p.save()
-        p.setClipPath(shape)
-        p.setPen(QPen(QColor(0, 0, 0, 110), 1.5))
-        p.drawLine(QPointF(x100, 0), QPointF(x100, self.height()))
-        p.restore()
+        if self.MAX > 100:
+            # 100% mark: a thin gap across the cone
+            x100 = 1 + w * (100 / self.MAX)
+            p.save()
+            p.setClipPath(shape)
+            p.setPen(QPen(QColor(0, 0, 0, 110), 1.5))
+            p.drawLine(QPointF(x100, 0), QPointF(x100, self.height()))
+            p.restore()
         p.end()
 
 

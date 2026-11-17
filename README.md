@@ -4,7 +4,7 @@
 
 ### [⬇ Download page: nirmaljosephukken.github.io/pylon-player](https://nirmaljosephukken.github.io/pylon-player/)
 
-**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.7.0.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.7.0-x86_64.AppImage) · [macOS](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.7.0-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
+**Direct downloads:** [Windows](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-Setup-1.7.2.exe) · [Linux](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.7.2-x86_64.AppImage) · [macOS](https://github.com/nirmaljosephukken/pylon-player/releases/latest/download/Pylon-1.7.2-macOS.zip) · [All releases](https://github.com/nirmaljosephukken/pylon-player/releases)
 You also need [VLC](https://www.videolan.org/vlc/) installed. See [Install](#install).
 
 **New to Pylon?** The [user guide](https://nirmaljosephukken.github.io/pylon-player/guide.html) shows every screen, panel and setting with pictures and step-by-step how-tos. It's also available as a [PDF](https://nirmaljosephukken.github.io/pylon-player/guide/Pylon-User-Guide.pdf).
@@ -20,6 +20,8 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 ![Library, queue and settings sidebar](docs/panels.png)
 
 ## What's new
+
+**1.7.2:** On Windows, a film that starts with the volume above 100% has sound from the start again: Pylon starts it at 100% and goes up to your volume a moment later. The maximum volume can now also be **85%** or **100%** (Preferences > Playback), and the direct download links above work again.
 
 **1.7.1:** With **Super Resolution** on, films that aren't the shape of the screen keep it in full screen, with their own black bars, as in VLC, and a normal window no longer shows a black picture. On Windows, Pylon no longer closes at the end of a song with the 3D spectrum visualization (it's no longer offered there). A damaged settings file is kept and restored from its backup instead of being wiped. Updates are checked against the release's checksums, VLC starts once instead of twice, online channel lists load without freezing the window, and menus show your own shortcuts. The Library tab sorts like the other tabs, snapshots go to your Pictures folder, and Pylon is offered for playlists in "Open with".
 
@@ -96,7 +98,7 @@ Pylon plays everything through **VLC**, which you install yourself (Pylon never 
 | | Windows 10 / 11 (64-bit) | Linux (x86-64) | macOS 14+ |
 | --- | --- | --- | --- |
 | **1. VLC** | [VLC 64-bit installer](https://www.videolan.org/vlc/download-windows.html) | `sudo apt install vlc` (Ubuntu, Debian, Mint), `sudo dnf install vlc` (Fedora, from RPM Fusion), `sudo pacman -S vlc` (Arch) | [VLC for macOS](https://www.videolan.org/vlc/download-macosx.html), dragged into Applications |
-| **2. Pylon** | `Pylon-Setup-1.7.0.exe` | `Pylon-1.7.0-x86_64.AppImage` | `Pylon-1.7.0-macOS.zip` |
+| **2. Pylon** | `Pylon-Setup-1.7.2.exe` | `Pylon-1.7.2-x86_64.AppImage` | `Pylon-1.7.2-macOS.zip` |
 | **3. Run** | Run the setup. No admin rights needed. | `chmod +x Pylon-*.AppImage`, then double-click it | Unzip, move **Pylon** to Applications, see the first-launch note below |
 
 Nothing else is needed: each download carries its own Python and Qt.
@@ -138,7 +140,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **Repeat a part** | Press `L` at the start and `L` at the end of a part, and it plays again and again until you press `L` once more. Also in the Playback tab and the right-click menu. |
 | **DVDs** | Open a DVD image (`.iso`) or a copied DVD folder (`VIDEO_TS`) and it starts at the disc's menu: arrow keys to choose, Enter to play. Titles, arrow buttons and Disc menu are in the Playback tab. Pylon remembers the title and time you stopped at. |
 | **Cast** | Menu > Cast to sends the video to a Chromecast on your network, from the point you were at. |
-| **Cone volume** | A volume control shaped like a cone. Click, drag or scroll. Goes to 125%, or to 150% or 200% if you raise the limit in Preferences > Playback. |
+| **Cone volume** | A volume control shaped like a cone. Click, drag or scroll. Goes to 125%, or to 85%, 100%, 150% or 200% if you change the limit in Preferences > Playback. |
 | **Subtitle and audio buttons** | Bottom right. Audio also lists output devices (speakers, headphones). |
 | **Queue** | A real queue. Drag files in from the library or from Explorer, and reorder by dragging. Playing a file queues the rest of its folder, so the next episode just plays. Select several items (`Ctrl` or `Shift` click) and right-click to mark them watched or remove them, or press `Delete`. The **queue mode** button cycles through Stop (grey: stop when the item ends), Shuffle, In order and Loop (play the item again). Leaving Shuffle puts the original order back. Choose the starting mode in Preferences. |
 | **Settings sidebar** | `Ctrl+T`. Subtitles, Audio, Video, Playback and Bookmarks tabs, without a dialog covering the video. |

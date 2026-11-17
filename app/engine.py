@@ -15,7 +15,7 @@ from fractions import Fraction
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
 from .paths import log_dir, rotate
-from .store import saved_setting
+from .store import MAX_VOLUMES, saved_setting
 from .util import disc_mrl, is_disc, is_url
 
 
@@ -288,6 +288,8 @@ CUSTOM_EQ = -2     # live["eq"] value for the user's own 10-band curve (#38)
 EQ_RANGE = 20.0    # VLC's equalizer works in -20..+20 dB
 MAX_ZOOM = 8.0         # interactive zoom limit (#39)
 AUDIO_WARMUP = 0.6     # seconds to wait before the first volume change on Linux (#28)
+START_VOLUME_CAP = 100  # Windows: highest volume an audio output may start at, or it can stay silent (#82)
+BOOST_DELAY_MS = 500   # Windows: wait this long after playback starts before going above 100% (#82)
 
 # DVD menus (libvlc_navigate_mode_t) and the flag VLC puts on a disc's menu title
 NAV_ACTIVATE, NAV_UP, NAV_DOWN, NAV_LEFT, NAV_RIGHT = 0, 1, 2, 3, 4
@@ -317,6 +319,7 @@ class Engine(QObject):
     picture_changed = Signal()          # the picture's shape may have changed (aspect, crop, new video)
     renderers_changed = Signal()        # a cast device appeared or went away
     _renderer_seen = Signal(object, bool, object)   # VLC thread -> GUI thread: pointer, added, held item
+    BOOST_HOLD = sys.platform == "win32"   # start each audio output at 100% at most (#82)
 
     def __init__(self, store, parent=None):
         super().__init__(parent)
@@ -343,6 +346,8 @@ class Engine(QObject):
         self._live_done = False        # live settings were applied to the media playing now (M16)
         self._audio_ready_at = 0.0     # Linux: when the audio output can take volume changes (#28)
         self._audio_pending = {}       # volume/mute changes waiting for that
+        self._boost_held = False       # Windows: a new audio output is starting, so stay at 100% or below (#82)
+        self._boost_later = None       # the volume above 100% to apply once it has started
         self._held_ms = None           # position shown while a media is opened paused
         self._settle = None            # reopening paused: where to return once it plays (#36)
         self.izoom = None              # interactive zoom (#39): {"z", "x", "y", "w", "h"} in video pixels
@@ -441,7 +446,7 @@ class Engine(QObject):
         # mute changes briefly and apply them once the output has settled.
         self._audio_ready_at = time.monotonic() + (AUDIO_WARMUP if sys.platform.startswith("linux") else 0)
         self._audio_pending = {}
-        self._queue_audio(volume=int(self.store.setting("volume")))
+        self._queue_audio(volume=min(self.max_volume(), int(self.store.setting("volume"))))
         em = self.player.event_manager()
         E = vlc.EventType
         hooks = {
@@ -529,6 +534,7 @@ class Engine(QObject):
             self._held_ms = int(start_ms)
             self._settle = {"ms": int(start_ms), "vol": self.volume()}
             self._queue_audio(volume=0)
+        self._hold_boost()
         self.player.set_media(media)
         self.extra_subs = []
         for s in subs or []:
@@ -667,6 +673,8 @@ class Engine(QObject):
         if state == "playing":
             self._audio_ready_at = 0      # the output is running, so changes are safe now
             self._flush_audio()
+            if self._boost_held:
+                QTimer.singleShot(BOOST_DELAY_MS, self._release_boost)
         if state == "playing" and self._settle:
             settle, self._settle = self._settle, None
             self.player.set_pause(1)
@@ -840,19 +848,49 @@ class Engine(QObject):
             return
         pending, self._audio_pending = self._audio_pending, {}
         if "volume" in pending:
-            self.player.audio_set_volume(int(pending["volume"]))
+            v = int(pending["volume"])
+            self._boost_later = None
+            if self._boost_held and v > START_VOLUME_CAP:
+                self._boost_later, v = v, START_VOLUME_CAP
+            self.player.audio_set_volume(v)
         if "mute" in pending:
             self.player.audio_set_mute(bool(pending["mute"]))
+
+    # VLC's Windows audio output (mmdevice) can stay silent when a file starts with the volume above 100%:
+    # the boost then runs as a software gain before the output has started (#82: no sound until the volume
+    # went below 100%). So while a new output starts, Pylon plays at 100% at most and goes up to the real
+    # volume once playback has run for a moment.
+    def _hold_boost(self, release_ms: int = 0):
+        """Keep the next audio output at 100% or below until it has started. With release_ms, go back to
+        the real volume after that long (for a change that restarts the output while playing)."""
+        if not (self.ok and self.BOOST_HOLD):
+            return
+        v = self.volume()
+        self._boost_held = True
+        if v > START_VOLUME_CAP and "volume" not in self._audio_pending:
+            self._queue_audio(volume=v)
+        if release_ms:
+            QTimer.singleShot(release_ms, self._release_boost)
+
+    def _release_boost(self):
+        if not self._boost_held:
+            return
+        self._boost_held = False
+        later, self._boost_later = self._boost_later, None
+        if later is not None and self.ok and "volume" not in self._audio_pending:
+            self._queue_audio(volume=later)
 
     def volume(self) -> int:
         if self.ok and "volume" in self._audio_pending:
             return int(self._audio_pending["volume"])
+        if self.ok and self._boost_later is not None:
+            return int(self._boost_later)
         v = self.player.audio_get_volume() if self.ok else -1
         return int(v) if v is not None and v >= 0 else int(self.store.setting("volume"))
 
     def max_volume(self) -> int:
         m = self.store.setting("max_volume")
-        return m if m in (125, 150, 200) else 125
+        return m if m in MAX_VOLUMES else 125
 
     def set_volume(self, v: int):
         v = max(0, min(self.max_volume(), int(v)))
@@ -877,6 +915,7 @@ class Engine(QObject):
 
     def set_audio(self, tid: int):
         if self.ok:
+            self._hold_boost(release_ms=BOOST_DELAY_MS + 300)     # a new track starts a new audio output (#82)
             self.player.audio_set_track(int(tid))
 
     def set_audio_delay(self, ms: int):

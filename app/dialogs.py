@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComb
 from . import theme, APP_VERSION
 from .colour_dialog import choose_colour
 from .icons import icon, pixmap
-from .store import DEFAULT_SHORTCUTS, HOME_SECTIONS, QUEUE_MODES, RATIOS
+from .store import DEFAULT_SHORTCUTS, HOME_SECTIONS, MAX_VOLUMES, QUEUE_MODES, RATIOS
 from .updates import RELEASES_PAGE, installer_asset, run_installer
 from .util import (MATCH_LEVELS, SUB_EXTS, auto_match_folder, is_url, list_media, subtitle_query,
                    SUBTITLE_SITES)
@@ -778,9 +778,10 @@ class PreferencesDialog(QDialog):
         combo.setCurrentIndex(max(0, combo.findData(self.store.setting("resume"))))
         combo.currentIndexChanged.connect(lambda i: self.store.set_setting("resume", combo.itemData(i)))
         f.addWidget(combo)
-        f.addWidget(info_label("Maximum volume", "Above 100% Pylon boosts quiet audio, like VLC. Very loud sound can distort."))
+        f.addWidget(info_label("Maximum volume", "Above 100% Pylon boosts quiet audio, like VLC. Very loud sound can "
+                                                 "distort. 85% or 100% keeps loud scenes from getting too loud."))
         vol = QComboBox()
-        for v in (125, 150, 200):
+        for v in MAX_VOLUMES:
             vol.addItem(f"{v}%", v)
         vol.setCurrentIndex(max(0, vol.findData(self.win.engine.max_volume())))
         vol.currentIndexChanged.connect(lambda i: self._set_max_volume(vol.itemData(i)))
