@@ -119,6 +119,10 @@ def expected() -> dict[Path, str]:
         p = ROOT / name
         out[p] = download_names(p.read_text(encoding="utf-8"), v, name)
 
+    # The user guide's title, header and footer say which version it describes
+    p = ROOT / "docs/guide.html"
+    out[p] = _sub(out[p], r"\b(Pylon |Version )\d+(?:\.\d+)+", rf"\g<1>{v}", "guide.html (version)", count=5)
+
     p = ROOT / "register_pylon.bat"
     t = p.read_text(encoding="utf-8")
     t = _sub(t, r"^for %%E in \([^)]*\) do \($", f"for %%E in ({bat_list}) do (", p.name)
