@@ -262,6 +262,8 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
   .side.wide{grid-template-columns:106mm minmax(0,1fr)}
   .side.wide > figure figcaption{display:none}   /* the heading above already names it */
   .side.duo{grid-template-columns:50mm 50mm minmax(0,1fr);column-gap:6mm}
+  /* the library tabs are narrow panels: a smaller picture keeps each tab and its menu on one page */
+  .side:has(> figure img[src^="guide/lib_"]){grid-template-columns:40mm minmax(0,1fr)}
   .side.duo > :nth-child(2){grid-column:2;grid-row:1}
   .side.duo > :last-child{grid-column:3;grid-row:1;padding-left:2mm}
   .duo-col > .plain.tall img{width:100%}
@@ -385,7 +387,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
 </div></div>
 <h3 id="right-click">The right-click menu</h3>
 <p>Right-click the video for the things you change most while watching: subtitle and audio tracks, the video track and aspect ratio, speed, bookmarks, snapshots, the panels, fullscreen and picture in picture.</p>
-<div class="pair"><figure class="plain menu" style="--mw:35.4mm"><img src="guide/menu_context.webp" width="241" height="550" alt="Right-click menu" loading="lazy"><figcaption>Right-click menu</figcaption></figure><figure class="plain menu" style="--mw:36.6mm"><img src="guide/menu_main.webp" width="249" height="410" alt="The Menu button" loading="lazy"><figcaption>The Menu button</figcaption></figure></div>
+<div class="pair"><figure class="plain menu" style="--mw:24.1mm"><img src="guide/menu_context.webp" width="241" height="550" alt="Right-click menu" loading="lazy"><figcaption>Right-click menu</figcaption></figure><figure class="plain menu" style="--mw:33.4mm"><img src="guide/menu_main.webp" width="249" height="410" alt="The Menu button" loading="lazy"><figcaption>The Menu button</figcaption></figure></div>
 <h3 id="snapshots">Snapshots</h3>
 <p>Press <kbd>Shift</kbd>+<kbd>S</kbd>, or choose <b>Take a snapshot</b> in the menu, to save the current picture. Snapshots go to <code>Pictures\Pylon</code>.</p>
 </section>
@@ -492,7 +494,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
 </ol>
 </div></div>
 
-<div class="side duo"><div class="duo-col"><figure class="plain tall"><img src="guide/set_audio.webp" width="340" height="1251" alt="Audio tab" loading="lazy"><figcaption>Audio tab</figcaption></figure><figure class="plain menu" style="--mw:40.4mm"><img src="guide/menu_audio.webp" width="275" height="205" alt="Audio button" loading="lazy"><figcaption>Audio button</figcaption></figure></div><figure class="plain tall"><img src="guide/set_video.webp" width="340" height="1275" alt="Video tab" loading="lazy"><figcaption>Video tab</figcaption></figure><div>
+<div class="side"><div class="duo-col"><figure class="plain tall"><img src="guide/set_audio.webp" width="340" height="1251" alt="Audio tab" loading="lazy"><figcaption>Audio tab</figcaption></figure><figure class="plain menu" style="--mw:40.4mm"><img src="guide/menu_audio.webp" width="275" height="205" alt="Audio button" loading="lazy"><figcaption>Audio button</figcaption></figure></div><div>
 <h3 id="set-audio">Audio tab</h3>
 <ul>
 <li><b>Track</b> and <b>Output</b>: the audio track, and where sound plays (speakers, headphones and so on).</li>
@@ -503,7 +505,9 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
 <li><b>Silence</b>: <b>Skip silence at the start and end of songs</b> jumps past the quiet part before the music and moves on when only silence is left.</li>
 <li><b>Every episode</b>: an audio language to pick automatically, such as <code>jpn</code> or <code>eng</code>.</li>
 </ul>
+</div></div>
 
+<div class="side"><figure class="plain tall"><img src="guide/set_video.webp" width="340" height="1275" alt="Video tab" loading="lazy"><figcaption>Video tab</figcaption></figure><div>
 <h3 id="set-video">Video tab</h3>
 <ul>
 <li><b>Aspect ratio</b>, <b>Crop and zoom</b>: fix a stretched picture or remove black bars. <kbd>A</kbd> and <kbd>C</kbd> step through them.</li>
@@ -514,7 +518,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
 <p>Changing sharpen or rotation restarts the video at the same spot.</p>
 </div></div>
 
-<div class="side duo"><figure class="plain tall"><img src="guide/set_playback.webp" width="340" height="785" alt="Playback tab" loading="lazy"><figcaption>Playback tab</figcaption></figure><figure class="plain tall"><img src="guide/set_bookmarks.webp" width="340" height="399" alt="Bookmarks tab" loading="lazy"><figcaption>Bookmarks tab</figcaption></figure><div>
+<div class="side"><figure class="plain tall"><img src="guide/set_playback.webp" width="340" height="785" alt="Playback tab" loading="lazy"><figcaption>Playback tab</figcaption></figure><div>
 <h3 id="set-playback">Playback tab</h3>
 <ul>
 <li><b>Speed</b>: from 0.5x to 2x.</li>
@@ -522,7 +526,9 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
 <li><b>When a file ends</b>: play the next file in the folder, the queue mode, and whether the queue starts again at the end.</li>
 <li><b>Media info</b>: resolution, length and where the file is.</li>
 </ul>
+</div></div>
 
+<div class="side"><figure class="plain tall"><img src="guide/set_bookmarks.webp" width="340" height="399" alt="Bookmarks tab" loading="lazy"><figcaption>Bookmarks tab</figcaption></figure><div>
 <h3 id="set-bookmarks">Bookmarks tab</h3>
 <p>Press <kbd>Ctrl</kbd>+<kbd>B</kbd> anywhere to bookmark the current moment. Bookmarks show as small triangles on the seek bar. In this tab, click one to jump to it and double-click to rename it. If the file has chapters, they're listed below, and they show as thin lines on the seek bar.</p>
 </div></div>

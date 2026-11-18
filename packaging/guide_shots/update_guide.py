@@ -19,14 +19,15 @@ SPOT = re.compile(r'<button class="spot" type="button" data-i="(\d+)" style="lef
 
 
 SCALE = 1.5          # the pictures are taken at 150%; width and height give Pylon's own size
-MM_PER_PX = 0.147    # a menu's printed width in the PDF
+MM_PER_PX = 0.147    # a menu's printed width in the PDF...
+MAX_MENU_MM = 55     # ...but no taller than this, so a long menu shares its page with the text around it
 
 
 def sizes(html: str) -> str:
     def fix(m):
         img = Image.open(ROOT / "docs" / m.group(2))
         w, h = round(img.width / SCALE), round(img.height / SCALE)
-        mw = f' style="--mw:{w * MM_PER_PX:.1f}mm"' if m.group(1) else ""
+        mw = f' style="--mw:{min(w * MM_PER_PX, MAX_MENU_MM * w / h):.1f}mm"' if m.group(1) else ""
         return f'{m.group(1) or ""}{mw}><img src="{m.group(2)}" width="{w}" height="{h}"'
     return re.sub(r'(<figure class="plain menu")?(?: style="--mw:[\d.]+mm")?>?<img src="(guide/[\w-]+\.webp)" '
                   r'width="\d+" height="\d+"', fix, html)
