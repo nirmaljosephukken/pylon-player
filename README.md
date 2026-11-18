@@ -1,6 +1,6 @@
-# Pylon
+# Pylon: Juxtopposed's VLC redesign as a working media player
 
-**A media player inspired by Juxtopposed's VLC redesign, grown into its own app.** Free and open source, for Windows, Linux and macOS. Pylon runs on VLC's engine, so it plays everything VLC plays, with a calmer interface and features of its own on top.
+**Pylon is the Juxtopposed VLC redesign, built for real.** Juxtopposed's VLC redesign concept was watched by 700,000 people; Pylon turns it into a working, free and open-source media player for Windows, Linux and macOS. Pylon runs on VLC's engine, so it plays everything VLC plays, with the redesign's calmer interface and features of its own on top: hover-only controls, seek bar previews, a music library, subtitle download, media keys, night mode and auto-updates.
 
 ### [⬇ Download page: nirmaljosephukken.github.io/pylon-player](https://nirmaljosephukken.github.io/pylon-player/)
 
@@ -79,7 +79,9 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 
 Full history on the [Releases](../../releases) page.
 
-## Credit
+## Background: Juxtopposed's VLC redesign
+
+The designer [Juxtopposed](https://www.youtube.com/@juxtopposed) published a VLC redesign concept: a cleaner, modern take on VLC media player, watched by hundreds of thousands of people. It was a design in Figma, not an app you could install. Pylon is that Juxtopposed VLC redesign built as a real player you can download, on top of VLC's own engine.
 
 The interface follows the **VLC redesign concept by [Juxtopposed](https://www.youtube.com/@juxtopposed)**:
 
