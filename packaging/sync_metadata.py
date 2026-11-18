@@ -3,7 +3,7 @@
 app/__init__.py (APP_VERSION) and app/util.py (ASSOCIATED_EXTS, MIME_TYPES) are the sources. This writes them
 into the Windows installer, the launcher's version resource, the licence summary, register_pylon.bat and
 unregister_pylon.bat, the macOS Info.plist and the Linux desktop and AppStream files. It also names the current
-release's files in the README's direct download links and in the user guide, which 404 once they name an older one.
+release's files in the README's direct download links, the download page and the user guide, which 404 once they name an older one.
 
     python packaging/sync_metadata.py           # update the files
     python packaging/sync_metadata.py --check   # only report what is out of date (exit code 1)
@@ -53,7 +53,7 @@ def _plist_group(text: str, name: str, exts) -> str:
 # The download file names, with {v} for the version. GitHub's releases/latest/download/<name> link only works
 # while <name> is the latest release's file, so the README's links must follow the version.
 DOWNLOAD_NAMES = ("Pylon-Setup-{v}.exe", "Pylon-{v}-x86_64.AppImage", "Pylon-{v}-macOS.zip")
-DOWNLOAD_DOCS = ("README.md", "docs/guide.html")
+DOWNLOAD_DOCS = ("README.md", "docs/guide.html", "docs/index.html")
 
 
 def download_names(text: str, v: str, path: str) -> str:
