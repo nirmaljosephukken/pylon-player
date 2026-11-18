@@ -131,8 +131,10 @@ class EngineDisc(unittest.TestCase):
         class Player(FakeDisc):
             def set_media(self, m): self.media = m
             def play(self): pass
+            def audio_get_volume(self): return 80
         e.player, e.instance = Player(), FakeInstance()
-        e.open(self.iso, start_ms=60_000)
+        with patch.object(type(e), "BOOST_HOLD", True):     # opening on Windows also checks the volume (#82)
+            e.open(self.iso, start_ms=60_000)
         self.assertEqual(e.player.media.mrl, ("path", os.path.normpath(self.iso)))
         self.assertEqual(e.player.media.options, [])          # no start-time: that would skip into the menu
         folder = Path(self.temp.name) / "DVD" / "VIDEO_TS"
