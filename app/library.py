@@ -24,7 +24,8 @@ from .util import (display_name, fmt_time, is_audio, is_disc, is_dvd_folder, is_
 from .library_music import MusicMixin
 from .library_queue import QueueMixin
 from .library_widgets import (ROLE_KIND, ROLE_PATH, ChannelListDrop, MediaList, QueueList,
-                              REVEAL_LABEL, SortControl, _mtime, pick_media, reveal, sort_kind)
+                              REVEAL_LABEL, SortControl, _mtime, pick_media, playlist_paths, reveal,
+                              sort_kind)
 from .store import RESUME_MIN_MS
 from .widgets import IconButton
 
@@ -736,12 +737,13 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         if files is None:
             picked = pick_media(self, f"Choose files for “{name}”")
             files = picked
-        self.store.data["playlists"][name] = list(files or [])
+        self.store.data["playlists"][name] = playlist_paths(files or [])
         self.store.save("playlists")
         self.refresh_playlists()
         self.win.toast(f"Playlist “{name}” created")
 
     def add_to_playlist(self, name, files):
+        files = playlist_paths(files)                 # a playlist file adds its entries (C1, H2)
         target = self.store.data["playlists"].setdefault(name, [])
         def identity(path):
             return path if is_url(path) else os.path.normcase(os.path.abspath(path))

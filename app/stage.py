@@ -60,6 +60,8 @@ class VideoSurface(QFrame):
     pan = Signal(QPointF)               # drag while zoomed: movement in pixels
     resized = Signal()
     pressed = Signal()                  # any click on the video (#79)
+    hold = Signal(bool)                 # the left button held still on the video (2x speed), then let go
+    HOLD_MS = 450                       # how long a press must last to count as holding
 
     def __init__(self, store):
         super().__init__()
@@ -82,6 +84,11 @@ class VideoSurface(QFrame):
         self._click.setSingleShot(True)
         self._click.setInterval(QApplication.doubleClickInterval() if QApplication.instance() else 250)
         self._click.timeout.connect(lambda: self._emit_action(self._pending_action))
+        self._holding = False
+        self._hold_timer = QTimer(self)
+        self._hold_timer.setSingleShot(True)
+        self._hold_timer.setInterval(self.HOLD_MS)
+        self._hold_timer.timeout.connect(self._start_hold)
         self.canvas = VideoCanvas(self)
         self.fit_rect = None                # where the canvas sits when sized to the picture (#42)
 
@@ -93,6 +100,21 @@ class VideoSurface(QFrame):
     def cancel_click(self):
         self._click.stop()
         self._double_release = False
+        self._hold_timer.stop()
+
+    def _start_hold(self):
+        if QApplication.mouseButtons() & Qt.LeftButton and not (self.pip or self.zoomed):
+            self._holding = True
+            self.hold.emit(True)
+
+    def _end_hold(self) -> bool:
+        """Stop a 2x hold; True if one was running (the release is then not a click)."""
+        self._hold_timer.stop()
+        if not self._holding:
+            return False
+        self._holding = False
+        self.hold.emit(False)
+        return True
 
     def x11_drift(self) -> QPoint:
         """How far the window has moved since Qt last heard where it is. While the window manager
@@ -109,6 +131,7 @@ class VideoSurface(QFrame):
         return QPoint(round((real[0] - start[0]) / dpr), round((real[1] - start[1]) / dpr))
 
     def hideEvent(self, e):
+        self._end_hold()
         self.cancel_click()
         super().hideEvent(e)
 
@@ -117,6 +140,8 @@ class VideoSurface(QFrame):
         if e.button() == Qt.LeftButton:
             self._moved = False              # a system move may have swallowed the last release
             self._press_pos = e.position()
+            if not (self.pip or self.zoomed):
+                self._hold_timer.start()     # held still long enough: 2x speed until it is let go
         if e.button() == Qt.LeftButton and self.pip:
             win = self.window()
             if win.pip_edges(e.globalPosition().toPoint()) and win.pip_grab(e.globalPosition().toPoint(), move=False):
@@ -137,6 +162,10 @@ class VideoSurface(QFrame):
                 self.setCursor(cur)
             else:
                 self.setCursor(Qt.OpenHandCursor if self.zoomed else Qt.ArrowCursor)
+        if self._hold_timer.isActive() and self._press_pos is not None:
+            d = e.position() - self._press_pos
+            if abs(d.x()) + abs(d.y()) > 8:
+                self._hold_timer.stop()      # moving, not holding
         if self._move_from is not None and e.buttons() & Qt.LeftButton:
             d = e.position() - self._move_from
             if abs(d.x()) + abs(d.y()) > 4:
@@ -157,6 +186,10 @@ class VideoSurface(QFrame):
         super().mouseMoveEvent(e)
 
     def mouseReleaseEvent(self, e):
+        if e.button() == Qt.LeftButton and self._end_hold():
+            self._press_pos = None
+            self.cancel_click()
+            return                           # holding for 2x is not a click
         if e.button() == Qt.LeftButton:
             self._move_from = None
             press, self._press_pos = self._press_pos, None

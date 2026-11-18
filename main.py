@@ -96,10 +96,10 @@ def main():
         app.setFont(QFont("Segoe UI", 10))
 
     me = os.path.normcase(os.path.abspath(__file__))
+    # VLC-style options from browser extensions (#91) stay in; open_command_line reads them
     args = [a for a in sys.argv[1:]
-            if a and not a.startswith("-")
-            and os.path.normcase(os.path.abspath(a)) != me      # never "play" Pylon itself
-            and not a.lower().endswith((".py", ".pyw", ".exe", ".bat"))]
+            if a and (a.startswith(("-", ":")) or (os.path.normcase(os.path.abspath(a)) != me      # never "play" Pylon itself
+                                              and not a.lower().endswith((".py", ".pyw", ".exe", ".bat"))))]
     print("argv:", sys.argv, "-> opening:", args, file=sys.stderr, flush=True)
 
     # One Pylon at a time: if it's already open, hand the files to it and quit.
@@ -111,7 +111,9 @@ def main():
         sock.write(("\n".join(args) or "<show>").encode("utf-8"))
         sock.flush()
         sock.waitForBytesWritten(1000)
-        sock.disconnectFromServer()
+        sock.disconnectFromServer()          # sends what is still buffered before closing
+        if sock.state() != QLocalSocket.UnconnectedState:
+            sock.waitForDisconnected(1000)   # quit only once the open Pylon has everything (M3)
         return
 
     startup.mark("Importing player and VLC")
@@ -147,6 +149,7 @@ def main():
             buf.extend(bytes(conn.readAll()))
 
         def done():
+            buf.extend(bytes(conn.readAll()))     # anything that arrived with the disconnect (M3)
             data = buf.decode("utf-8", "replace").strip()
             if not data:                 # another Pylon only checking that this one is alive
                 conn.deleteLater()
@@ -157,14 +160,14 @@ def main():
             win.raise_()
             win.activateWindow()
             if paths:
-                win.open_paths(paths)
+                win.open_command_line(paths)
             conn.deleteLater()
         conn.readyRead.connect(read)
         conn.disconnected.connect(done)
     server.newConnection.connect(on_connection)
 
     if args:
-        QTimer.singleShot(300, lambda: win.open_paths(args))
+        QTimer.singleShot(300, lambda: win.open_command_line(args))
     app.aboutToQuit.connect(win.shutdown)        # does nothing if the window already closed
     code = app.exec()
     startup.mark(f"Event loop exited: {code}")

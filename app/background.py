@@ -4,7 +4,7 @@ import hashlib
 import os
 import threading
 
-from .store import data_dir
+from .paths import data_dir
 
 
 def cache_dir(name: str) -> str:

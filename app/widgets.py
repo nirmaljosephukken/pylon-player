@@ -6,7 +6,7 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, QTimer, QUrl,
 from PySide6.QtGui import (QBrush, QColor, QDesktopServices, QFont, QFontMetrics, QIcon,
                            QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPen, QPixmap,
                            QPolygonF)
-from PySide6.QtWidgets import (QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QPushButton,
+from PySide6.QtWidgets import (QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
                                QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from . import overlay, theme
@@ -271,7 +271,7 @@ class SeekBar(QWidget):
 class ConeVolume(QWidget):
     """Volume as a traffic cone lying on its side: narrow tip = quiet,
     wide base = loud. Fills with the accent color, white reflective bands
-    keep the cone look. Goes up to 125% by default, or 150% or 200% (#47)."""
+    keep the cone look. Goes up to 125% by default, or 85%, 100%, 150% or 200% (#47, #89)."""
     volume_changed = Signal(int)
 
     MAX = 125
@@ -316,7 +316,7 @@ class ConeVolume(QWidget):
 
     def _set_from_x(self, x):
         v = round(max(0, min(1, (x - 1) / (self.width() - 2))) * self.MAX)
-        if abs(v - 100) <= 3:
+        if abs(v - 100) <= 3 and self.MAX > 100:
             v = 100  # snap to 100%
         self.set_value(v)
         self.volume_changed.emit(self.value)
@@ -347,14 +347,46 @@ class ConeVolume(QWidget):
         p.setBrush(QColor(theme.FAINT) if self.muted else theme.brush(0, self.width()))
         p.drawPath(shape)
         p.restore()
-        # 100% mark: a thin gap across the cone
-        x100 = 1 + w * (100 / self.MAX)
-        p.save()
-        p.setClipPath(shape)
-        p.setPen(QPen(QColor(0, 0, 0, 110), 1.5))
-        p.drawLine(QPointF(x100, 0), QPointF(x100, self.height()))
-        p.restore()
+        if self.MAX > 100:
+            # 100% mark: a thin gap across the cone
+            x100 = 1 + w * (100 / self.MAX)
+            p.save()
+            p.setClipPath(shape)
+            p.setPen(QPen(QColor(0, 0, 0, 110), 1.5))
+            p.drawLine(QPointF(x100, 0), QPointF(x100, self.height()))
+            p.restore()
         p.end()
+
+
+# ---------------------------------------------------------------- type a time
+
+class JumpBox(QLineEdit):
+    """A small box that pops up over the time to type where to jump: 1:02:10, 62:10, 130, +30, 50%.
+    It is a popup, so it gets the keyboard even over the floating bars, and closes on Esc or a click away."""
+    jump = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+        self.setPlaceholderText("1:02:10, 130, +30 or 50%")
+        self.setFixedWidth(200)
+        self.setStyleSheet(f"QLineEdit {{ background: {theme.PANEL}; color: {theme.TEXT}; border: 1px solid "
+                           f"{theme.accent()}; border-radius: 6px; padding: 6px 8px; }}")
+        self.returnPressed.connect(self._done)
+
+    def _done(self):
+        text = self.text()
+        self.close()
+        self.jump.emit(text)
+
+    def open_at(self, anchor: QWidget, current: str):
+        self.setText(current)
+        self.selectAll()
+        pos = anchor.mapToGlobal(QPoint(0, 0))
+        self.move(pos.x(), pos.y() - self.sizeHint().height() - 6)
+        self.show()
+        self.activateWindow()
+        self.setFocus(Qt.PopupFocusReason)
 
 
 # ---------------------------------------------------------------- overlays
@@ -730,18 +762,22 @@ class Card(QWidget):
             self.clicked.emit()
 
 
-def subtitle_search_menu(parent, store, query_fn):
+def subtitle_search_menu(parent, store, query_fn, download_fn=None):
     """Menu of subtitle sites for "Find online" (#46). The order never changes; the preferred
-    site from Preferences > Subtitles is marked with a star (#54)."""
+    site from Preferences > Subtitles is marked with a star (#54). With download_fn, the first entry
+    downloads from OpenSubtitles.com inside Pylon."""
     menu = QMenu(parent)
-
-
     pm = QPixmap(16, 16)
     pm.fill(Qt.transparent)
     blank = QIcon(pm)
 
     def fill():
         menu.clear()
+        if download_fn:
+            act = menu.addAction(icon("download", theme.TEXT, 16), "Download in Pylon (OpenSubtitles.com)…",
+                                 download_fn)
+            act.setToolTip("Search OpenSubtitles.com and use the subtitle you pick right away")
+            menu.addSeparator()
         star = store.setting("sub_site_star")
         for key, name, _url in SUBTITLE_SITES:
             act = menu.addAction(name, lambda k=key: open_site(k))

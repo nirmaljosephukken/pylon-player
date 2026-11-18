@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 from . import APP_VERSION, theme
 from . import engine as engine_mod
 from .dialogs import UpdateDialog, WelcomeDialog
+from .paths import APP_ROOT
 from .util import desktop_mime_types
 
 
@@ -92,14 +93,27 @@ class SystemMixin:
         appimage = os.environ.get("APPIMAGE")
         if not appimage:
             return
+        try:
+            self._write_desktop_entry(appimage)
+        except OSError as err:          # a read-only or full home folder mustn't stop Pylon starting (M4)
+            print(f"Couldn't add Pylon to the applications menu: {err}", file=sys.stderr, flush=True)
+            if not quiet:
+                QMessageBox.warning(self, "Couldn't add Pylon to your apps", f"Pylon couldn't write its menu entry:\n{err}")
+            return
+        self.store.set_setting("desktop_entry", appimage)
+        if not quiet:
+            QMessageBox.information(self, "Added to your apps",
+                                    "Pylon is now in your applications menu and under \"Open with\" for videos and music.\n\n"
+                                    "If you move the Pylon file, choose this again.")
+
+    def _write_desktop_entry(self, appimage: str):
         home = os.path.expanduser("~")
         data = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share")
         apps = os.path.join(data, "applications")
         icons = os.path.join(data, "icons", "hicolor", "256x256", "apps")
         os.makedirs(apps, exist_ok=True)
         os.makedirs(icons, exist_ok=True)
-        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        png = os.path.join(here, "pylon.png")
+        png = os.path.join(APP_ROOT, "pylon.png")
         if os.path.isfile(png):
             shutil.copyfile(png, os.path.join(icons, "pylon.png"))
         mimes = desktop_mime_types()
@@ -114,11 +128,6 @@ class SystemMixin:
                 subprocess.run(cmd, timeout=10, capture_output=True)
             except Exception:
                 pass
-        self.store.set_setting("desktop_entry", appimage)
-        if not quiet:
-            QMessageBox.information(self, "Added to your apps",
-                                    "Pylon is now in your applications menu and under \"Open with\" for videos and music.\n\n"
-                                    "If you move the Pylon file, choose this again.")
 
     def locate_vlc(self):
         """Let the user point Pylon at a VLC folder (portable VLC, unusual install place)."""
@@ -169,7 +178,7 @@ class SystemMixin:
         if appimage:
             prog, args = appimage, []
         else:
-            main_py = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main.py")
+            main_py = os.path.join(APP_ROOT, "main.py")
             prog, args = sys.executable, [main_py]
         if self.engine.current:
             args.append(self.engine.current)

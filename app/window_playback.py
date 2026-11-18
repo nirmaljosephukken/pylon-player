@@ -10,14 +10,14 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from . import APP_NAME
 from .dialogs import StreamDialog, SubtitleDialog
-from .engine import MAX_SHARPEN
+from .engine import MAX_SHARPEN, PICTURE_DEFAULTS
 from .library_widgets import media_filter
 from .stage import PAGE_AUDIO, PAGE_HOME, PAGE_VIDEO
 from .store import resume_point
 from .updates import fetch_text
-from .util import (PLAYLIST_EXTS, SUB_EXTS, display_name, find_subtitle_candidates, fmt_time, is_audio, is_disc,
+from .util import (PLAYLIST_EXTS, parse_command_line, SUB_EXTS, display_name, find_subtitle_candidates, fmt_time, is_audio, is_disc,
                    is_dvd_folder, is_media, is_url, list_media, match_subtitle, natural_key, norm, parse_m3u,
-                   read_playlist, sort_key_by_name)
+                   expand_playlists, read_playlist, sort_key_by_name)
 
 
 class StreamProbe(QObject):
@@ -75,7 +75,13 @@ class PlaybackMixin:
             self.play_from_folder(files[0])
         else:
             files.sort(key=lambda p: natural_key(os.path.basename(p)))
-            self.set_queue([{"path": f} for f in files], 0, any_start=True)
+            self.set_queue(self.queue_entries(files), 0, any_start=True)
+
+    @staticmethod
+    def queue_entries(paths) -> list[dict]:
+        """Queue entries for these paths, with every playlist among them replaced by its entries
+        where it was, so a playlist never sits in the queue as one item that can't play."""
+        return [{"path": p, "title": n} if n else {"path": p} for n, p in expand_playlists(paths) if p]
 
     def open_folder_dialog(self):
         d = QFileDialog.getExistingDirectory(self, "Open folder")
@@ -235,7 +241,11 @@ class PlaybackMixin:
             self.play_queue_index(self.qindex)
 
     def enqueue(self, paths, play_next=False):
-        items = [{"path": norm(p)} for p in paths if p]
+        self.enqueue_entries(self.queue_entries(paths), play_next)
+
+    def enqueue_entries(self, entries, play_next=False):
+        """Add queue entries ({"path", optional "title"}) next, or where they belong in the queue."""
+        items = [{**it, "path": norm(it["path"])} for it in entries if it.get("path")]
         if not items:
             return
         if play_next and self.qindex >= 0:
@@ -273,8 +283,9 @@ class PlaybackMixin:
         self.toast("Queue sorted by name")
 
     def insert_into_queue(self, paths, row):
-        items = [{"path": norm(p)} for p in paths if p and (is_url(p) or is_media(p) or
-                                                      os.path.splitext(p)[1].lower() in PLAYLIST_EXTS)]
+        """Files, links or playlists dropped on the queue at row; a playlist brings its entries there."""
+        items = [{**it, "path": norm(it["path"])} for it in self.queue_entries(
+            [p for p in paths if p and (is_url(p) or is_media(p) or os.path.splitext(p)[1].lower() in PLAYLIST_EXTS)])]
         if not items:
             return
         row = max(0, min(row, len(self.queue)))
@@ -412,6 +423,12 @@ class PlaybackMixin:
         e.live["sub_delay"] = 0
         e.live["audio_delay"] = 0
         self._track_prefs = ("", "")
+        if folder != self._live_folder:
+            # another show: its picture starts from the defaults, not the last show's preset or tweaks (H3)
+            e.live.update(PICTURE_DEFAULTS)
+            self._live_folder = folder
+            if not preset:
+                self.sidebar.sync_from_engine()
         if preset:
             self.apply_preset(preset, live=False)
 
@@ -445,6 +462,7 @@ class PlaybackMixin:
         self._in_menu = False
 
         shown = title or display_name(path)
+        self.media_keys.update(**self._media_info(path, shown, audio))
         self.top.set_title(shown)
         self.setWindowTitle(f"{shown}  ·  {APP_NAME}")
         self.top.set_folder(os.path.basename(folder) if folder else ("Stream" if is_url(path) else ""))
@@ -463,6 +481,31 @@ class PlaybackMixin:
             QTimer.singleShot(400, lambda: self.toast(f"Preset: {name}"))
         if self.library.isVisible():
             self.library.refresh_library()
+
+    def _media_info(self, path, shown, audio) -> dict:
+        """What the system's media controls show: the song's title and artist, or the video's name and folder."""
+        if audio:
+            m = self.library.music
+            song = m.songs.get(path, {})
+            artist = m.artist_of(song) if song else ""
+            return {"title": m.title_of(path, song) if song else shown, "artist": artist if artist != "Unknown artist"
+                    else "", "audio": True}
+        folder = "" if is_url(path) else os.path.basename(os.path.dirname(path))
+        return {"title": shown, "artist": folder, "audio": False}
+
+    def media_command(self, cmd: str):
+        """A media key or a button in the system's media controls."""
+        e = self.engine
+        if cmd == "raise":
+            if self.isMinimized():
+                self.showNormal()
+            self.raise_()
+            self.activateWindow()
+        elif cmd == "toggle" or (cmd == "play" and not e.is_playing()) or (cmd == "pause" and e.is_playing()):
+            if e.current or self.queue:
+                self.do("play_pause", key=False)
+        elif cmd in ("next", "previous", "stop"):
+            self.do({"previous": "prev"}.get(cmd, cmd), key=False)
 
     def _accept_resume(self):
         if self._resume_ms and self._resume_title is not None:
@@ -556,14 +599,14 @@ class PlaybackMixin:
         if not self._prefs_applied and self.engine.state() == "playing":
             self._prefs_applied = True
             QTimer.singleShot(350, self._apply_track_prefs)
-        QTimer.singleShot(120, self._refresh_after_tracks)
-
-    def _refresh_after_tracks(self):
-        self.sidebar.refresh_tracks_if_shown()
+        QTimer.singleShot(120, self.sidebar.refresh_tracks_if_shown)
 
     def _on_state(self, state):
         e = self.engine
         self.bottom.set_playing(state == "playing")
+        if state in ("playing", "paused", "stopped", "ended", "error"):
+            self.media_keys.update(status={"playing": "playing", "paused": "paused"}.get(state, "stopped"),
+                                   length=e.length(), position=e.time())
         if state == "playing":
             self._trim_start()
             if not self._live_applied:
@@ -646,8 +689,8 @@ class PlaybackMixin:
 
     def _on_ended(self):
         e = self.engine
-        if e.current:
-            ln = e.length()
+        if e.current and not is_url(e.current) and self.store.setting("remember_history"):
+            ln = e.length()                   # a stream has no place to come back to (M2)
             self.store.set_position(e.current, ln, ln)
             self.store.set_watched(e.current, True)
         if self._sleep_end_of_file:
@@ -684,6 +727,9 @@ class PlaybackMixin:
             return
         if self._bars_visible or self.stage.currentIndex() == PAGE_AUDIO:
             self.bottom.set_time(e.time(), e.length())
+        if self.stage.currentIndex() == PAGE_AUDIO:
+            self.now_playing.set_time(e.time())
+        e.night_tick()
         if self.sidebar.isVisible():
             self.sidebar.tick()
         if e.is_disc():
@@ -723,6 +769,22 @@ class PlaybackMixin:
             paths = [e.mimeData().text().strip()]
         self.open_paths(paths)
 
+    def open_command_line(self, argv):
+        """Files and links from Pylon's command line, or from a second Pylon started with them. Understands the
+        VLC options browser extensions such as "Open in VLC" add (#91): the page as referrer, the browser's
+        user agent and a title. They are kept for this session, so the link also plays again from the queue."""
+        targets, opts, titles = parse_command_line(argv)
+        for url, o in opts.items():
+            self.engine.url_options[url] = o
+        if len(targets) == 1 and is_url(targets[0]) and (opts or titles):
+            url = targets[0]
+            if opts:
+                self._play_stream(url, titles.get(url, ""))     # a stream a page plays: no channel-list check
+            else:
+                self.open_stream(url, titles.get(url, ""))
+            return
+        self.open_paths(targets)
+
     def open_paths(self, paths):
         paths = [norm(p) for p in paths if p]
         # only things Pylon can actually play: media, playlists, subtitles, folders, links
@@ -761,8 +823,8 @@ class PlaybackMixin:
         files = []
         for p in paths:
             files.extend(list_media(p) if os.path.isdir(p) else [p])
-        files = [f for f in files if is_url(f) or is_media(f)]
+        files = [f for f in files if is_url(f) or is_media(f) or os.path.splitext(f)[1].lower() in PLAYLIST_EXTS]
         if self.engine.current and self.engine.is_playing():
             self.enqueue(files)
         else:
-            self.set_queue([{"path": f} for f in files], 0, any_start=True)
+            self.set_queue(self.queue_entries(files), 0, any_start=True)

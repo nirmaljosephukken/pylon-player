@@ -166,7 +166,7 @@ class WindowSafety(unittest.TestCase):
         win.sidebar.refresh_tracks = lambda: calls.append(1)
         win.toggle_sidebar(False)
         win.engine.tracks_changed.emit()
-        win._refresh_after_tracks()
+        win.sidebar.refresh_tracks_if_shown()
         app.processEvents()
         self.assertEqual(calls, [])                        # hidden: only the seek bar's chapter ticks
         win.toggle_sidebar(True)
@@ -176,7 +176,7 @@ class WindowSafety(unittest.TestCase):
         calls.clear()
         win.engine.tracks_changed.emit()
         app.processEvents()
-        win._refresh_after_tracks()
+        win.sidebar.refresh_tracks_if_shown()
         self.assertEqual(len(calls), 1)                    # one rebuild per change, not two
         win.toggle_sidebar(False)
 

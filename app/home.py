@@ -3,15 +3,16 @@ library, playlists, streams) and the Now Playing page used for music."""
 import os
 import time
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QRectF, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy,
                                QVBoxLayout, QWidget, QMenu)
 
 from . import theme
 from .icons import icon, pixmap
 from .music import folder_cover
-from .util import display_name, fmt_time, is_audio, is_disc, is_url, pretty_title, to_path, list_media
+from .util import (display_name, fmt_time, is_audio, is_disc, is_url, lyric_index, pretty_title, read_lyrics,
+                   to_path, list_media)
 from .store import HOME_SECTIONS, RESUME_MIN_MS, is_finished, resume_point
 from .widgets import Card, IconButton, muted
 
@@ -202,15 +203,14 @@ class HomePage(QScrollArea):
         if pls:
             lay.addWidget(self._section("Playlists"))
             row = FlowRow()
-            positions = self.store.data["positions"]
             ordered = lib.ordered_playlists()           # follow the Playlists tab (#37, #63)
             first, rest = lib.with_pins("playlists", ordered, lambda x: x[0])     # pinned first (#52)
             for name, items in first + rest:
-                done = sum(1 for p in items if positions.get(p, {}).get("watched"))
+                done, _files, frac = lib.playlist_progress(items)     # counted as the Playlists tab does (M7)
                 sub = f"{len(items)} item{'s' if len(items) != 1 else ''}"
                 if done:
                     sub += f"  ·  {done} watched"
-                c = Card(name, sub, "playlist", progress=done / len(items) if items and done else None)
+                c = Card(name, sub, "playlist", progress=frac if done else None)
                 self._bind_card_menu(c, "playlist", name)
                 c.clicked.connect(lambda n=name: self.win.play_playlist(n))
                 row.add(c)
@@ -354,7 +354,7 @@ class HomePage(QScrollArea):
             tracks = album["tracks"] if album else []
             pinned = lib.is_pinned("albums", value)
             return [("Play", lambda: lib.play_songs(tracks)),
-                    ("Add to queue", lambda: win.enqueue(tracks)),
+                    ("Add to queue", lambda: win.enqueue_entries(lib.queue_items(tracks))),
                     ("Unpin" if pinned else "Pin to top", lambda: lib.toggle_item_pin("albums", value))]
         if kind == "playlist":
             return [("Play", lambda: win.play_playlist(value)),
@@ -397,17 +397,153 @@ def _parent(p):
     return os.path.basename(os.path.dirname(p))
 
 
+class LyricsView(QWidget):
+    """Synced lyrics from a .lrc file: the line being sung is bright and kept in the middle, and clicking a line
+    jumps there. The wheel scrolls through them for a few seconds before they follow the song again. Lyrics
+    without times are shown as plain lines you can scroll."""
+    jump = Signal(int)
+    FOLLOW_AGAIN_MS = 4000
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.lines: list = []
+        self.current = -1
+        self._y = 0.0                  # the row shown in the middle (fractional while it slides)
+        self._manual = None            # row the wheel moved to, until the song is followed again
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(260)
+        self._anim.valueChanged.connect(self._slide)
+        self._follow = QTimer(self)
+        self._follow.setSingleShot(True)
+        self._follow.timeout.connect(self._follow_again)
+        self.setMinimumWidth(220)
+        self.setCursor(Qt.PointingHandCursor)
+
+    @property
+    def timed(self) -> bool:
+        return bool(self.lines) and self.lines[0][0] is not None
+
+    def set_lines(self, lines):
+        self.lines = list(lines)
+        self.current = -1
+        self._manual = None
+        self._anim.stop()
+        self._y = 0.0
+        self.setCursor(Qt.PointingHandCursor if self.timed else Qt.ArrowCursor)
+        self.update()
+
+    def set_time(self, ms: int):
+        if not self.timed:
+            return
+        i = lyric_index(self.lines, ms)
+        if i == self.current:
+            return
+        self.current = i
+        if self._manual is None:
+            self._slide_to(max(0, i))
+        self.update()
+
+    def _slide_to(self, row):
+        self._anim.stop()
+        if not self.isVisible() or abs(row - self._y) > 6:
+            self._y = float(row)          # a long jump (or a hidden view) moves at once
+            self.update()
+            return
+        self._anim.setStartValue(float(self._y))
+        self._anim.setEndValue(float(row))
+        self._anim.start()
+
+    def _slide(self, v):
+        self._y = float(v)
+        self.update()
+
+    def _follow_again(self):
+        self._manual = None
+        self._slide_to(max(0, self.current))
+
+    def row_height(self) -> int:
+        return int(self.fontMetrics().lineSpacing() * 2.4)
+
+    def row_at(self, y: float) -> int:
+        """The line drawn at height y, or -1."""
+        if not self.lines:
+            return -1
+        row = round(self._y + (y - self.height() / 2) / self.row_height())
+        return row if 0 <= row < len(self.lines) else -1
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton and self.timed:
+            row = self.row_at(e.position().y())
+            if row >= 0:
+                self._manual = None
+                self._follow.stop()
+                self.jump.emit(self.lines[row][0])
+                e.accept()
+                return
+        super().mousePressEvent(e)
+
+    def wheelEvent(self, e):
+        if not self.lines:
+            return super().wheelEvent(e)
+        steps = -e.angleDelta().y() / 120
+        start = self._manual if self._manual is not None else self._y
+        self._manual = min(max(0.0, start + steps), len(self.lines) - 1.0)
+        self._anim.stop()
+        self._y = self._manual
+        if self.timed:
+            self._follow.start(self.FOLLOW_AGAIN_MS)
+        self.update()
+        e.accept()
+
+    def paintEvent(self, _e):
+        if not self.lines:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.TextAntialiasing)
+        rh = self.row_height()
+        mid = self.height() / 2
+        base = QFont(self.font())
+        big = QFont(base)
+        big.setPointSizeF(base.pointSizeF() * 1.25 if base.pointSizeF() > 0 else 13)
+        big.setBold(True)
+        first = max(0, int(self._y - mid / rh) - 1)
+        last = min(len(self.lines) - 1, int(self._y + mid / rh) + 1)
+        for row in range(first, last + 1):
+            y = mid + (row - self._y) * rh
+            text = self.lines[row][1] or "♪"
+            now = row == self.current and self.timed
+            if now:
+                p.setFont(big)
+                p.setPen(QColor(theme.TEXT))
+            else:
+                p.setFont(base)
+                c = QColor(theme.MUTED)
+                fade = min(1.0, abs(y - mid) / max(1.0, mid))     # dimmer toward the edges
+                c.setAlphaF(max(0.15, 1.0 - 0.8 * fade))
+                p.setPen(c)
+            p.drawText(QRectF(0, y - rh / 2, self.width(), rh), Qt.AlignCenter | Qt.TextWordWrap, text)
+        p.end()
+
+
 class NowPlayingPage(QWidget):
-    """Shown for audio files: big cover art and track details."""
+    """Shown for audio files: big cover art and track details, and the song's synced lyrics next to them when
+    there is a .lrc file with the same name."""
 
     def __init__(self, win):
         super().__init__()
         self.win = win
         self.setObjectName("NowPlaying")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(40, 70, 40, 100)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(40, 70, 40, 100)
+        outer.setSpacing(36)
+        lay = QVBoxLayout()
         lay.setSpacing(14)
+        outer.addLayout(lay, 1)
+        self.lyrics = LyricsView(self)
+        self.lyrics.jump.connect(self._jump)
+        self.lyrics.hide()
+        outer.addWidget(self.lyrics, 1)
         lay.addStretch(1)
         self.art = QLabel()
         self.art.setAlignment(Qt.AlignCenter)
@@ -424,6 +560,8 @@ class NowPlayingPage(QWidget):
         lay.addWidget(self.sub)
         lay.addStretch(1)
         self._pix = None
+        self._lyrics_for = None
+        self._meta = {}
         self.setMouseTracking(True)
 
     # Right-click opens the same menu as on a video (#74). In picture in picture, dragging moves the
@@ -453,6 +591,7 @@ class NowPlayingPage(QWidget):
         super().leaveEvent(e)
 
     def load(self, path: str, meta: dict):
+        self._meta = meta
         self.title.setText(meta.get("title") or display_name(path))
         parts = [meta.get(k) for k in ("artist", "album") if meta.get(k)]
         self.sub.setText("  ·  ".join(parts) or (os.path.dirname(path) if not is_url(path) else path))
@@ -466,6 +605,28 @@ class NowPlayingPage(QWidget):
                 pix = QPixmap(cover)
         self._pix = pix if pix is not None and not pix.isNull() else None
         self._render()
+        if path != self._lyrics_for:
+            self._lyrics_for = path
+            store = getattr(self.win, "store", None)
+            on = store.setting("lyrics") if store else True
+            self.lyrics.set_lines(read_lyrics(path) if on else [])
+        self.lyrics.setVisible(bool(self.lyrics.lines))
+
+    def set_time(self, ms: int):
+        if self.lyrics.isVisible():
+            self.lyrics.set_time(ms)
+
+    def reload_lyrics(self):
+        """After the lyrics setting changes, or a .lrc file is added."""
+        path, self._lyrics_for = self._lyrics_for, None
+        if path:
+            self.load(path, self._meta)
+
+    def _jump(self, ms):
+        e = getattr(self.win, "engine", None)
+        if e is not None and e.current:
+            e.seek(ms)
+            self.lyrics.set_time(ms)
 
     def resizeEvent(self, e):
         super().resizeEvent(e)

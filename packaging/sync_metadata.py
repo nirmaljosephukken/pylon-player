@@ -2,7 +2,8 @@
 
 app/__init__.py (APP_VERSION) and app/util.py (ASSOCIATED_EXTS, MIME_TYPES) are the sources. This writes them
 into the Windows installer, the launcher's version resource, the licence summary, register_pylon.bat and
-unregister_pylon.bat, the macOS Info.plist and the Linux desktop and AppStream files.
+unregister_pylon.bat, the macOS Info.plist and the Linux desktop and AppStream files. It also names the current
+release's files in the README's direct download links and in the user guide, which 404 once they name an older one.
 
     python packaging/sync_metadata.py           # update the files
     python packaging/sync_metadata.py --check   # only report what is out of date (exit code 1)
@@ -47,6 +48,23 @@ def _plist_group(text: str, name: str, exts) -> str:
                rf"<key>CFBundleTypeName</key>\s*<string>{name}</string>)")
     items = "".join(f"\t\t\t\t<string>{e.lstrip('.')}</string>\n" for e in sorted(exts))
     return _sub(text, pattern, lambda m: m.group(1) + items + m.group(2), f"Info.plist ({name})")
+
+
+# The download file names, with {v} for the version. GitHub's releases/latest/download/<name> link only works
+# while <name> is the latest release's file, so the README's links must follow the version.
+DOWNLOAD_NAMES = ("Pylon-Setup-{v}.exe", "Pylon-{v}-x86_64.AppImage", "Pylon-{v}-macOS.zip")
+DOWNLOAD_DOCS = ("README.md", "docs/guide.html")
+
+
+def download_names(text: str, v: str, path: str) -> str:
+    """Name version v's files wherever text names a release's download files."""
+    for name in DOWNLOAD_NAMES:
+        before, after = name.split("{v}")
+        pattern = re.escape(before) + r"\d+(?:\.\d+)+" + re.escape(after)
+        text, n = re.subn(pattern, lambda m: name.format(v=v), text)
+        if not n:
+            raise ValueError(f"{path}: no download file name like {name}")
+    return text
 
 
 def expected() -> dict[Path, str]:
@@ -96,6 +114,10 @@ def expected() -> dict[Path, str]:
     if f'<release version="{v}"' not in t:
         t = _sub(t, r"<releases>", f'<releases><release version="{v}" date="{time.strftime("%Y-%m-%d")}"/>', p.name)
     out[p] = t
+
+    for name in DOWNLOAD_DOCS:
+        p = ROOT / name
+        out[p] = download_names(p.read_text(encoding="utf-8"), v, name)
 
     p = ROOT / "register_pylon.bat"
     t = p.read_text(encoding="utf-8")

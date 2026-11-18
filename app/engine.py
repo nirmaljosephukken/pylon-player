@@ -14,8 +14,9 @@ from fractions import Fraction
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
-from .paths import log_dir, rotate
-from .store import saved_setting
+from .night import Leveller, scaled_volume
+from .paths import APP_ROOT, log_dir, rotate
+from .store import MAX_VOLUMES, START_VOLUMES, saved_setting
 from .util import disc_mrl, is_disc, is_url
 
 
@@ -123,11 +124,10 @@ def _saved_vlc_dir() -> str:
 
 def _windows_candidates() -> list[str]:
     """Folders where a Windows VLC might be, most specific first."""
-    app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     cands = [os.environ.get("PYLON_VLC_DIR", ""), _installer_vlc_dir()]
     # VLC inside Pylon's folder, or next to it, or next to any folder above it
     # (setup's Browse button adds "\Pylon", e.g. E:\Apps\Pylon-1.1\Pylon with E:\Apps\VLC).
-    d = app_root
+    d = APP_ROOT
     for _ in range(4):
         cands += [os.path.join(d, "VLC"), os.path.join(d, "VideoLAN", "VLC")]
         parent = os.path.dirname(d)
@@ -163,8 +163,7 @@ def _windows_candidates() -> list[str]:
 def _installer_vlc_dir() -> str:
     """Setup writes the VLC folder it found to vlc-path.txt next to Pylon."""
     try:
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        with open(os.path.join(root, "vlc-path.txt"), encoding="utf-8-sig") as f:
+        with open(os.path.join(APP_ROOT, "vlc-path.txt"), encoding="utf-8-sig") as f:
             return f.read().strip().strip('"')
     except OSError:
         return ""
@@ -288,6 +287,10 @@ CUSTOM_EQ = -2     # live["eq"] value for the user's own 10-band curve (#38)
 EQ_RANGE = 20.0    # VLC's equalizer works in -20..+20 dB
 MAX_ZOOM = 8.0         # interactive zoom limit (#39)
 AUDIO_WARMUP = 0.6     # seconds to wait before the first volume change on Linux (#28)
+# The picture settings a per-show preset can change, as they are with no preset: aspect, crop, zoom, colours
+PICTURE_DEFAULTS = {"aspect": "", "crop": "", "zoom": 0.0, "adjust": None}
+START_VOLUME_CAP = 100  # Windows: highest volume an audio output may start at, or it can stay silent (#82)
+BOOST_DELAY_MS = 500   # Windows: wait this long after playback starts before going above 100% (#82)
 
 # DVD menus (libvlc_navigate_mode_t) and the flag VLC puts on a disc's menu title
 NAV_ACTIVATE, NAV_UP, NAV_DOWN, NAV_LEFT, NAV_RIGHT = 0, 1, 2, 3, 4
@@ -317,12 +320,16 @@ class Engine(QObject):
     picture_changed = Signal()          # the picture's shape may have changed (aspect, crop, new video)
     renderers_changed = Signal()        # a cast device appeared or went away
     _renderer_seen = Signal(object, bool, object)   # VLC thread -> GUI thread: pointer, added, held item
+    BOOST_HOLD = sys.platform == "win32"   # start each audio output at 100% at most (#82)
 
     def __init__(self, store, parent=None):
         super().__init__(parent)
         self.store = store
         if (store.setting("visualizer") or "") not in VISUALIZERS:
             store.set_setting("visualizer", "")      # one this system doesn't offer, such as 3D spectrum on Windows
+        start = store.setting("start_volume")
+        if start in START_VOLUMES and start:          # "Volume when Pylon starts"
+            store.set_setting("volume", min(int(start), self.max_volume()))
         self.instance = None
         self.player = None
         self.win_id = None
@@ -336,15 +343,21 @@ class Engine(QObject):
         self.rotate, self.flip_h, self.flip_v = 0, False, False     # rotate and flip (#83)
         self.sharpen = 0.0             # 0 = off, else VLC sharpen strength (sigma, up to 1.5)
         self.live = {"rate": 1.0, "sub_delay": 0, "audio_delay": 0, "eq": -1, "eq_custom": None,
-                     "aspect": "", "crop": "", "zoom": 0.0, "deinterlace": "",
-                     "adjust": None}
+                     "deinterlace": "", **PICTURE_DEFAULTS}
         self._cb = []
         self._live_pending = False     # re-apply live settings once the new player plays
         self._live_done = False        # live settings were applied to the media playing now (M16)
         self._audio_ready_at = 0.0     # Linux: when the audio output can take volume changes (#28)
         self._audio_pending = {}       # volume/mute changes waiting for that
+        self._boost_held = False       # Windows: a new audio output is starting, so stay at 100% or below (#82)
+        self._boost_later = None       # the volume above 100% to apply once it has started
+        self._boost_gen = 0            # which hold a release timer belongs to, so an old one can't end a new hold
+        self.leveller = Leveller()     # night mode: the current file's loudness, and the gain it is playing at
+        self.url_options: dict[str, list[str]] = {}   # VLC options a link came with, e.g. its referrer (#91)
+        self._user_volume = None       # the volume you set, while night mode plays VLC at another
         self._held_ms = None           # position shown while a media is opened paused
         self._settle = None            # reopening paused: where to return once it plays (#36)
+        self._settling = None          # that settle while it pauses and jumps back
         self.izoom = None              # interactive zoom (#39): {"z", "x", "y", "w", "h"} in video pixels
         self.fit = None                # (w, h) device pixels of a video area sized to the picture (#42)
         self._fit_turn = 0             # which of the equivalent fill ratios is in use
@@ -441,7 +454,7 @@ class Engine(QObject):
         # mute changes briefly and apply them once the output has settled.
         self._audio_ready_at = time.monotonic() + (AUDIO_WARMUP if sys.platform.startswith("linux") else 0)
         self._audio_pending = {}
-        self._queue_audio(volume=int(self.store.setting("volume")))
+        self._queue_audio(volume=min(self.max_volume(), int(self.store.setting("volume"))))
         em = self.player.event_manager()
         E = vlc.EventType
         hooks = {
@@ -509,6 +522,10 @@ class Engine(QObject):
             self._renew(self.volume())
         if not is_url(target):
             target = os.path.normpath(os.path.abspath(target))
+        if self.leveller.path != target:          # night mode starts each file at the volume you set
+            self.leveller.clear()
+            if self._user_volume is not None and "volume" not in self._audio_pending:
+                self._queue_audio(volume=self._user_volume)
         self.current = target
         self.current_title = title
         disc = is_disc(target)
@@ -516,10 +533,12 @@ class Engine(QObject):
             media = self.instance.media_new(disc_mrl(target))
         else:
             media = self.instance.media_new_path(target)
+        for opt in self.url_options.get(target, ()):    # e.g. :http-referrer=… from "Open in VLC" (#91)
+            media.add_option(opt)
         if start_ms > 0 and not disc:     # a disc starts at its menu; the window resumes the title
             media.add_option(f":start-time={start_ms / 1000:.3f}")
         self._held_ms = None
-        self._settle = None
+        self._settle = self._settling = None
         self.izoom = None              # each new file starts unzoomed
         self._live_done = False
         if paused:
@@ -529,6 +548,7 @@ class Engine(QObject):
             self._held_ms = int(start_ms)
             self._settle = {"ms": int(start_ms), "vol": self.volume()}
             self._queue_audio(volume=0)
+        self._hold_boost()
         self.player.set_media(media)
         self.extra_subs = []
         for s in subs or []:
@@ -623,6 +643,30 @@ class Engine(QObject):
         self._args_stale = True
         return False
 
+    def set_night_mode(self, on: bool):
+        """Night mode on or off: loud parts turned down and quiet talk brought up (see night.py)."""
+        self.store.set_setting("night_mode", bool(on))
+        if not on:
+            self.leveller.gain_db = 0.0
+            if self._user_volume is not None and "volume" not in self._audio_pending:
+                self._queue_audio(volume=self._user_volume)
+
+    def set_loudness(self, path: str, env: bytes):
+        """The loudness of a file, from the waveform reader. Night mode follows it while that file plays."""
+        if path == self.current and env != self.leveller.env:
+            self.leveller.load(path, env)
+
+    def night_tick(self):
+        """Every quarter second: move VLC's volume against the loudness just ahead."""
+        lv = self.leveller
+        if (not self.ok or not self.store.setting("night_mode") or lv.path != self.current or not lv.env
+                or not self.is_playing()):
+            return
+        before = lv.gain_db
+        after = lv.step(self.time())
+        if abs(after - before) >= 0.25 and "volume" not in self._audio_pending and not self._boost_held:
+            self._queue_audio(volume=self.volume())
+
     def set_vsr_paused(self, on: bool) -> bool:
         """Set Super Resolution aside, or bring it back (#42). VLC reads its upscaling mode only when the
         player is made, so this rebuilds the player and continues from the same point. Returns True if
@@ -667,11 +711,20 @@ class Engine(QObject):
         if state == "playing":
             self._audio_ready_at = 0      # the output is running, so changes are safe now
             self._flush_audio()
+            if self._boost_held:
+                gen = self._boost_gen
+                QTimer.singleShot(BOOST_DELAY_MS, lambda: self._release_boost(gen))
+        elif state == "error":
+            self._release_boost()         # nothing will play, so don't keep later volume changes capped
         if state == "playing" and self._settle:
             settle, self._settle = self._settle, None
+            self._settling = settle
             self.player.set_pause(1)
             def back():
-                self.player.set_time(settle["ms"])     # redraws the paused picture there
+                if self._settling is not settle:
+                    return                             # another file opened meanwhile
+                self._settling = None
+                self.player.set_time(settle["ms"])     # redraws the paused picture there (or where you seeked)
                 QTimer.singleShot(150, lambda: self._queue_audio(volume=max(0, settle["vol"])))
             QTimer.singleShot(50, back)
         # a media reopened paused (#36) never reaches "playing", so apply there too
@@ -698,8 +751,7 @@ class Engine(QObject):
         self.set_eq(L["eq"])
         self._apply_crop()
         self.player.video_set_deinterlace(L["deinterlace"] or None)
-        if L["adjust"]:
-            self.set_adjust(L["adjust"])
+        self.set_adjust(L["adjust"])        # None switches off colours left from the last file
 
     # ------------------------------------------------------------------ transport
     def play(self):
@@ -732,7 +784,8 @@ class Engine(QObject):
         self.extra_subs = []
         self.izoom = None
         self._held_ms = None
-        self._settle = None
+        self._settle = self._settling = None
+        self._release_boost()
 
     def is_playing(self) -> bool:
         return bool(self.ok and self.player.is_playing())
@@ -745,6 +798,9 @@ class Engine(QObject):
     def time(self) -> int:
         if not self.ok:
             return 0
+        pending = self._settle or self._settling
+        if pending:
+            return pending["ms"]       # reopened paused: where it is going back to, not the brief play (L4)
         t = int(self.player.get_time() or 0)
         # VLC reports 0 for a media opened paused until it plays; show where it is
         if self._held_ms is not None:
@@ -772,6 +828,9 @@ class Engine(QObject):
         ms = max(0, min(int(ms), ln - 500 if ln else int(ms)))
         if self._held_ms is not None:
             self._held_ms = ms
+        for pending in (self._settle, self._settling):
+            if pending:
+                pending["ms"] = ms     # the jump back after a paused reopen goes here instead (L4)
         now = time.monotonic()
         wait = 0.12 - (now - self._last_seek_t)
         if wait > 0:
@@ -840,19 +899,61 @@ class Engine(QObject):
             return
         pending, self._audio_pending = self._audio_pending, {}
         if "volume" in pending:
-            self.player.audio_set_volume(int(pending["volume"]))
+            v = int(pending["volume"])
+            self._boost_later = None
+            self._user_volume = None
+            play = v
+            if self.store.setting("night_mode") and self.leveller.gain_db:
+                self._user_volume = v
+                play = min(scaled_volume(v, self.leveller.gain_db, cubic=sys.platform == "win32"),
+                           max(v, self.max_volume()))
+            if self._boost_held and play > START_VOLUME_CAP:
+                self._boost_later, play = v, START_VOLUME_CAP     # the volume you set, applied once started
+            self.player.audio_set_volume(play)
         if "mute" in pending:
             self.player.audio_set_mute(bool(pending["mute"]))
+
+    # VLC's Windows audio output (mmdevice) can stay silent when a file starts with the volume above 100%:
+    # the boost then runs as a software gain before the output has started (#82: no sound until the volume
+    # went below 100%). So while a new output starts, Pylon plays at 100% at most and goes up to the real
+    # volume once playback has run for a moment.
+    def _hold_boost(self, release_ms: int = 0):
+        """Keep the next audio output at 100% or below until it has started. With release_ms, go back to
+        the real volume after that long (for a change that restarts the output while playing)."""
+        if not (self.ok and self.BOOST_HOLD):
+            return
+        v = self.volume()
+        self._boost_held = True
+        self._boost_gen += 1           # a release still pending for an earlier output no longer applies
+        if v > START_VOLUME_CAP and "volume" not in self._audio_pending:
+            self._queue_audio(volume=v)
+        if release_ms:
+            gen = self._boost_gen
+            QTimer.singleShot(release_ms, lambda: self._release_boost(gen))
+
+    def _release_boost(self, gen: int | None = None):
+        """End the hold and apply the real volume. A timer passes the hold it was set for (gen) and is
+        ignored once a newer output has started holding."""
+        if not self._boost_held or (gen is not None and gen != self._boost_gen):
+            return
+        self._boost_held = False
+        later, self._boost_later = self._boost_later, None
+        if later is not None and self.ok and "volume" not in self._audio_pending:
+            self._queue_audio(volume=later)
 
     def volume(self) -> int:
         if self.ok and "volume" in self._audio_pending:
             return int(self._audio_pending["volume"])
+        if self._user_volume is not None and self.ok:
+            return int(self._user_volume)          # night mode is playing VLC at another volume
+        if self.ok and self._boost_later is not None:
+            return int(self._boost_later)
         v = self.player.audio_get_volume() if self.ok else -1
         return int(v) if v is not None and v >= 0 else int(self.store.setting("volume"))
 
     def max_volume(self) -> int:
         m = self.store.setting("max_volume")
-        return m if m in (125, 150, 200) else 125
+        return m if m in MAX_VOLUMES else 125
 
     def set_volume(self, v: int):
         v = max(0, min(self.max_volume(), int(v)))
@@ -877,6 +978,7 @@ class Engine(QObject):
 
     def set_audio(self, tid: int):
         if self.ok:
+            self._hold_boost(release_ms=BOOST_DELAY_MS + 300)     # a new track starts a new audio output (#82)
             self.player.audio_set_track(int(tid))
 
     def set_audio_delay(self, ms: int):
@@ -909,6 +1011,7 @@ class Engine(QObject):
 
     def set_device(self, device_id: str):
         if self.ok:
+            self._hold_boost(release_ms=BOOST_DELAY_MS + 300)     # a new device starts a new audio output (#82)
             self.player.audio_output_device_set(None, device_id)
 
     def eq_presets(self) -> list[str]:
@@ -1245,7 +1348,7 @@ class Engine(QObject):
     def set_adjust(self, adj: dict | None, force: bool = False):
         """adj: {brightness, contrast, saturation, hue, gamma} or None to disable."""
         self.live["adjust"] = adj
-        if not self.ok:
+        if not self.ok or vlc is None:
             return
         A = vlc.VideoAdjustOption
         if not adj:

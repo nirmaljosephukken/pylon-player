@@ -4,13 +4,13 @@ import subprocess
 import sys
 
 from PySide6.QtCore import QMimeData, QSize, Qt, QUrl, Signal
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QHBoxLayout, QListWidget, QStyle,
                                QStyledItemDelegate, QWidget)
 
 from . import theme
 from .widgets import IconButton
-from .util import is_url, list_media, natural_key, to_path, AUDIO_EXTS, PLAYLIST_EXTS, VIDEO_EXTS
+from .util import expand_playlists, is_url, list_media, natural_key, to_path, AUDIO_EXTS, PLAYLIST_EXTS, VIDEO_EXTS
 
 ROLE_PATH = Qt.UserRole
 ROLE_KIND = Qt.UserRole + 1   # what a row is: "folder", "file", "stream", "playlist"...
@@ -279,11 +279,15 @@ def reveal(path):
     """Show the file in the system's file manager (selected, where the system allows it)."""
     path = to_path(path)
     if sys.platform == "win32":
-        subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+        cmd = ["explorer", "/select,", os.path.normpath(path)]
     elif sys.platform == "darwin":
-        subprocess.Popen(["open", "-R", path])
+        cmd = ["open", "-R", path]
     else:
-        subprocess.Popen(["xdg-open", os.path.dirname(path)])
+        cmd = ["xdg-open", os.path.dirname(path)]
+    try:
+        subprocess.Popen(cmd)
+    except OSError:                 # no xdg-open on a minimal desktop (M5): let Qt find a file manager
+        QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(path)))
 
 
 def media_filter():
@@ -298,3 +302,8 @@ def pick_media(parent, caption):
     were selected, so a whole folder picked with Ctrl+A could land out of order (#58, like #43)."""
     picked, _ = QFileDialog.getOpenFileNames(parent, caption, "", media_filter())
     return sorted(picked, key=lambda p: natural_key(os.path.basename(p)))
+
+
+def playlist_paths(paths) -> list[str]:
+    """Paths for a saved playlist, with each playlist file among them replaced by its entries."""
+    return [p for _n, p in expand_playlists(paths) if p]

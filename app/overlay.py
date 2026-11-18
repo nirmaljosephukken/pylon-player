@@ -92,6 +92,12 @@ def _x11():
                 lib.XTranslateCoordinates.argtypes = [
                     ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_int, ctypes.c_int,
                     ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_ulong)]
+                # Xlib's default error handler ends the process. A window that is closing can answer
+                # BadWindow, so errors on our own calls are ignored instead (M6).
+                handler_type = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+                lib.XSetErrorHandler.restype = ctypes.c_void_p
+                lib.XSetErrorHandler.argtypes = [ctypes.c_void_p]
+                _X11["ignore"] = handler_type(lambda _d, _e: 0)
                 dpy = lib.XOpenDisplay(None)
                 if dpy:
                     _X11["lib"], _X11["dpy"] = lib, dpy
@@ -107,10 +113,14 @@ def real_position(widget, visible_only=True):
     if lib is None or (visible_only and not widget.isVisible()):
         return None
     x, y, child = ctypes.c_int(), ctypes.c_int(), ctypes.c_ulong()
+    old = lib.XSetErrorHandler(ctypes.cast(_X11["ignore"], ctypes.c_void_p))
     try:
+        # a round trip, so an error for this request arrives while the ignoring handler is in place
         if not lib.XTranslateCoordinates(dpy, int(widget.winId()), lib.XDefaultRootWindow(dpy), 0, 0,
                                          ctypes.byref(x), ctypes.byref(y), ctypes.byref(child)):
             return None
     except Exception:
         return None
+    finally:
+        lib.XSetErrorHandler(old)
     return x.value, y.value

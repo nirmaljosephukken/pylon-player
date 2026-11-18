@@ -21,7 +21,7 @@ class QueueMixin:
         self.queue.clear()
         for i, item in enumerate(self.win.queue):
             p = item["path"]
-            playing = i == self.win.qindex
+            playing = i == self.win.qindex and bool(self.win.engine.current)    # nothing after Close (L3)
             watched = not is_url(p) and self.store.position(p).get("watched")
             title = item.get("title") or display_name(p)
             if self.store.setting("simple_queue_names") and not is_url(p) and not is_audio(p):

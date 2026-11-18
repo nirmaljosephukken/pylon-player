@@ -115,6 +115,8 @@ def to_path(s: str) -> str:
         path = unquote(p.path)
         if os.name == "nt" and re.match(r"^/[A-Za-z]:", path):
             path = path[1:]
+        elif p.netloc and p.netloc.lower() != "localhost":
+            path = "//" + p.netloc + path          # file://server/share/x is a network share
         return os.path.normpath(path)
     return s
 
@@ -388,6 +390,117 @@ def parse_subtitles(path: str) -> list[tuple[int, int, str]]:
     return cues
 
 
+_LRC_TIME = re.compile(r"\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]")
+_LRC_WORD_TIME = re.compile(r"<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>")
+_LRC_OFFSET = re.compile(r"^\s*\[offset:\s*([+-]?\d+)\s*\]", re.I | re.M)
+_LRC_TAG = re.compile(r"^\s*\[[a-z#]+:.*\]\s*$", re.I)
+
+
+def parse_lrc(text: str) -> list[tuple[int | None, str]]:
+    """Lines of a .lrc lyrics file as (ms, text), in time order. A line with several time tags is repeated at
+    each; [offset:+500] shows every line 500 ms earlier; word timings (<00:12.30>) are dropped. A file with no
+    time tags gives its lines with None for the time (shown without following the song)."""
+    m = _LRC_OFFSET.search(text)
+    offset = int(m.group(1)) if m else 0
+    timed, plain = [], []
+    for raw in text.splitlines():
+        stamps = []
+        rest = raw.strip()
+        while True:
+            t = _LRC_TIME.match(rest)
+            if not t:
+                break
+            frac = t.group(3) or "0"
+            ms = int(frac.ljust(3, "0")[:3]) if len(frac) != 2 else int(frac) * 10
+            stamps.append((int(t.group(1)) * 60 + int(t.group(2))) * 1000 + ms)
+            rest = rest[t.end():].lstrip()
+        words = _LRC_WORD_TIME.sub("", rest).strip()
+        if stamps:
+            timed.extend((max(0, st - offset), words) for st in stamps)
+        elif rest and not _LRC_TAG.match(rest):
+            plain.append((None, words))
+    if timed:
+        timed.sort(key=lambda x: x[0])
+        return timed
+    return plain
+
+
+def find_lyrics(song: str) -> str:
+    """The .lrc file next to a song with the same name (any letter case), or ""."""
+    if not song or is_url(song):
+        return ""
+    folder, name = os.path.split(song)
+    want = os.path.splitext(name)[0].lower() + ".lrc"
+    for entry in _listdir(folder or "."):
+        if entry.lower() == want:
+            return os.path.join(folder, entry)
+    return ""
+
+
+def read_lyrics(song: str) -> list[tuple[int | None, str]]:
+    path = find_lyrics(song)
+    return parse_lrc(_read_text(path)) if path else []
+
+
+def lyric_index(lines, ms: int) -> int:
+    """Index of the line sung at ms (-1 before the first, or when the lyrics have no times)."""
+    lo, hi, found = 0, len(lines) - 1, -1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        t = lines[mid][0]
+        if t is None:
+            return -1
+        if t <= ms:
+            found, lo = mid, mid + 1
+        else:
+            hi = mid - 1
+    return found
+
+
+# VLC options a browser extension such as "Open in VLC" passes with a link (#91). Their values reach VLC as
+# options of that link, so a site that needs its page as the referrer, or a browser's user agent, plays.
+PASSED_OPTIONS = ("http-referrer", "http-user-agent")
+
+
+def parse_command_line(argv) -> tuple[list[str], dict[str, list[str]], dict[str, str]]:
+    """What to open from VLC-style command-line arguments: (targets, {target: [":option=value", ...]},
+    {target: title}). "--http-referrer X" or "--http-referrer=X" before the links applies to every link;
+    ":http-referrer=X" after a link applies to that link; --meta-title / :meta-title name it. Other options
+    are ignored, and their values aren't taken for files."""
+    targets, opts, titles = [], {}, {}
+    common, common_title = [], ""
+    args = [a for a in argv if a]
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a.startswith("--") or (a.startswith(":") and not targets):
+            name, eq, value = a.lstrip("-:").partition("=")
+            name = name.lower()
+            if name in PASSED_OPTIONS + ("meta-title",) and not eq and i + 1 < len(args):
+                i += 1
+                value = args[i]
+            if name in PASSED_OPTIONS:
+                common.append(f":{name}={value}")
+            elif name == "meta-title":
+                common_title = value
+        elif a.startswith(":"):                    # :option[=value] belongs to the link before it
+            name, _, value = a[1:].partition("=")
+            name = name.lower()
+            if name in PASSED_OPTIONS:
+                opts.setdefault(targets[-1], []).append(f":{name}={value}")
+            elif name == "meta-title":
+                titles[targets[-1]] = value
+        elif not a.startswith("-"):
+            targets.append(a)
+        i += 1
+    for t in targets:
+        if is_url(t) and common:
+            opts[t] = common + [o for o in opts.get(t, []) if o not in common]
+        if common_title and len(targets) == 1:
+            titles.setdefault(t, common_title)
+    return targets, opts, titles
+
+
 def parse_m3u(text: str) -> list[tuple[str, str]] | None:
     """If text is a channel-list M3U (not an HLS stream), return [(name, url)]."""
     if "#EXT-X-TARGETDURATION" in text or "#EXT-X-STREAM-INF" in text or "#EXT-X-MEDIA-SEQUENCE" in text:
@@ -406,17 +519,142 @@ def parse_m3u(text: str) -> list[tuple[str, str]] | None:
 
 
 
-def read_playlist(path: str) -> list[tuple[str, str]]:
-    """[(name, path or link)] from an .m3u file, with relative paths made absolute. Empty if the file
-    can't be read or isn't a list (an HLS stream, a .pls or .xspf file: VLC opens those itself)."""
+def parse_jump(text: str, now_ms: int, length_ms: int) -> int | None:
+    """Where a typed time points, in ms, or None if it can't be read.
+    1:02:10, 62:10 and 2:10 are clock times; digits alone are read like a clock from the right, so 130 is
+    1:30 and 10230 is 1:02:30; +30 and -10 jump from where you are (seconds, or a clock time); 50% is half
+    way. The result stays within the file."""
+    s = (text or "").strip().replace(" ", "").replace(",", ".")
+    if not s:
+        return None
+    rel = s[0] if s[0] in "+-" else ""
+    body = s[1:] if rel else s
     try:
-        with open(path, encoding="utf-8-sig", errors="replace") as f:
-            found = parse_m3u(f.read(8_000_000)) or []
+        if body.endswith("%") and not rel:
+            if not length_ms:
+                return None
+            ms = int(float(body[:-1]) / 100 * length_ms)
+        elif ":" in body:
+            parts = body.split(":")
+            if len(parts) > 3 or any(not p for p in parts[1:]):
+                return None
+            secs = 0.0
+            for p in parts:
+                secs = secs * 60 + float(p or 0)
+            ms = int(secs * 1000)
+        elif rel:
+            ms = int(float(body) * 1000)          # +30: seconds
+        elif body.isdigit():
+            digits = body[-6:].rjust(6, "0")       # hhmmss, like a microwave
+            h, m, sec = int(digits[:2]), int(digits[2:4]), int(digits[4:])
+            ms = ((h * 60 + m) * 60 + sec) * 1000
+        else:
+            return None
+    except ValueError:
+        return None
+    if rel == "+":
+        ms = now_ms + ms
+    elif rel == "-":
+        ms = now_ms - ms
+    ms = max(0, ms)
+    return min(ms, length_ms - 500) if length_ms > 500 else ms
+
+
+def parse_pls(text: str) -> list[tuple[str, str]]:
+    """[(name, entry)] from a .pls playlist (FileN= and TitleN= keys, in N order)."""
+    files, titles = {}, {}
+    for raw in text.splitlines():
+        m = re.match(r"\s*(File|Title)(\d+)\s*=(.*)$", raw, re.I)
+        if m:
+            (files if m.group(1).lower() == "file" else titles)[int(m.group(2))] = m.group(3).strip()
+    return [(titles.get(n) or display_name(files[n]), files[n]) for n in sorted(files) if files[n]]
+
+
+def parse_xspf(text: str) -> list[tuple[str, str]]:
+    """[(name, entry)] from an .xspf playlist: each track's <location> and <title>."""
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(text.encode("utf-8"))
+    except ET.ParseError:
+        return []
+    out = []
+    for track in root.iter():
+        if track.tag.rsplit("}", 1)[-1] != "track":
+            continue
+        loc = title = ""
+        for child in track:
+            tag = child.tag.rsplit("}", 1)[-1]
+            if tag == "location" and not loc:
+                loc = (child.text or "").strip()
+            elif tag == "title":
+                title = (child.text or "").strip()
+        if loc:
+            out.append((title, loc))
+    return out
+
+
+def _playlist_entry(entry: str, base: str) -> str:
+    """A playlist entry as Pylon plays it: links stay links, file: URIs become paths, and relative
+    paths (or relative URIs, as .xspf has them) are made absolute against the playlist's folder."""
+    if entry.lower().startswith("file:"):
+        if not entry.lower().startswith("file://"):        # file:relative/name.mp3
+            entry = unquote(entry[5:])
+        else:
+            return to_path(entry)
+    if is_url(entry):
+        return entry
+    if os.path.isabs(entry) or re.match(r"^[A-Za-z]:[\\/]", entry) or entry.startswith(("\\\\", "//")):
+        return os.path.normpath(entry)
+    return os.path.normpath(os.path.join(base, entry))
+
+
+def _playlist_text(path: str) -> str:
+    """A playlist's text: UTF-8 (with or without a BOM), else the system's own encoding, which older
+    players use for .m3u and .pls."""
+    with open(path, "rb") as f:
+        data = f.read(8_000_000)
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        import locale
+        return data.decode(locale.getpreferredencoding(False) or "latin-1", errors="replace")
+
+
+def read_playlist(path: str) -> list[tuple[str, str]]:
+    """[(name, path or link)] from an .m3u, .m3u8, .pls or .xspf file, with file: URIs and relative
+    paths turned into absolute paths. Empty if the file can't be read or isn't a list (an HLS stream)."""
+    try:
+        text = _playlist_text(path)
     except OSError:
         return []
-    base = os.path.dirname(path)
-    return [(n, u if is_url(u) or os.path.isabs(u) else os.path.normpath(os.path.join(base, u)))
-            for n, u in found]
+    head = text.lstrip()[:2000].lower()
+    ext = os.path.splitext(path)[1].lower()
+    if head.startswith("[playlist]") or (ext == ".pls" and not head.startswith("#")):
+        found = parse_pls(text)
+    elif head.startswith("<?xml") or head.startswith("<playlist") or ext == ".xspf":
+        found = parse_xspf(text)
+    else:
+        found = parse_m3u(text) or []
+    base = os.path.dirname(os.path.abspath(path))
+    out = []
+    for name, entry in found:
+        target = _playlist_entry(entry, base)
+        if not name or name == display_name(entry):         # no title of its own: name it from the file
+            name = display_name(target)
+        out.append((name, target))
+    return out
+
+
+def expand_playlists(paths) -> list[tuple[str, str]]:
+    """[(name, path or link)] for files picked or dropped together: each playlist among them is replaced,
+    in place, by its entries, and every other path is kept as it is (with an empty name)."""
+    out = []
+    for p in paths:
+        if not is_url(p) and os.path.splitext(p)[1].lower() in PLAYLIST_EXTS and os.path.isfile(p):
+            out += read_playlist(p)
+        else:
+            out.append(("", p))
+    return out
 
 
 def write_m3u(path: str, entries) -> None:
