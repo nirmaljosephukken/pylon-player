@@ -266,8 +266,28 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
   .side:has(> figure img[src^="guide/lib_"]){grid-template-columns:40mm minmax(0,1fr)}
   .side.duo > :nth-child(2){grid-column:2;grid-row:1}
   .side.duo > :last-child{grid-column:3;grid-row:1;padding-left:2mm}
+  /* Audio tab: its picture on the left, the audio button menu right under the text */
+  .side:has(> .duo-col){grid-template-columns:42mm minmax(0,1fr);grid-template-rows:auto 1fr}
+  .side > .duo-col{display:contents}
+  .duo-col > .plain.tall{grid-column:1;grid-row:1 / span 2;margin:0}
   .duo-col > .plain.tall img{width:100%}
-  .duo-col > .plain.menu{margin:4mm 0 0}
+  .duo-col > .plain.menu{grid-column:2;grid-row:2;margin:3mm 0 0}
+  .duo-col > .plain.menu img{width:34mm}
+  /* the season dialog a little smaller, so its steps take less height and the Audio tab fits below */
+  .side.wide:has(img[src$="dlg_subtitles.webp"]){grid-template-columns:92mm minmax(0,1fr)}
+  .side.wide:has(img[src$="dlg_subtitles.webp"]) img{width:100%}
+  .side:has(> .duo-col) > div:last-child{grid-column:2;grid-row:1}
+  /* Preferences: pictures alternate left and right */
+  #prefs > .side.wide:nth-of-type(even){grid-template-columns:minmax(0,1fr) 106mm}
+  #prefs > .side.wide:nth-of-type(even) > figure{grid-column:2;grid-row:1}
+  #prefs > .side.wide:nth-of-type(even) > div{grid-column:1;grid-row:1}
+  /* Video and Playback tabs share a page: Video picture, then Playback picture beside its own text under the Video text */
+  .tabpair{display:grid;grid-template-columns:50mm 50mm minmax(0,1fr);grid-template-rows:auto 1fr;column-gap:6mm;margin:1.5mm 0 4mm}
+  .tabpair > .side{display:contents}
+  .tabpair > .side:first-child > figure{grid-column:1;grid-row:1 / span 2}
+  .tabpair > .side:first-child > div{grid-column:2 / span 2;grid-row:1;margin-bottom:5mm}
+  .tabpair > .side:last-child > figure{grid-column:2;grid-row:2}
+  .tabpair > .side:last-child > div{grid-column:3;grid-row:2}
   .side.duo h3{margin:5mm 0 2mm}
   .side > figure{position:static;margin:0;max-width:none;width:100%}
   .side > figure img{width:100%!important;max-width:none!important;max-height:none!important}
@@ -462,8 +482,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
 <tr><td><b>Shuffle</b></td><td>The queue is mixed up (what's playing stays first) and plays in that order. Leaving Shuffle puts the original order back.</td></tr>
 <tr><td><b>In order</b></td><td>The next item in the queue plays. This is the default.</td></tr>
 <tr><td><b>Loop</b></td><td>The same item plays again.</td></tr></table>
-<p>The same choice is in the settings panel under <b>Playback</b>, along with <b>Start the queue again when it reaches the end</b>, which repeats the whole queue, and works with Shuffle too. <b>Preferences > Playback</b> sets the mode Pylon starts in.</p>
-<figure class="plain menu" style="--mw:36.6mm"><img src="guide/menu_queue.webp" width="249" height="243" alt="Right-click in the queue" loading="lazy"><figcaption>Right-click in the queue</figcaption></figure>
+<div class="with-menu"><p>The same choice is in the settings panel under <b>Playback</b>, along with <b>Start the queue again when it reaches the end</b>, which repeats the whole queue, and works with Shuffle too. <b>Preferences > Playback</b> sets the mode Pylon starts in.</p><figure class="plain menu" style="--mw:36.6mm"><img src="guide/menu_queue.webp" width="249" height="243" alt="Right-click in the queue" loading="lazy"><figcaption>Right-click in the queue</figcaption></figure></div>
 </section>
 
 <section id="settings" data-title="The settings panel">
@@ -507,6 +526,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
 </ul>
 </div></div>
 
+<div class="tabpair">
 <div class="side"><figure class="plain tall"><img src="guide/set_video.webp" width="340" height="1275" alt="Video tab" loading="lazy"><figcaption>Video tab</figcaption></figure><div>
 <h3 id="set-video">Video tab</h3>
 <ul>
@@ -527,6 +547,7 @@ footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px 
 <li><b>Media info</b>: resolution, length and where the file is.</li>
 </ul>
 </div></div>
+</div>
 
 <div class="side"><figure class="plain tall"><img src="guide/set_bookmarks.webp" width="340" height="399" alt="Bookmarks tab" loading="lazy"><figcaption>Bookmarks tab</figcaption></figure><div>
 <h3 id="set-bookmarks">Bookmarks tab</h3>
