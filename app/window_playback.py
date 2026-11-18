@@ -15,7 +15,7 @@ from .library_widgets import media_filter
 from .stage import PAGE_AUDIO, PAGE_HOME, PAGE_VIDEO
 from .store import resume_point
 from .updates import fetch_text
-from .util import (PLAYLIST_EXTS, SUB_EXTS, display_name, find_subtitle_candidates, fmt_time, is_audio, is_disc,
+from .util import (PLAYLIST_EXTS, parse_command_line, SUB_EXTS, display_name, find_subtitle_candidates, fmt_time, is_audio, is_disc,
                    is_dvd_folder, is_media, is_url, list_media, match_subtitle, natural_key, norm, parse_m3u,
                    expand_playlists, read_playlist, sort_key_by_name)
 
@@ -768,6 +768,22 @@ class PlaybackMixin:
         if not paths and e.mimeData().hasText():
             paths = [e.mimeData().text().strip()]
         self.open_paths(paths)
+
+    def open_command_line(self, argv):
+        """Files and links from Pylon's command line, or from a second Pylon started with them. Understands the
+        VLC options browser extensions such as "Open in VLC" add (#91): the page as referrer, the browser's
+        user agent and a title. They are kept for this session, so the link also plays again from the queue."""
+        targets, opts, titles = parse_command_line(argv)
+        for url, o in opts.items():
+            self.engine.url_options[url] = o
+        if len(targets) == 1 and is_url(targets[0]) and (opts or titles):
+            url = targets[0]
+            if opts:
+                self._play_stream(url, titles.get(url, ""))     # a stream a page plays: no channel-list check
+            else:
+                self.open_stream(url, titles.get(url, ""))
+            return
+        self.open_paths(targets)
 
     def open_paths(self, paths):
         paths = [norm(p) for p in paths if p]

@@ -353,6 +353,7 @@ class Engine(QObject):
         self._boost_later = None       # the volume above 100% to apply once it has started
         self._boost_gen = 0            # which hold a release timer belongs to, so an old one can't end a new hold
         self.leveller = Leveller()     # night mode: the current file's loudness, and the gain it is playing at
+        self.url_options: dict[str, list[str]] = {}   # VLC options a link came with, e.g. its referrer (#91)
         self._user_volume = None       # the volume you set, while night mode plays VLC at another
         self._held_ms = None           # position shown while a media is opened paused
         self._settle = None            # reopening paused: where to return once it plays (#36)
@@ -532,6 +533,8 @@ class Engine(QObject):
             media = self.instance.media_new(disc_mrl(target))
         else:
             media = self.instance.media_new_path(target)
+        for opt in self.url_options.get(target, ()):    # e.g. :http-referrer=… from "Open in VLC" (#91)
+            media.add_option(opt)
         if start_ms > 0 and not disc:     # a disc starts at its menu; the window resumes the title
             media.add_option(f":start-time={start_ms / 1000:.3f}")
         self._held_ms = None

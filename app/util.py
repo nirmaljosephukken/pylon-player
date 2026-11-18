@@ -457,6 +457,50 @@ def lyric_index(lines, ms: int) -> int:
     return found
 
 
+# VLC options a browser extension such as "Open in VLC" passes with a link (#91). Their values reach VLC as
+# options of that link, so a site that needs its page as the referrer, or a browser's user agent, plays.
+PASSED_OPTIONS = ("http-referrer", "http-user-agent")
+
+
+def parse_command_line(argv) -> tuple[list[str], dict[str, list[str]], dict[str, str]]:
+    """What to open from VLC-style command-line arguments: (targets, {target: [":option=value", ...]},
+    {target: title}). "--http-referrer X" or "--http-referrer=X" before the links applies to every link;
+    ":http-referrer=X" after a link applies to that link; --meta-title / :meta-title name it. Other options
+    are ignored, and their values aren't taken for files."""
+    targets, opts, titles = [], {}, {}
+    common, common_title = [], ""
+    args = [a for a in argv if a]
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a.startswith("--") or (a.startswith(":") and not targets):
+            name, eq, value = a.lstrip("-:").partition("=")
+            name = name.lower()
+            if name in PASSED_OPTIONS + ("meta-title",) and not eq and i + 1 < len(args):
+                i += 1
+                value = args[i]
+            if name in PASSED_OPTIONS:
+                common.append(f":{name}={value}")
+            elif name == "meta-title":
+                common_title = value
+        elif a.startswith(":"):                    # :option[=value] belongs to the link before it
+            name, _, value = a[1:].partition("=")
+            name = name.lower()
+            if name in PASSED_OPTIONS:
+                opts.setdefault(targets[-1], []).append(f":{name}={value}")
+            elif name == "meta-title":
+                titles[targets[-1]] = value
+        elif not a.startswith("-"):
+            targets.append(a)
+        i += 1
+    for t in targets:
+        if is_url(t) and common:
+            opts[t] = common + [o for o in opts.get(t, []) if o not in common]
+        if common_title and len(targets) == 1:
+            titles.setdefault(t, common_title)
+    return targets, opts, titles
+
+
 def parse_m3u(text: str) -> list[tuple[str, str]] | None:
     """If text is a channel-list M3U (not an HLS stream), return [(name, url)]."""
     if "#EXT-X-TARGETDURATION" in text or "#EXT-X-STREAM-INF" in text or "#EXT-X-MEDIA-SEQUENCE" in text:
