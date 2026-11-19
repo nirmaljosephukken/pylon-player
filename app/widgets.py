@@ -6,7 +6,7 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, QTimer, QUrl,
 from PySide6.QtGui import (QBrush, QColor, QDesktopServices, QFont, QFontMetrics, QIcon,
                            QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPen, QPixmap,
                            QPolygonF)
-from PySide6.QtWidgets import (QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
+from PySide6.QtWidgets import (QButtonGroup, QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
                                QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from . import overlay, theme
@@ -735,6 +735,14 @@ class Card(QWidget):
             lay.addWidget(ProgressLine(progress))
 
         self._corner = None
+
+    def set_missing(self, path: str):
+        """Greyed out: the folder isn't there any more (moved, deleted, or a drive that isn't plugged in)."""
+        fx = QGraphicsOpacityEffect(self)
+        fx.setOpacity(0.45)
+        self.setGraphicsEffect(fx)
+        self.setToolTip(f"{path}\nFolder not found. Right-click to remove it from the library.")
+        self.missing = True
 
     def add_corner_button(self, name: str, tip: str, callback):
         """A small round button in the top-right corner that shows while the mouse is over the card."""

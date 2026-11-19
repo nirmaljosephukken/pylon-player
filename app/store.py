@@ -11,6 +11,8 @@ from .util import display_name, is_audio, is_media, is_url
 
 MAX_VOLUMES = (85, 100, 125, 150, 200)   # the volume limits Preferences offers (#47, #89)
 START_VOLUMES = (0, 30, 50, 70, 85, 100)  # "Volume when Pylon starts": 0 = the volume it had when it closed
+NETWORK_BUFFERS = (1, 3, 5, 10, 30, 60)   # "Network buffer" in seconds (#95); VLC allows up to 60
+STREAM_HEIGHTS = (0, 1080, 720, 480)      # "Highest stream quality": 0 = no limit (#94)
 
 # What the queue does when an item ends (#48), in the order the queue button cycles through them:
 # key -> (short name, what it does, icon)
@@ -104,6 +106,9 @@ DEFAULT_SHORTCUTS = {
     "go_to_time": ("Type a time to jump to", "Ctrl+G"),
     "night_mode": ("Night mode (even out loud and quiet)", "Shift+N"),
     "download_subs": ("Download subtitles (OpenSubtitles.com)", "Shift+D"),
+    "minimize": ("Minimize the window", ""),                 # #93
+    "quit": ("Quit Pylon", ""),
+    "audio_only": ("Audio only (no picture)", ""),          # #95
 }
 
 DEFAULT_SETTINGS = {
@@ -119,6 +124,7 @@ DEFAULT_SETTINGS = {
     "mouse_middle": "none",
     "mouse_back": "none",
     "mouse_forward": "none",
+    "mouse_right": "menu",      # right-click on the video: "menu" opens the menu, or any action above (#93)
     "accent": "#FF8800",
     "sub_match": "episode",
     "prev_restarts": True,      # Previous first goes back to the start when a file is past 3 s (#64)
@@ -144,6 +150,12 @@ DEFAULT_SETTINGS = {
     "sub_lang": "",             # preferred subtitle language, e.g. "eng"
     "audio_lang": "",
     "hw_decoding": True,
+    "battery_saver": False,     # lighter software decoding: skip H.264's loop filter, fast decoding (#97)
+    "audio_only": False,        # play the sound only, without decoding the picture (#95)
+    "network_buffer": 1,        # seconds of a stream VLC keeps ahead (#95); 1 is VLC's own default
+    "max_stream_height": 0,     # highest picture an adaptive (HLS/DASH) stream may pick; 0 = no limit (#94)
+    "vlc_extra_args": "",       # extra VLC options typed in Preferences, like PYLON_VLC_ARGS (#95)
+    "music_skip_folders": [],   # folders left out of the music scan (#96)
     "visualizer": "",           # picture to show while sound with no video plays, see engine.VISUALIZERS (#85)
     "trim_silence": False,      # skip silence at the start and end of songs (#86)
     "night_mode": False,        # even out loud and quiet parts with VLC's compressor (#89)

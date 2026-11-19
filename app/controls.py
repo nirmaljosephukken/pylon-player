@@ -1,6 +1,6 @@
 """The two auto-hiding bars that float over the video.
 
-Top bar:    [library] [show / folder chip]   title   [PiP] [fullscreen] [menu] [close video]
+Top bar:    [library] [show / folder chip]   title   [PiP] [minimize, full screen only] [fullscreen] [menu] [close video]
 Bottom bar: [prev][PLAY][next] time   (continue chip)   speed [subs][audio][queue][vol][cone][tune]
             ================ thick seek bar along the bottom edge =================
 """
@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QGraphicsDropShadowEffect, QHBoxLayout, QLabel, Q
                                QVBoxLayout)
 
 from . import theme
-from .util import fmt_time
+from .util import fmt_time, quality_label
 from .widgets import ConeVolume, IconButton, OverlayWindow, SeekBar
 from .icons import icon
 
@@ -22,6 +22,7 @@ class TopBar(OverlayWindow):
     fullscreen_clicked = Signal()
     menu_clicked = Signal()
     close_clicked = Signal()
+    minimize_clicked = Signal()
 
     HEIGHT = 48
 
@@ -46,6 +47,9 @@ class TopBar(OverlayWindow):
         self.title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.btn_pip = IconButton("pip", "Picture in picture", checkable=True)
         self.btn_pip.clicked.connect(self.pip_clicked)
+        self.btn_min = IconButton("minimize", "Minimize")      # only in full screen, which has no title bar (#93)
+        self.btn_min.clicked.connect(self.minimize_clicked)
+        self.btn_min.hide()
         self.btn_full = IconButton("fullscreen", "Fullscreen")
         self.btn_full.clicked.connect(self.fullscreen_clicked)
         self.btn_menu = IconButton("menu", "Menu")
@@ -65,6 +69,7 @@ class TopBar(OverlayWindow):
         lay.addSpacing(8)
         lay.addWidget(self.cast_chip)
         lay.addWidget(self.btn_pip)
+        lay.addWidget(self.btn_min)
         lay.addWidget(self.btn_full)
         lay.addWidget(self.btn_menu)
         lay.addWidget(self.btn_close)
@@ -91,10 +96,12 @@ class TopBar(OverlayWindow):
         self.btn_library.setToolTip(store.tip("Library", "library"))
         self.btn_pip.setToolTip(store.tip("Picture in picture", "pip"))
         self.btn_close.setToolTip(store.tip("Close the video", "close_media"))
+        self.btn_min.setToolTip(store.tip("Minimize", "minimize"))
         self.set_fullscreen(self._fullscreen)
 
     def set_fullscreen(self, on: bool):
         self._fullscreen = on
+        self.btn_min.setVisible(on)
         self.btn_full.set_icon("exit_fullscreen" if on else "fullscreen")
         text = "Leave fullscreen" if on else "Fullscreen"
         self.btn_full.setToolTip(self._store.tip(text, "exit_fullscreen" if on else "fullscreen") if self._store else text)
@@ -155,6 +162,13 @@ class BottomBar(OverlayWindow):
         self.time.setContextMenuPolicy(Qt.CustomContextMenu)
         self.time.customContextMenuRequested.connect(lambda _p: self._toggle_remaining())
         self.show_remaining = False
+        # the picture's quality, e.g. 720p, beside the time; it follows a stream that changes quality (#94)
+        self.quality = QLabel("")
+        self.quality.setObjectName("QualityBadge")
+        self.quality.setStyleSheet(f"QLabel {{ color: {theme.MUTED}; border: 1px solid {theme.BORDER};"
+                                   " border-radius: 4px; padding: 0 5px; font-size: 11px; font-weight: 600;"
+                                   " background: transparent; }")
+        self.quality.hide()
 
         self.resume = QPushButton("")
         self.resume.setObjectName("ResumeChip")
@@ -187,6 +201,7 @@ class BottomBar(OverlayWindow):
         row.addWidget(self.btn_play)
         row.addWidget(self.btn_next)
         row.addWidget(self.time)
+        row.addWidget(self.quality)
         row.addStretch(1)
         row.addWidget(self.resume)
         row.addStretch(1)
@@ -247,6 +262,14 @@ class BottomBar(OverlayWindow):
         self.show_remaining = not self.show_remaining
         self.time.setToolTip(TIME_TIP[self.show_remaining])
         self.set_time(self._pos, self._len)
+
+    def set_quality(self, width: int, height: int):
+        """Show the picture's quality (720p, 1080p, 4K) beside the time; nothing without a picture (#94)."""
+        label = quality_label(width, height)
+        if label != self.quality.text():
+            self.quality.setText(label)
+            self.quality.setToolTip(f"Picture size {width} × {height}" if label else "")
+        self.quality.setVisible(bool(label))
 
     def set_speed(self, rate: float):
         self.speed.setText(f"{rate:g}x")

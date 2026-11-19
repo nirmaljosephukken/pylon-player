@@ -87,7 +87,7 @@ class QueueVolumePrefs(unittest.TestCase):
 
     def test_preferences_shortcut(self):
         self.assertEqual(DEFAULT_SHORTCUTS["preferences"][1], "Ctrl+,")
-        seqs = [v[1] for v in DEFAULT_SHORTCUTS.values()]
+        seqs = [v[1] for v in DEFAULT_SHORTCUTS.values() if v[1]]   # actions with no default key (#93) can't clash
         self.assertEqual(len(seqs), len(set(seqs)))
         opened = []
         with patch.object(MainWindow, "show_preferences", lambda self: opened.append(1)):

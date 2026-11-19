@@ -103,6 +103,9 @@ class ActionsMixin:
             "snapshot": lambda _a: self.take_snapshot(),
             "shortcuts": quiet(self.show_shortcuts),
             "preferences": quiet(self.show_preferences),
+            "minimize": quiet(self.minimize_window),
+            "quit": quiet(self.close),
+            "audio_only": lambda _a: self.set_audio_only(not self.store.setting("audio_only")),
         }
 
     def _act_play_pause(self, _a):

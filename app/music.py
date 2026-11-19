@@ -42,6 +42,15 @@ def credit_artists(credit, known=()):
     return result or [UNKNOWN_ARTIST]
 
 
+def folder_key(path: str) -> str:
+    """One spelling per folder: without letter case on Windows, and without a trailing separator."""
+    return os.path.normcase(os.path.normpath(os.path.abspath(path)))
+
+
+def _inside(path_key: str, folder_key_: str) -> bool:
+    return path_key.startswith(folder_key_.rstrip(os.sep) + os.sep)
+
+
 def _art_dir():
     return cache_dir("art")
 
@@ -130,26 +139,28 @@ class MusicLibrary(QObject, BackgroundJob):
             return
         self.scanning = True
         folders = list(self.store.data.get("library_folders", []))
-        self._start_worker(self._run, folders, dict(self.songs))
+        self._start_worker(self._run, folders, dict(self.songs), self.skipped_keys())
 
     def stop(self, wait: bool = False):
         """Stop scanning; the scan finishes on its own unless `wait` (M33)."""
         self._stop_worker(wait)
 
-    def _run(self, folders, old, stop):
+    def _run(self, folders, old, skip, stop):
         try:
-            self._scan(folders, old, stop)
+            self._scan(folders, old, stop, skip)
         finally:
             self.scanning = False
             self.finished.emit()
 
-    def _scan(self, folders, old, stop):
+    def _scan(self, folders, old, stop, skip=frozenset()):
         files = []
         for root in folders:
             for dirpath, dirnames, names in os.walk(root):
                 if stop.is_set():
                     return
-                dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                # hidden folders, and folders you left out of the music scan (#96)
+                dirnames[:] = [d for d in dirnames if not d.startswith(".")
+                               and folder_key(os.path.join(dirpath, d)) not in skip]
                 files += [os.path.join(dirpath, n) for n in names if is_audio(n)]
         total = len(files)
         self.progress.emit(0, total)
@@ -181,6 +192,9 @@ class MusicLibrary(QObject, BackgroundJob):
                     inst.release()
                 except Exception:
                     pass
+        skip = self.skipped_keys()          # a folder left out while this scan ran (#96)
+        if skip:
+            songs = {p: s for p, s in songs.items() if not any(_inside(folder_key(p), k) for k in skip)}
         self.songs = songs
         self.forget_presence()
         self._save(songs)
@@ -209,6 +223,36 @@ class MusicLibrary(QObject, BackgroundJob):
         art = art if art and os.path.isfile(art) else folder_cover(folder)
         info["art"] = _store_art(art, info["album_artist"] or info["artist"], info["album"] or folder)
         return info
+
+    # ------------------------------------------------------------------ folders left out (#96)
+    def skipped(self) -> list[str]:
+        return [f for f in self.store.setting("music_skip_folders") or [] if isinstance(f, str) and f]
+
+    def skipped_keys(self) -> frozenset:
+        return frozenset(folder_key(f) for f in self.skipped())
+
+    def is_skipped(self, folder: str) -> bool:
+        """The folder, or a folder it is in, is left out of the music scan."""
+        keys = self.skipped_keys()
+        key = folder_key(folder)
+        while key and key not in keys:
+            parent = os.path.dirname(key)
+            if parent == key:
+                return False
+            key = parent
+        return bool(key)
+
+    def set_skipped(self, folder: str, skip: bool):
+        """Leave a folder (and the folders in it) out of the music scan, or take it back in. Its songs go
+        from the Music tab straight away; taking it back in needs a scan, which the caller starts."""
+        key = folder_key(folder)
+        kept = [f for f in self.skipped() if folder_key(f) != key]
+        if skip:
+            kept.append(os.path.normpath(folder))
+            self.songs = {p: s for p, s in self.songs.items() if not _inside(folder_key(p), key)}
+            self.forget_presence()
+            self._save(self.songs)
+        self.store.set_setting("music_skip_folders", kept)
 
     # ------------------------------------------------------------------ views
     @staticmethod

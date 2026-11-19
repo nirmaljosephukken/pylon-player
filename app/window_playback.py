@@ -450,7 +450,9 @@ class PlaybackMixin:
         self._prefs_applied = False
         self._live_applied = False
         audio = is_audio(path)
-        self.stage.setCurrentIndex(PAGE_AUDIO if audio else PAGE_VIDEO)
+        sound_only = audio or bool(self.store.setting("audio_only"))      # audio only shows Now Playing (#95)
+        self.stage.setCurrentIndex(PAGE_AUDIO if sound_only else PAGE_VIDEO)
+        self.bottom.set_quality(0, 0)
         self._overlay_geo = None
         self._trim = None
         self._trim_started = self._trim_ended = False
@@ -467,7 +469,7 @@ class PlaybackMixin:
         self.setWindowTitle(f"{shown}  ·  {APP_NAME}")
         self.top.set_folder(os.path.basename(folder) if folder else ("Stream" if is_url(path) else ""))
         self.bottom.set_time(start_ms, 0)
-        if audio:
+        if sound_only:
             self.now_playing.load(path, {})
         if self._resume_ms:
             self.bottom.resume.setText(f"Continue from {fmt_time(self._resume_ms)}")
@@ -727,6 +729,9 @@ class PlaybackMixin:
             return
         if self._bars_visible or self.stage.currentIndex() == PAGE_AUDIO:
             self.bottom.set_time(e.time(), e.length())
+        if self._bars_visible:
+            w, h = e.video_size() if self.stage.currentIndex() == PAGE_VIDEO and not e.visualizing() else (0, 0)
+            self.bottom.set_quality(w, h)        # a stream can change quality as it plays (#94)
         if self.stage.currentIndex() == PAGE_AUDIO:
             self.now_playing.set_time(e.time())
         e.night_tick()

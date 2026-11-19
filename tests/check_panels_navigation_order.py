@@ -45,7 +45,7 @@ class PanelsNavigationOrder(unittest.TestCase):
 
     def test_panels_shortcut(self):
         self.assertEqual(DEFAULT_SHORTCUTS["panels"][1], "Ctrl+Shift+L")
-        seqs = [v[1] for v in DEFAULT_SHORTCUTS.values()]
+        seqs = [v[1] for v in DEFAULT_SHORTCUTS.values() if v[1]]   # actions with no default key (#93) can't clash
         self.assertEqual(len(seqs), len(set(seqs)), "duplicate default shortcut")
         w = self.win
         w.toggle_library(False); w.toggle_sidebar(False)

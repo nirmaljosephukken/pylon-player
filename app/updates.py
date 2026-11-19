@@ -10,6 +10,9 @@ SHA-256 published with the release (SHA256SUMS.txt), starts it and closes
 Pylon. Prereleases and drafts are never offered. The installer goes into the same folder as before, and your library,
 presets and settings (kept in your user profile, not the install folder) stay
 as they are. On Linux and macOS it opens the download page.
+
+The installer can't delete itself while it runs, so the next time Pylon starts it removes installers it
+downloaded earlier for this version or an older one (#92).
 """
 import hashlib
 import json
@@ -202,6 +205,33 @@ class UpdateChecker(QObject):
                 pass
             if not cancel.is_set():
                 self.download_failed.emit(str(e) or e.__class__.__name__)
+
+
+INSTALLER_RE = re.compile(r"pylon-setup-(\d+(?:\.\d+){0,2})\.exe(\.part)?$", re.I)
+
+
+def remove_old_installers(folder: str | None = None, current: str = APP_VERSION) -> list[str]:
+    """Delete the installers "Update now" downloaded (Pylon-Setup-x.y.z.exe and unfinished .part files in
+    the temporary folder) for this version or older ones: they have done their job (#92). A newer one is
+    left alone, in case it is still being downloaded or installed. Returns the files removed."""
+    folder = folder or tempfile.gettempdir()
+    removed = []
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return removed
+    for name in names:
+        m = INSTALLER_RE.match(name)
+        if not m or parse_version(m.group(1)) > parse_version(current):
+            continue
+        path = os.path.join(folder, name)
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+                removed.append(path)
+        except OSError:
+            pass                   # still open (the installer is closing): tried again next start
+    return removed
 
 
 def run_installer(path: str) -> bool:

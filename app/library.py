@@ -12,7 +12,7 @@ import os
 import time
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QInputDialog, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
                                QPushButton, QSplitter, QStackedWidget, QVBoxLayout, QWidget)
@@ -23,6 +23,7 @@ from .util import (display_name, fmt_time, is_audio, is_disc, is_dvd_folder, is_
                    merge_in_name_order, natural_key, norm, read_playlist, sort_key_by_name, write_m3u)
 from .library_music import MusicMixin
 from .library_queue import QueueMixin
+from .music import folder_key
 from .library_widgets import (ROLE_KIND, ROLE_PATH, ChannelListDrop, MediaList, QueueList,
                               REVEAL_LABEL, SortControl, _mtime, pick_media, playlist_paths, reveal,
                               sort_kind)
@@ -234,13 +235,30 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         if folder:
             folder = os.path.normpath(folder)
         if folder and not os.path.isdir(folder):
-            QMessageBox.warning(self, "Folder not found", f"Can't open:\n{folder}")
+            self.folder_missing(folder)
             return
         if record and folder != self.folder:
             self.history.append(self.folder)
             self.forward.clear()
         self.folder = folder
         self.show_section("library")
+
+    def folder_missing(self, folder):
+        """The folder isn't there any more. A library folder can be taken out of the library from here."""
+        box = QMessageBox(QMessageBox.Warning, "Folder not found",
+                          f"Can't open:\n{folder}\n\nIt may have been moved or deleted, or be on a drive "
+                          "that isn't plugged in.", parent=self)
+        in_lib = self.is_library_folder(folder)
+        remove = box.addButton("Remove from library" if in_lib else "Unpin", QMessageBox.DestructiveRole) \
+            if in_lib or folder in self.store.data["pinned"] else None
+        box.addButton(QMessageBox.Close)
+        box.exec()
+        if remove is not None and box.clickedButton() is remove:
+            if in_lib:
+                self.remove_library_folder(folder)
+            else:
+                self.toggle_pin(folder)
+                self.win.home.refresh()
 
     def go_back(self):
         if self.history:
@@ -369,6 +387,9 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
         it.setData(ROLE_PATH, path)
         it.setData(ROLE_KIND, "folder")
         it.setToolTip(f"{path}\nA DVD: double-click to play it with its menu" if dvd else path)
+        if not os.path.isdir(path):                 # greyed out, like its card on the home screen
+            it.setForeground(QColor(theme.FAINT))
+            it.setToolTip(f"{path}\nFolder not found. Right-click to remove it from the library.")
         self.lib_list.addItem(it)
 
     def _lib_activate(self, it):
@@ -423,6 +444,15 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
             if not self.is_library_folder(path):
                 m.addAction(icon("folder_add", theme.TEXT, 16), "Add to library",
                             lambda: self.add_library_path(path))
+            if self.in_library(path):                         # #96
+                if folder_key(path) in self.music.skipped_keys():
+                    m.addAction(icon("music", theme.TEXT, 16), "Include in the music scan",
+                                lambda: self.leave_out_of_music(path, False))
+                elif self.music.is_skipped(path):
+                    m.addAction("Left out of the music scan with a folder it's in").setEnabled(False)
+                else:
+                    m.addAction(icon("eye_off", theme.TEXT, 16), "Leave out of the music scan",
+                                lambda: self.leave_out_of_music(path))
             if path in self.store.data["library_folders"]:
                 m.addSeparator()
                 m.addAction(icon("trash", theme.TEXT, 16), "Remove from library", lambda: self.remove_library_folder(path))
@@ -438,6 +468,12 @@ class LibraryPanel(MusicMixin, QueueMixin, QWidget):
     def _folder_key(path):
         """One spelling per folder: through links, and without letter case on Windows (M29)."""
         return os.path.normcase(os.path.realpath(path))
+
+    def in_library(self, path):
+        """The folder is a library folder or inside one."""
+        key = self._folder_key(path)
+        return any(key == k or key.startswith(k.rstrip(os.sep) + os.sep)
+                   for k in (self._folder_key(p) for p in self.store.data["library_folders"]))
 
     def is_library_folder(self, path):
         key = self._folder_key(path)

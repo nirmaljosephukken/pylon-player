@@ -1,4 +1,5 @@
 """Library panel: the Music tab (artists, albums and songs with cover art)."""
+import os
 import random
 
 from PySide6.QtCore import QSize, Qt
@@ -120,6 +121,19 @@ class MusicMixin:
                 return
             self.music.scan()
             self.music_status.setText("Looking for music in your library folders…")
+
+    def leave_out_of_music(self, folder, skip=True):
+        """Leave a folder out of the music scan, or take it back in (#96). Preferences > Interface lists the
+        folders left out."""
+        self.music.set_skipped(folder, skip)
+        if skip:
+            self.win.toast(f"Left out of the music scan: {os.path.basename(os.path.normpath(folder)) or folder}")
+        else:
+            self._music_stale = True
+            if not self.music.scanning:
+                self._scan_music()
+        self.refresh_music()
+        self.win.home.refresh_soon()
 
     def _music_progress(self, done, total):
         if total:
@@ -405,4 +419,10 @@ class MusicMixin:
         if kind == "file":
             m.addSeparator()
             m.addAction(REVEAL_LABEL, lambda: reveal(val))
+        folders = {os.path.dirname(p) for p in paths}
+        if kind == "album" and len(folders) == 1:            # #96
+            folder = folders.pop()
+            m.addSeparator()
+            m.addAction(icon("eye_off", theme.TEXT, 16), "Leave this folder out of the music scan",
+                        lambda: self.leave_out_of_music(folder))
         m.exec(self.music_list.mapToGlobal(pos))

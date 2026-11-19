@@ -16,8 +16,8 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
 from .night import Leveller, scaled_volume
 from .paths import APP_ROOT, log_dir, rotate
-from .store import MAX_VOLUMES, START_VOLUMES, saved_setting
-from .util import disc_mrl, is_disc, is_url
+from .store import MAX_VOLUMES, NETWORK_BUFFERS, START_VOLUMES, STREAM_HEIGHTS, saved_setting
+from .util import disc_mrl, is_disc, is_url, split_vlc_options
 
 
 def _video_track(track):
@@ -395,7 +395,8 @@ class Engine(QObject):
         self.rotate, self.flip_h, self.flip_v = transform_parts(value)
 
     # ------------------------------------------------------------------ setup
-    def _args(self) -> list[str]:
+    def _args(self, typed: bool = True) -> list[str]:
+        """VLC's options. typed: with the extra options typed in Preferences."""
         st = self.sub_style
         args = ["--no-video-title-show", "--no-osd", "--no-snapshot-preview",
                 "--avcodec-hw=" + ("any" if self.store.setting("hw_decoding") else "none")]
@@ -404,7 +405,13 @@ class Engine(QObject):
             # playback starts (#28). Prefer VLC's PulseAudio output, which PipeWire also
             # serves on modern desktops, then ALSA, then whatever else is installed.
             args.append("--aout=pulse,alsa,any")
-        if sys.platform == "win32" and self.store.setting("rtx_upscale") and not self.vsr_paused:
+        if self.store.setting("battery_saver"):
+            # Lighter software decoding for old or battery-powered laptops (#97): skip H.264's loop filter and
+            # let the decoder take shortcuts. The picture can look a little blockier. Hardware decoding,
+            # where it works, is still the bigger saving.
+            args += ["--avcodec-skiploopfilter=4", "--avcodec-fast"]
+        if sys.platform == "win32" and self.store.setting("rtx_upscale") and not self.vsr_paused \
+                and not self.store.setting("battery_saver"):
             # Lets NVIDIA RTX / Intel Video Super Resolution sharpen upscaled video (#42).
             # VLC falls back to its normal scaler on graphics that can't do it.
             args.append("--d3d11-upscale-mode=super")
@@ -438,6 +445,8 @@ class Engine(QObject):
         extra = os.environ.get("PYLON_VLC_ARGS", "").split()
         if extra:
             args += extra
+        if typed:
+            args += split_vlc_options(self.store.setting("vlc_extra_args"))     # Preferences > Performance (#95)
         logs = log_dir()
         if logs:
             rotate(os.path.join(logs, "vlc.log"), 2_000_000)
@@ -445,7 +454,20 @@ class Engine(QObject):
         return args
 
     def _build(self):
-        self.instance = vlc.Instance(self._args())
+        self.extra_args_failed = False
+        args = self._args()
+        instance = None
+        try:
+            instance = vlc.Instance(args)
+        except Exception:
+            pass
+        if instance is None and split_vlc_options(self.store.setting("vlc_extra_args")):
+            # VLC refuses to start with an option it doesn't know: start without the typed ones (#95)
+            self.extra_args_failed = True
+            instance = vlc.Instance(self._args(typed=False))
+        if instance is None:
+            raise RuntimeError("VLC couldn't start with Pylon's options")
+        self.instance = instance
         self.player = self.instance.media_player_new()
         self.player.video_set_mouse_input(False)
         self.player.video_set_key_input(False)
@@ -533,6 +555,8 @@ class Engine(QObject):
             media = self.instance.media_new(disc_mrl(target))
         else:
             media = self.instance.media_new_path(target)
+        for opt in self.media_options(target):
+            media.add_option(opt)
         for opt in self.url_options.get(target, ()):    # e.g. :http-referrer=… from "Open in VLC" (#91)
             media.add_option(opt)
         if start_ms > 0 and not disc:     # a disc starts at its menu; the window resumes the title
@@ -555,6 +579,31 @@ class Engine(QObject):
             self.add_subtitle(s, select=True)
         self.player.play()
         self.media_changed.emit(target)
+
+    def media_options(self, target: str) -> list[str]:
+        """Options from Preferences for one media: audio only (#95), and for links the network buffer (#95)
+        and the highest quality an adaptive stream (HLS, DASH) may pick (#94)."""
+        opts = []
+        if self.store.setting("audio_only") and not is_disc(target):
+            opts.append(":no-video")
+        if is_url(target):
+            secs = self.store.setting("network_buffer")
+            if secs in NETWORK_BUFFERS and secs != 1:          # 1 s is VLC's own default
+                opts.append(f":network-caching={int(secs) * 1000}")
+            height = self.store.setting("max_stream_height")
+            if height in STREAM_HEIGHTS and height:
+                opts.append(f":adaptive-maxheight={int(height)}")
+        return opts
+
+    def set_audio_only(self, on: bool):
+        """Play the sound without decoding the picture, until switched off (#95). What's playing now carries
+        on from the same spot."""
+        on = bool(on)
+        if on == bool(self.store.setting("audio_only")):
+            return
+        self.store.set_setting("audio_only", on)
+        if self.ok and self.current:
+            self.rebuild()
 
     def add_subtitle(self, path: str, select: bool = True):
         if not self.ok or not path:
@@ -1115,7 +1164,7 @@ class Engine(QObject):
             self.player.video_set_track(int(tid))
 
     def has_video(self) -> bool:
-        if not self.ok:
+        if not self.ok or self.store.setting("audio_only"):
             return False
         try:
             return (self.player.video_get_track_count() or 0) > 0 or bool(self.player.has_vout())

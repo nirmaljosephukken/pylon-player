@@ -509,6 +509,15 @@ class SettingsSidebar(QWidget):
         lay.addWidget(self.night_mode)
         lay.addWidget(muted("Quiet dialogue comes up and loud scenes come down, so you don't have to keep "
                             "changing the volume. What's playing continues from the same spot."))
+        lay.addWidget(section("Audio only"))
+        # sound without the picture, for streams on a slow connection or a laptop on battery (#95)
+        self.audio_only = QCheckBox("Play the sound only, without the picture")
+        self.audio_only.setObjectName("audio_only")
+        self.audio_only.setToolTip("Pylon doesn't decode the picture, so it uses less power, and Now Playing "
+                                   "shows instead of the video. It stays on for every file until you turn it off.")
+        self.audio_only.setChecked(bool(self.store.setting("audio_only")))
+        self.audio_only.toggled.connect(lambda on: self.win.toast(self.win.set_audio_only(on)))
+        lay.addWidget(self.audio_only)
         lay.addWidget(section("Sound"))
         names = self.engine.eq_presets()
         short = {"Full bass and treble": "Bass and treble", "Full bass": "Bass boost", "Full treble": "Treble boost"}

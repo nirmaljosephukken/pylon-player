@@ -59,7 +59,7 @@ class FrameBack(unittest.TestCase):
     def test_keys(self):
         self.assertEqual(DEFAULT_SHORTCUTS["frame_prev"][1], "Shift+E")
         self.assertEqual(DEFAULT_SHORTCUTS["ab_loop"][1], "L")
-        seqs = [v[1] for v in DEFAULT_SHORTCUTS.values()]
+        seqs = [v[1] for v in DEFAULT_SHORTCUTS.values() if v[1]]   # actions with no default key (#93) can't clash
         self.assertEqual(len(seqs), len(set(seqs)))
 
 
