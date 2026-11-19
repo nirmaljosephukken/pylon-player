@@ -85,7 +85,10 @@ def main():
     html = sizes(HTML.read_text(encoding="utf-8"))
     marks = json.loads(MARKERS.read_text(encoding="utf-8"))
     extra = {"player": {"20": ("Close the video", "Stops playing and goes back to the home screen. Shortcut: Ctrl+W.",
-                               "6")}}
+                               "6"),
+                        "21": ("Quality", "The picture's quality, worked out from its size: 480p, 720p, 1080p or 4K. "
+                                          "It follows a stream that changes quality. Hover it for the exact size. "
+                                          "Preferences &gt; Playback can cap the quality of streams.", "10")}}
     for key, fid in FIGS.items():
         html = figure(html, fid, marks[key], extra.get(key, {}))
     HTML.write_text(html, encoding="utf-8")

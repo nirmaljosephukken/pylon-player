@@ -21,6 +21,8 @@ Pylon puts a new interface on top of libVLC, the engine inside VLC media player.
 
 ## What's new
 
+**1.8.1:** **Audio only** (Settings > Audio) plays the sound without the picture, for every file until you turn it off, and shows Now Playing instead of a black screen. The control bar shows the picture's **quality** (480p, 720p, 1080p, 4K) beside the time, and Preferences > Playback can cap the **quality of streams** to save data and set a bigger **network buffer** for patchy connections. **Battery saver** (Preferences > Performance) makes video decoding lighter for older laptops. **Right click** gets its own row in Preferences > Controls, every mouse button can **minimize** or **quit**, and full screen has a **minimize button**. Right-click a folder to **leave it out of the music scan**. Library folders that are gone are greyed out on the home screen, and **Remove from library** is in their right-click menu. Advanced users can type **extra VLC options** in Preferences. Installers downloaded by Update now are cleaned up afterwards.
+
 **1.8.0:** **Media keys** and your system's media controls work with Pylon: the Windows overlay that appears with the volume keys, Linux desktop widgets and headset buttons (MPRIS), and the keyboard's media keys everywhere. **Night mode** (Settings > Audio, or `Shift+N`) turns loud scenes down and brings quiet talk up. **Hold** the mouse on the video, or `Shift+Space`, for 2× speed until you let go. **Click the time** (or `Ctrl+G`) and type where to go: `1:02:10`, `130`, `+30` or `50%`. **Download subtitles** from OpenSubtitles.com inside Pylon (`Shift+D`), with the ones made for your exact file marked, or for a whole folder at once. Songs with a **.lrc** file show **synced lyrics** next to the cover. Preferences can set the **volume Pylon starts at**. Streams sent by the **Open in VLC** browser extension play in Pylon (#91). Plus everything from the 1.7.2 fixes: sound from the start above 100% on Windows, **85%** and **100%** volume limits, **.pls**/**.xspf** playlists and VLC/foobar2000 playlists that open properly, and a file from another show no longer keeping the last show's picture settings.
 
 **1.7.1:** With **Super Resolution** on, films that aren't the shape of the screen keep it in full screen, with their own black bars, as in VLC, and a normal window no longer shows a black picture. On Windows, Pylon no longer closes at the end of a song with the 3D spectrum visualization (it's no longer offered there). A damaged settings file is kept and restored from its backup instead of being wiped. Updates are checked against the release's checksums, VLC starts once instead of twice, online channel lists load without freezing the window, and menus show your own shortcuts. The Library tab sorts like the other tabs, snapshots go to your Pictures folder, and Pylon is offered for playlists in "Open with".
@@ -167,6 +169,8 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | **Themes** | Dark, Pitch black, Warm grey, Midnight blue, a custom tint from any colour, and **neon** themes (Neon, Sunset, Aurora, Synthwave) with glowing gradient highlights. Preferences > General. |
 | **Updates** | Pylon checks once a day whether a new version is out. On Windows, **Update now** downloads and runs the installer for you; on Linux and macOS it opens the download page. Menu > Check for updates. |
 | **Download subtitles** | `Shift+D`, or Find online in the Subtitles tab. Searches OpenSubtitles.com for the file and marks the subtitles made for that exact file. No setup needed. Without an account OpenSubtitles allows a few downloads a day; sign in with a free OpenSubtitles.com account in Preferences > Subtitles for your account's daily limit. |
+| **Audio only** | Settings > Audio, or the right-click menu. The sound without the picture, for every file until you turn it off: less power, and Now Playing instead of a black screen. |
+| **Streams your way** | The quality playing shows beside the time. Preferences > Playback caps HLS and DASH streams at 1080p, 720p or 480p to save data, and keeps up to 60 seconds of a stream ready for patchy connections. |
 | **Preferences in plain words** | Accent color, auto-hide delay, resume behaviour, subtitle auto-detection, the volume Pylon starts at. Each has an info icon. |
 
 ![Home page](docs/home.png)
@@ -193,7 +197,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | Ctrl+B | Bookmark |
 | Ctrl+L / Ctrl+T / Ctrl+Q | Library, settings sidebar, queue |
 | Ctrl+Shift+L | Show or hide both side panels |
-| Ctrl+scroll, Ctrl+= / Ctrl+- | Zoom into the video (drag to look around) |
+| Ctrl+scroll, Ctrl+= (or Ctrl and +) / Ctrl+- | Zoom into the video (drag to look around) |
 | Ctrl+0 | Reset zoom |
 | Ctrl+O / Ctrl+F / Ctrl+N | Open file, folder, stream |
 | E / Shift+E | Next / previous frame |
@@ -206,7 +210,7 @@ Windows: install 64-bit Python 3.10+, then double-click `setup.bat` in a clone o
 | Media keys | Play / pause, next, previous, stop |
 | F1 | All shortcuts (changeable) |
 
-Mouse: click the video to play or pause, hold for 2× speed, double-click for fullscreen, scroll for volume, right-click for the menu. Click the time to type where to go.
+Mouse: click the video to play or pause, hold for 2× speed, double-click for fullscreen, scroll for volume, right-click for the menu. Click the time to type where to go. Preferences > Controls changes what each button does, including right-click, and can make a button minimize or quit Pylon. Minimize, Quit and Audio only can also have keys of their own (`F1`).
 
 ## Good to know
 
