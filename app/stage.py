@@ -10,6 +10,12 @@ from .overlay import real_position
 
 PAGE_HOME, PAGE_VIDEO, PAGE_AUDIO = 0, 1, 2
 
+# What a mouse button over the video can do (Preferences > Controls), in the order the lists show them.
+# Right-click also has "Open menu" ("menu"), its default (#93).
+MOUSE_ACTIONS = {"none": "Disabled", "play_pause": "Play / pause", "fullscreen": "Fullscreen", "mute": "Mute",
+                 "next": "Next in queue", "prev": "Previous in queue", "seek_back": "Jump back 10s",
+                 "seek_fwd": "Jump forward 10s", "minimize": "Minimize", "quit": "Quit Pylon"}
+
 class VideoCanvas(QWidget):
     """The native window VLC draws into. It fills the surface, except with Super Resolution on, where
     the window sizes it to the picture (#42). Mouse events aren't handled here, so they go on to the
@@ -94,7 +100,7 @@ class VideoSurface(QFrame):
 
     def _emit_action(self, action):
         if (QApplication.activeModalWidget() is None and QApplication.activePopupWidget() is None
-                and action in ("play_pause", "fullscreen", "mute", "next", "prev", "seek_back", "seek_fwd")):
+                and action in MOUSE_ACTIONS and action != "none"):
             self.action.emit(action)
 
     def cancel_click(self):
@@ -236,7 +242,13 @@ class VideoSurface(QFrame):
             self._double_release = True
 
     def contextMenuEvent(self, e):
-        self.context.emit(e.globalPos())
+        """Right-click opens the menu, unless Preferences > Controls gives it another action (#93). The
+        keyboard's menu key always opens the menu, and so does the menu button in the top bar."""
+        action = self.store.setting("mouse_right")
+        if e.reason() != e.Reason.Mouse or action not in MOUSE_ACTIONS:
+            self.context.emit(e.globalPos())
+        else:
+            self._emit_action(action)
 
     def wheelEvent(self, e):
         if e.modifiers() & Qt.ControlModifier:

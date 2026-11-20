@@ -3,13 +3,14 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 
 from PySide6.QtCore import QProcess, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtNetwork import QLocalServer
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
-from . import APP_VERSION, theme
+from . import APP_VERSION, theme, updates
 from . import engine as engine_mod
 from .dialogs import UpdateDialog, WelcomeDialog
 from .paths import APP_ROOT
@@ -22,6 +23,11 @@ class SystemMixin:
         if self.updater.due():
             self._manual_update_check = False
             self.updater.check(manual=False)
+
+    def remove_old_installers(self):
+        """Delete the installer an earlier "Update now" downloaded, now that it has done its job (#92).
+        In a thread: the temporary folder can be large."""
+        threading.Thread(target=updates.remove_old_installers, daemon=True).start()
 
     def check_for_updates(self, manual=True):
         self._manual_update_check = manual

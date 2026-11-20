@@ -189,7 +189,10 @@ class HomePage(QScrollArea):
         if folders:
             row = FlowRow()
             for f in folders:
-                c = Card(os.path.basename(f.rstrip("\\/")) or f, f, "folder")
+                there = os.path.isdir(f)
+                c = Card(os.path.basename(f.rstrip("\\/")) or f, f if there else "Folder not found", "folder")
+                if not there:                   # moved, deleted, or on a drive that isn't plugged in
+                    c.set_missing(f)
                 self._bind_card_menu(c, "folder", f)
                 c.clicked.connect(lambda f=f: self.win.browse_folder(f))
                 row.add(c)
@@ -345,10 +348,17 @@ class HomePage(QScrollArea):
                      lambda: self.store.set_watched(value, not watched)),
                     ("Remove from history (including resume position)", lambda: lib.remove_recent([value]))]
         if kind == "folder":
-            return [("Open folder", lambda: win.browse_folder(value)),
-                    ("Play folder", lambda: win.play_folder(value)),
-                    ("Add folder to queue", lambda: win.enqueue(list_media(value))),
-                    ("Save folder to playlist…", lambda: lib.save_to_playlist(list_media(value), os.path.basename(os.path.normpath(value))))]
+            actions = []
+            if os.path.isdir(value):
+                actions = [("Open folder", lambda: win.browse_folder(value)),
+                           ("Play folder", lambda: win.play_folder(value)),
+                           ("Add folder to queue", lambda: win.enqueue(list_media(value))),
+                           ("Save folder to playlist…", lambda: lib.save_to_playlist(list_media(value), os.path.basename(os.path.normpath(value))))]
+            if value in self.store.data["pinned"]:
+                actions.append(("Unpin", lambda: lib.toggle_pin(value)))
+            if lib.is_library_folder(value):
+                actions.append(("Remove from library", lambda: lib.remove_library_folder(value)))
+            return actions
         if kind == "album":
             album = next((x for x in lib.music.albums() if x["key"] == value), None)
             tracks = album["tracks"] if album else []

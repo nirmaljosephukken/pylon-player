@@ -70,7 +70,7 @@ class Zoom(unittest.TestCase):
         self.assertEqual((1280 - l - r, 720 - t - b), (640, 360))   # same shape as the video
 
     def test_shortcuts_are_unique(self):
-        seqs = [v[1] for v in DEFAULT_SHORTCUTS.values()]
+        seqs = [v[1] for v in DEFAULT_SHORTCUTS.values() if v[1]]   # actions with no default key (#93) can't clash
         self.assertEqual(len(seqs), len(set(seqs)))
         self.assertEqual(DEFAULT_SHORTCUTS["zoom_in"][1], "Ctrl+=")
 

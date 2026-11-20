@@ -751,3 +751,47 @@ def win_enable_close(hwnd: int) -> bool:
         return True
     except Exception:
         return False
+
+
+def split_vlc_options(text) -> list[str]:
+    """VLC options typed in Preferences (#95), e.g. `--network-caching=5000 --sub-font="Noto Sans"`: split at
+    spaces, keeping quoted parts together and dropping the quotes. Anything that isn't an option (doesn't
+    start with -) is left out, so a stray word can't be opened as a file."""
+    out, cur, quote, started = [], "", "", False
+    for ch in str(text or ""):
+        if quote:
+            if ch == quote:
+                quote = ""
+            else:
+                cur += ch
+        elif ch in "\"'":
+            quote, started = ch, True
+        elif ch.isspace():
+            if started:
+                out.append(cur)
+            cur, started = "", False
+        else:
+            cur += ch
+            started = True
+    if started:
+        out.append(cur)
+    return [a for a in out if a.startswith("-") and a.strip("-")]
+
+
+QUALITY_TIERS = ((2160, "4K"), (1440, "1440p"), (1080, "1080p"), (720, "720p"), (576, "576p"), (480, "480p"),
+                 (360, "360p"), (240, "240p"))
+
+
+def quality_label(width: int, height: int) -> str:
+    """A video's quality the way players name it, from its picture size: 1080p for 1920x1080, and also for a
+    wide film cropped to 1920x800; 4K for 3840x2160 (#94). "" when the size isn't known."""
+    width, height = int(width or 0), int(height or 0)
+    if width <= 0 or height <= 0:
+        return ""
+    if height > width:                         # a portrait video: its short side is the width
+        width, height = height, width
+    lines = max(height, width * 9 / 16)
+    for tier, label in QUALITY_TIERS:
+        if lines >= tier * 0.9:
+            return label
+    return f"{height}p"

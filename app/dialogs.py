@@ -17,13 +17,15 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComb
 from . import theme, APP_VERSION
 from .colour_dialog import choose_colour
 from .icons import icon, pixmap
-from .store import DEFAULT_SHORTCUTS, HOME_SECTIONS, MAX_VOLUMES, QUEUE_MODES, RATIOS, START_VOLUMES
+from .store import (DEFAULT_SHORTCUTS, HOME_SECTIONS, MAX_VOLUMES, NETWORK_BUFFERS, QUEUE_MODES, RATIOS, START_VOLUMES,
+                    STREAM_HEIGHTS)
 from .updates import RELEASES_PAGE, installer_asset, run_installer
 from .util import (MATCH_LEVELS, SUB_EXTS, auto_match_folder, is_url, list_media, subtitle_query,
                    SUBTITLE_SITES)
 from .opensubtitles import KEY_PAGE as OS_KEY_PAGE, SIGN_UP_PAGE as OS_SIGN_UP, Client as OSClient, Job, OpenSubtitlesError, api_key as os_api_key, \
     api_language, save_next_to
 from .paths import data_dir
+from .stage import MOUSE_ACTIONS
 from .widgets import IconButton, muted, subtitle_search_menu
 
 SUB_FILTER = "Subtitles (" + " ".join(f"*{e}" for e in sorted(SUB_EXTS)) + ");;All files (*)"
@@ -959,6 +961,44 @@ class PreferencesDialog(QDialog):
                                "Hiding a section doesn't delete anything."))
         self.home_sections = HomeSectionList(self.store, self._set_home_section)
         f.addWidget(self.home_sections)
+        f.addWidget(info_label("Folders left out of the music scan",
+                               "Songs in these folders don't show in the Music tab. To leave a folder out, "
+                               "right-click it in the library panel, or an album in the Music tab."))
+        self.skip_list = QListWidget()
+        self.skip_list.setObjectName("music_skip_folders")
+        self.skip_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.skip_list.setMaximumHeight(110)
+        f.addWidget(self.skip_list)
+        self.skip_none = muted("None. Every folder in your library is scanned for music.")
+        f.addWidget(self.skip_none)
+        self.skip_back = QPushButton("Include in the music scan again")
+        self.skip_back.setObjectName("music_skip_include")
+        self.skip_back.clicked.connect(self._include_music_folder)
+        self.skip_list.itemSelectionChanged.connect(
+            lambda: self.skip_back.setEnabled(bool(self.skip_list.selectedItems())))
+        row = QHBoxLayout()
+        row.addWidget(self.skip_back)
+        row.addStretch(1)
+        f.addLayout(row)
+        self._fill_skip_list()
+
+    def _fill_skip_list(self):
+        folders = self.win.library.music.skipped()
+        self.skip_list.clear()
+        for folder in folders:
+            it = QListWidgetItem(folder)
+            it.setToolTip(folder)
+            self.skip_list.addItem(it)
+        for w in (self.skip_list, self.skip_back):
+            w.setVisible(bool(folders))
+        self.skip_back.setEnabled(False)
+        self.skip_none.setVisible(not folders)
+
+    def _include_music_folder(self):
+        items = self.skip_list.selectedItems()
+        if items:
+            self.win.library.leave_out_of_music(items[0].text(), False)
+            self._fill_skip_list()
 
     def _set_simple_queue(self, on):
         self.store.set_setting("simple_queue_names", on)
@@ -1037,6 +1077,28 @@ class PreferencesDialog(QDialog):
         lyr.setChecked(bool(self.store.setting("lyrics")))
         lyr.toggled.connect(self._set_lyrics)
         f.addWidget(lyr)
+        f.addWidget(info_label("Network buffer for streams",
+                               "How much of a stream Pylon keeps ready ahead of what you see. More helps on a slow "
+                               "or patchy connection, but a live stream starts that much later. Applies from the "
+                               "next stream you open."))
+        buf = QComboBox()
+        buf.setObjectName("network_buffer")
+        for v in NETWORK_BUFFERS:
+            buf.addItem(f"{v} second{'s' if v != 1 else ''}" + (" (VLC's default)" if v == 1 else ""), v)
+        buf.setCurrentIndex(max(0, buf.findData(self.store.setting("network_buffer"))))
+        buf.currentIndexChanged.connect(lambda i: self.store.set_setting("network_buffer", buf.itemData(i)))
+        f.addWidget(buf)
+        f.addWidget(info_label("Highest stream quality",
+                               "For streams that come in several qualities (HLS and DASH links, such as those from "
+                               "the Open in VLC browser extension). A lower limit saves data. The quality playing "
+                               "now shows beside the time. Applies from the next stream you open."))
+        q = QComboBox()
+        q.setObjectName("max_stream_height")
+        for v in STREAM_HEIGHTS:
+            q.addItem(f"{v}p" if v else "Best available", v)
+        q.setCurrentIndex(max(0, q.findData(self.store.setting("max_stream_height"))))
+        q.currentIndexChanged.connect(lambda i: self.store.set_setting("max_stream_height", q.itemData(i)))
+        f.addWidget(q)
         f.addWidget(info_label("Aspect ratios and crops to offer",
                                "Choose which shapes appear in the Video tab of the settings panel, the right-click "
                                "menu and the A and C keys. Auto and No crop are always there."))
@@ -1110,16 +1172,14 @@ class PreferencesDialog(QDialog):
         b.clicked.connect(lambda: (self.accept(), self.win.show_shortcuts()))
         f.addWidget(b)
         form = QFormLayout()
-        actions = (("Disabled", "none"), ("Play / pause", "play_pause"),
-                   ("Fullscreen", "fullscreen"), ("Mute", "mute"),
-                   ("Next in queue", "next"), ("Previous in queue", "prev"),
-                   ("Jump back 10s", "seek_back"), ("Jump forward 10s", "seek_fwd"))
         for key, label in (("mouse_single", "Left click"), ("mouse_double", "Left double-click"),
-                           ("mouse_middle", "Middle click"), ("mouse_back", "Back button"),
-                           ("mouse_forward", "Forward button")):
+                           ("mouse_right", "Right click"), ("mouse_middle", "Middle click"),
+                           ("mouse_back", "Back button"), ("mouse_forward", "Forward button")):
             combo = QComboBox()
             combo.setObjectName(key)
-            for text, value in actions:
+            if key == "mouse_right":
+                combo.addItem("Open menu", "menu")      # #93
+            for value, text in MOUSE_ACTIONS.items():
                 combo.addItem(text, value)
             combo.setCurrentIndex(max(0, combo.findData(self.store.setting(key))))
             combo.currentIndexChanged.connect(
@@ -1128,7 +1188,8 @@ class PreferencesDialog(QDialog):
         f.addLayout(form)
         f.addWidget(muted("These bindings apply over the video. Disable Left double-click for immediate "
                                "single clicks; otherwise Pylon waits for your system's double-click interval. "
-                               "Scroll changes volume; right-click opens the menu. Extra buttons must be "
+                               "Scroll changes volume. The menu button in the top bar always opens the menu, "
+                               "whatever Right click does. Extra buttons must be "
                                "reported by the mouse driver as standard mouse buttons."))
 
     def _privacy(self, f):
@@ -1191,6 +1252,15 @@ class PreferencesDialog(QDialog):
         cb.toggled.connect(self._set_hw_decoding)
         f.addWidget(cb)
         f.addWidget(muted("Turn this off if you see green frames, glitches, or a black picture with subtitles."))
+        saver = QCheckBox("Battery saver: lighter video decoding")
+        saver.setObjectName("battery_saver")
+        saver.setChecked(bool(self.store.setting("battery_saver")))
+        saver.toggled.connect(self._set_battery_saver)
+        f.addWidget(saver)
+        f.addWidget(muted("For older laptops and running on battery: Pylon skips some of the smoothing in H.264 video "
+                          "and decodes faster, so the processor works less and the fan stays quieter. The picture "
+                          "can look a little blockier. Super Resolution is off while this is on. Hardware decoding "
+                          "above saves more, where it works."))
         if sys.platform == "win32":
             up = QCheckBox("Use RTX Video Super Resolution to upscale video (NVIDIA RTX and Intel graphics)")
             up.setChecked(bool(self.store.setting("rtx_upscale")))
@@ -1223,6 +1293,54 @@ class PreferencesDialog(QDialog):
         row.addWidget(auto)
         row.addStretch(1)
         f.addLayout(row)
+        f.addWidget(info_label("Extra VLC options",
+                               "For advanced users: VLC command-line options, separated by spaces, e.g. "
+                               "--network-caching=5000. Pylon starts VLC with them, the same as the "
+                               "PYLON_VLC_ARGS environment variable. If VLC won't start with them, Pylon starts "
+                               "it without them and says so here."))
+        extra = QLineEdit(self.store.setting("vlc_extra_args"))
+        extra.setObjectName("vlc_extra_args")
+        extra.setPlaceholderText("e.g. --network-caching=5000")
+        f.addWidget(extra)
+        self.extra_note = muted("")
+        self.extra_note.setObjectName("vlc_extra_note")
+        f.addWidget(self.extra_note)
+        apply_extra = QPushButton("Apply")
+        apply_extra.setObjectName("vlc_extra_apply")
+        apply_extra.clicked.connect(lambda: self._set_vlc_extra_args(extra.text()))
+        extra.returnPressed.connect(apply_extra.click)
+        row2 = QHBoxLayout()
+        row2.addWidget(apply_extra)
+        row2.addStretch(1)
+        f.addLayout(row2)
+        self._show_extra_state()
+
+    def _show_extra_state(self):
+        e = self.win.engine
+        if getattr(e, "extra_args_failed", False):
+            self.extra_note.setText("VLC wouldn't start with these options, so Pylon started it without them. "
+                                    "Check the spelling, or clear the box.")
+        elif self.store.setting("vlc_extra_args").strip():
+            self.extra_note.setText("In use.")
+        else:
+            self.extra_note.setText("")
+        self.extra_note.setVisible(bool(self.extra_note.text()))
+
+    def _set_vlc_extra_args(self, text):
+        """VLC reads options only when it starts, so it restarts and carries on from the same point (#95)."""
+        text = " ".join(text.split())
+        if text == self.store.setting("vlc_extra_args") and not getattr(self.win.engine, "extra_args_failed", False):
+            return
+        self.store.set_setting("vlc_extra_args", text)
+        if self.win.engine.ok:
+            self.win.engine.rebuild()
+        self._show_extra_state()
+
+    def _set_battery_saver(self, on: bool):
+        """Applies at once, like hardware decoding: VLC restarts and carries on from the same point (#97)."""
+        self.store.set_setting("battery_saver", on)
+        if self.win.engine.ok:
+            self.win.engine.rebuild()
 
 
 # ====================================================================== welcome

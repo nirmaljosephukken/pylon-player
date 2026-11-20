@@ -24,6 +24,7 @@ ICONS = {
     "exit_fullscreen": f'<path {_S} d="M9 4v4a1 1 0 0 1-1 1H4M20 9h-4a1 1 0 0 1-1-1V4M15 20v-4a1 1 0 0 1 1-1h4M4 15h4a1 1 0 0 1 1 1v4"/>',
     "pip": f'<rect {_S} x="3" y="5" width="18" height="14" rx="1.5"/><rect {_F} x="12" y="11.5" width="7" height="5.5" rx="1"/>',
     "menu": f'<path {_S} d="M4 7h16M4 12h16M4 17h16"/>',
+    "minimize": f'<path {_S} d="M6 17h12"/>',
     "sidebar_left": f'<rect {_S} x="3" y="4" width="18" height="16" rx="1.5"/><path {_S} d="M9 4v16"/>',
     "sidebar_right": f'<rect {_S} x="3" y="4" width="18" height="16" rx="1.5"/><path {_S} d="M15 4v16"/>',
     "queue": f'<path {_S} d="M4 6h11M4 11h11M4 16h6"/><path {_F} d="M15 13.5v6.5l5.5-3.25z"/>',

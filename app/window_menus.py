@@ -206,6 +206,12 @@ class MenusMixin:
             if video:
                 m.addMenu(self.build_subs_menu(m))
             m.addMenu(self.build_audio_menu(m))
+            only = bool(self.store.setting("audio_only"))
+            if video or only:                                   # #95
+                a = m.addAction(k("Audio only (no picture)", "audio_only"),
+                                lambda: self.do("audio_only", key=False))
+                a.setCheckable(True)
+                a.setChecked(only)
             if video:
                 vm = m.addMenu(icon("video", theme.TEXT, 16), "Video")
                 vm.addSection("Video track")

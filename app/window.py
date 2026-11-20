@@ -51,6 +51,11 @@ MEDIA_KEYS = {Qt.Key_MediaTogglePlayPause: "toggle", Qt.Key_MediaPlay: "toggle",
               Qt.Key_MediaNext: "next", Qt.Key_MediaPrevious: "previous", Qt.Key_MediaStop: "stop"}
 
 
+
+# A second key that does the same as a shortcut: the keypad's Enter for Return, and Ctrl with + for Ctrl+=,
+# which is what the keypad's + and the + key of many keyboards send (#39).
+SHORTCUT_ALIASES = {"Return": "Enter", "Ctrl+=": "Ctrl++"}
+
 class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMixin, QMainWindow):
     def __init__(self, store):
         super().__init__()
@@ -217,6 +222,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
         t.pip_clicked.connect(self.toggle_pip)
         t.fullscreen_clicked.connect(self.toggle_fullscreen)
         t.menu_clicked.connect(lambda: self.show_main_menu(self.top.btn_menu))
+        t.minimize_clicked.connect(self.minimize_window)
         t.close_clicked.connect(self.close_media)
         b.play_clicked.connect(lambda: self.do("play_pause", key=False))
         b.prev_clicked.connect(lambda: self.do("prev", key=False))
@@ -280,6 +286,8 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
                 QTimer.singleShot(300, self._welcome)
             if not os.environ.get("PYLON_NO_UPDATE_CHECK"):
                 QTimer.singleShot(8000, self._auto_update_check)
+            if sys.platform == "win32":     # the installer an update left in the temporary folder (#92)
+                QTimer.singleShot(8000, self.remove_old_installers)
 
 
     def apply_theme(self):
@@ -627,6 +635,7 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
             sc.setEnabled(False)
             sc.deleteLater()
         self._shortcuts = []
+        taken = {self.store.shortcut(a) for a in DEFAULT_SHORTCUTS}
         for action in DEFAULT_SHORTCUTS:
             seq = self.store.shortcut(action)
             if not seq:
@@ -638,8 +647,9 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
                                         "audio_delay_minus", "speed_up", "speed_down"))
             sc.activated.connect(lambda a=action: self.do(a))
             self._shortcuts.append(sc)
-            if seq == "Return":  # the keypad Enter key too
-                sc2 = QShortcut(QKeySequence("Enter"), self)
+            alias = SHORTCUT_ALIASES.get(seq)
+            if alias and alias not in taken:   # the keypad Enter key too; Ctrl and + zooms in like Ctrl and = (#39)
+                sc2 = QShortcut(QKeySequence(alias), self)
                 sc2.setContext(Qt.WindowShortcut)
                 sc2.setAutoRepeat(False)
                 sc2.activated.connect(lambda a=action: self.do(a))
@@ -764,6 +774,21 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
             box.setChecked(bool(on))
             box.blockSignals(False)
         return "Night mode on: loud and quiet parts evened out" if on else "Night mode off"
+
+    def set_audio_only(self, on: bool) -> str:
+        """Audio only on or off (#95): the sound without the picture, kept for every file until turned off.
+        The Audio tab's switch, the menu and its shortcut come here."""
+        self.engine.set_audio_only(on)
+        box = self.sidebar.audio_only
+        if box.isChecked() != bool(on):
+            box.blockSignals(True)
+            box.setChecked(bool(on))
+            box.blockSignals(False)
+        e = self.engine
+        if on and e.current and self.stage.currentIndex() == PAGE_VIDEO:
+            self.now_playing.load(e.current, e.meta())
+            self.stage.setCurrentIndex(PAGE_AUDIO)
+        return "Audio only: the picture is off until you turn it back on" if on else "Audio only off"
 
     # ---------------------------------------------------------------- hold for 2x speed
     HOLD_RATE = 2.0
@@ -922,6 +947,16 @@ class MainWindow(SystemMixin, MenusMixin, PanelsMixin, PlaybackMixin, ActionsMix
             self.showFullScreen()
         self.top.set_fullscreen(self.isFullScreen())
         self._overlay_geo = None
+
+    def minimize_window(self):
+        """Minimize, from full screen too (#93): coming back from the taskbar returns to full screen."""
+        if self.isMinimized():
+            return
+        self.hold_fast(False)
+        for w in (self.top, self.bottom, self.osd):
+            if not getattr(w, "docked", False):
+                w.hide()
+        self.setWindowState(self.windowState() | Qt.WindowMinimized)
 
     def toggle_pip(self):
         if self._pip is None:

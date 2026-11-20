@@ -269,7 +269,8 @@ def shot_player(win, markers):
     for key, w in (("1", t.btn_library), ("2", t.folder_chip), ("3", t.title), ("4", t.btn_pip), ("5", t.btn_full),
                    ("6", t.btn_menu), ("7", b.btn_prev), ("8", b.btn_play), ("9", b.btn_next), ("10", b.time),
                    ("11", b.resume), ("12", b.speed), ("13", b.btn_subs), ("14", b.btn_audio), ("15", b.btn_queue),
-                   ("16", b.btn_mute), ("17", b.cone), ("18", b.btn_tune), ("19", b.seek), ("20", t.btn_close)):
+                   ("16", b.btn_mute), ("17", b.cone), ("18", b.btn_tune), ("19", b.seek), ("20", t.btn_close),
+                   ("21", b.quality)):
         if w.isVisible():
             m[key] = mark(w, stage, size)
     markers["player"] = m
